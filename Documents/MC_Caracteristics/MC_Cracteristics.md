@@ -53,8 +53,8 @@ Status Register (SREG)
 
 |Instruction|Operands|Description|Operation|Binary|Flags|Clock Cycles|Operands|
 |-----------|--------|-----------|---------|------|-----|------|--------|
-|ADD|Rd,Rr|Add two registers| Rd <- Rd + Rr|0000 11rd dddd rrrr|Z,C,N,VH|1|0 <= d <= 31 , 0 <= r <= 31|
-|ADC|Rd,Rr|Add with carry two registers| Rd <- Rd + Rr + C|0001 11rd dddd rrrr|Z,C,N,VH|1|0 <= d <= 31 , 0 <= r <= 3|
+|ADD|Rd,Rr|Add two registers| Rd <- Rd + Rr|0000 11rd dddd rrrr|Z,C,N,V,H|1|0 <= d <= 31 , 0 <= r <= 31|
+|ADC|Rd,Rr|Add with carry two registers| Rd <- Rd + Rr + C|0001 11rd dddd rrrr|Z,C,N,V,H|1|0 <= d <= 31 , 0 <= r <= 3|
 |ADIW|Rdl,K|Add immediate to word|Rdl <- Rdl + K|1001 0110 KKdd KKKK|Z,C,N,V,S|2|d=[24,26,28,30], 0 <= K <=63|
 |SUB|Rd,Rr|Substract two registers|Rd <- Rd - Rr|0001 10rd dddd rrrr|Z,C,N,V,H|1|0 <= d <= 31 , 0 <= r <= 3|
 |SUBI|Rd,K|Subtract constant from register | Rd <- Rd - K|0101 KKKK dddd KKKK|Z,C,N,V,H|1|16 <= d < 31 , 0 <= K <= 255|
