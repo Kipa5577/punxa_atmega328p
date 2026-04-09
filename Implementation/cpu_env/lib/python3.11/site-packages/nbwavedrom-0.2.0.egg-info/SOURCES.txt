@@ -1,0 +1,10 @@
+setup.cfg
+setup.py
+nbwavedrom/__init__.py
+nbwavedrom.egg-info/PKG-INFO
+nbwavedrom.egg-info/SOURCES.txt
+nbwavedrom.egg-info/dependency_links.txt
+nbwavedrom.egg-info/top_level.txt
+nbwavedrom/js/wavedrom-cli.js
+nbwavedrom/js/wavedrom.min.js
+nbwavedrom/js/wavedromskin.js
