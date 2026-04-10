@@ -1,3 +1,4 @@
+#number of instructions 131
 
 
 
@@ -12,36 +13,37 @@
 #          #|15|14|13|12|11|10| 9| 8| 7| 6| 5| 4| 3| 2| 1| 0|
 #1         #| OP              | R| D| D  D  D  D| R  R  R  R|'ADD' 'ADC' 'SUB' 'SBC' 'AND' 'OR' 'EOR' 'CPSE' 'CP' 'CPC' 'MUL'
 #2         #| OP        | K  K  K  K| D  D  D  D| K  K  K  K|'SBCI' 'SUBI' 'ANDI' 'ORI' 'SBR' 'CBR' 'CPI'
-#3         #| OP                    | D  D  D  D| OP        | 'SER'
+#3         #| OP                    | D  D  D  D| OP        |'SER'
 #4         #| OP                       | D  D  D|OP| R  R  R|'MULSU' 'FMUL' 'FMULS' 'FMULSU'
-#5         #| OP                    | D  D  D  D| R  R  R  R|'SER' 
+#5         #| OP                    | D  D  D  D| R  R  R  R| 'MULS' 'MOVW'
 #6         #| OP                    | K  K| D  D| K  K  K  K|'ADIW' 'SBIW' 
 #7         #| OP                 | D  D  D  D  D| OP        |'INC' 'DEC' 'SBRC' 'SBRS' 'LSR' 'ROR' 'ASR' 'SWAP' 'POP' 'PUSH' 'LPM' 'ST' 'LD' 'COM' 'NEG'
-#8         #| OP              | D  D  D  D  D  D  D  D  D  D|'TST' 'LSL' 'ROL'
+#8         #| OP              | D  D  D  D  D  D  D  D  D  D|'TST' 'LSL' 'ROL' 
 #9         #| OP                       | S  S  S|OP         |'CLR' 'BSET' 'BCLR'
 #10        #| OP        | K  K  K  K  K  K  K  K  K  K  K  K|'RJMP' 'RCALL'
 #11        #| OP                                            |'IJMP' 'ICALL' 'RET' 'RETI' 'SEC' 'CLC' 'SEN' 'CLN' 'SEZ' 'CLZ' 'SEI' 'CLI' 'SES' 'CLS' 'SEV' 'CLV' 'SET' 'CLT' 'SEH' 'CLH' 'NOP' 'SLEEP' 'WDR' 'BREAK' 'SPM' 'LPM'     
-#12        #| OP                    | A  A  A  A  A| B  B  B|'SBIC' 'SBIC' 'SBI' CBI'
+#12        #| OP                    | A  A  A  A  A| B  B  B|'SBIC' 'SBIS' 'SBI' CBI'
 #13        #| OP              | K  K  K  K  K  K  K| S  S  S|'BRBS' 'BRBC'
 #14        #| OP              | K  K  K  K  K  K  K|OP      |'BREQ' 'BRNE' 'BRCS' 'BRCC' 'BRSH' 'BRLO' 'BRMI' 'BRPL' 'BRGE' 'BRLT' 'BRHS' 'BRHC' 'BRTS' 'BRTC' 'BRVS' 'BRVC' 'BRIE' 'BRID'
-#15        #| OP                 | D  D  D  D  D|OP| D  D  D|'BST' 'BLD' 
+#15        #| OP                 | D  D  D  D  D|OP| B  B  B|'BST' 'BLD' 
 #16        #| OP           | A  A|  R  R  R  R  R| A  A  A  A|'OUT' 'IN'
 #17        #| OP  | q|OP| q  q|OP| D  D  D  D  D|OP| q  q  q|'LDD' 'STD'
 
 #2line
-#18         | OP                 | K  K  K  K  K|OP      | K| 'CALL' 'JMP' 'STS' 'LDS'
+#18         | OP                 | K  K  K  K  K|OP      | K| 'CALL' 'JMP' 
+#           | K  K  K  K  K  K  K  K  K  K  K  K  K  K  K  K|
+#19         | OP                 | D  D  D  D  D| OP        | 'STS' 'LDS'
 #           | K  K  K  K  K  K  K  K  K  K  K  K  K  K  K  K|
 
+#RDSR = ['COM','NEG','INC','DEC']
 
-RDSR = ['COM','NEG','INC','DEC']
-
-RDTR = ['ADD','ADC','SUB','SBC','AND','OR','EOR',] # OP Rr Rd
-
-
-DPA =['BREQ','BRNE','BRCS','BRCC','BRSH','BRLO','BRMI','BRPL','BRGE','BRLT','BRHS','BRHC','BRTS','BRTC','BRVS','BRVC','BRIE','BRID'] # OP K 
+#RDTR = ['ADD','ADC','SUB','SBC','AND','OR','EOR',] # OP Rr Rd
 
 
-def ins_to_str(ins, isa=32): # I am packing all the OP bits, keeping the order 
+#DPA =['BREQ','BRNE','BRCS','BRCC','BRSH','BRLO','BRMI','BRPL','BRGE','BRLT','BRHS','BRHC','BRTS','BRTC','BRVS','BRVC','BRIE','BRID'] # OP K 
+
+
+def ins_to_str(ins): # I am packing all the OP bits, keeping the order 
     OP1A8A13 = ins>>10 # for lines 1,8 and 13 of the table
     OP2A10 = ins>>12 # for lines 2 and 10 of the table
     OP3 = (ins>>4)|(ins&0x0F)
@@ -55,6 +57,46 @@ def ins_to_str(ins, isa=32): # I am packing all the OP bits, keeping the order
     OP16= (ins>>11)
     OP17= ((ins>>11)&0b11000)|((ins>>10)&0b100)|((ins>>8)&0b10)|((ins>>3)&1)
     OP18= (ins>>1&0b111)|(ins>>6) 
+    OP19= (ins&0b1111)|(ins>>6)
+
+    match OP19: 
+        case 0b10010000000: return 'LDS'
+        case 0b10010010000: return 'STS'
+
+    match OP18:
+        case 0b1001010111: return 'CALL'
+        case 0b1001010110: return 'JMP'
+
+
+    match OP17:
+        case 0b10011: return 'STD'
+        case 0b10010: return 'STD'# change this sometime
+        case 0b10000: return 'LDD'
+        case 0b10001: return 'LDD'
+
+    match OP16:
+        case 0b10110: return 'IN'
+        case 0b10111: return 'OUT'
+        
+
+    match OP15:
+        case 0b11111010: return 'BST'
+        case 0b11111000: return 'BLD'
+
+    match OP9: 
+        case 0b1001010001000: return 'BSET'
+        case 0b1001010011000: return 'BCLR'
+        case 0b1001010011000: return 'CLR'
+
+    match OP5A6A12: 
+        case 0b00000010: return 'MULS'
+        case 0b00000001: return 'MOVW'
+        case 0b10010110: return 'ADIW'
+        case 0b10010111: return 'SBIW'
+        case 0b10011001: return 'SBIC'
+        case 0b10011011: return 'SBRS'
+        case 0b10011010: return 'SBI'
+        case 0b10011000: return 'CBI'
 
     match OP3:
         case 0b111011111111: return 'SER'
@@ -107,7 +149,6 @@ def ins_to_str(ins, isa=32): # I am packing all the OP bits, keeping the order
         case 0b001001: return 'EOR'
         case 0b001000: return 'TST'
         case 0b100111: return 'MUL'
-
         case 0b000101: return 'CP'
         case 0b000001: return 'CPC'
         
@@ -134,16 +175,17 @@ def ins_to_str(ins, isa=32): # I am packing all the OP bits, keeping the order
         case 0x94E8: return 'CLT'
         case 0x9458: return 'SEH'
         case 0x94D8: return 'CLH'
-
         case 0x0: return 'NOP'
         case 0x9588: return 'SLEEP'
         case 0x95A8: return 'WDR'
         case 0x9598: return 'BREAK'
-
         case 0x9409: return 'IJMP'
         case 0x9509: return 'ICALL'
         case 0x9508: return 'RET'
         case 0x9518: return 'RETI'
+
+
+    return 'invalid'
 
 
 

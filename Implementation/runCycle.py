@@ -1,7 +1,7 @@
 # source cpu_env/bin/activate
 import py4hw
-from Lib.Memory import *                                      
-
+from Lib.Instruction_Decoder import *                                      
+'''
 
 sys = py4hw.HWSystem()
 
@@ -25,3 +25,14 @@ print('circuit created')
 wvf = py4hw.Waveform(sys, 'wvf', [ADRESS,DATA_IN,DATA_OUT, Write_Enable])
 sys.getSimulator().clk(100)
 wvf.gui()
+'''
+
+list = []
+f = open("output.txt", "a")
+for ins in range(2**16):
+    with open("output.txt", "a") as f:
+        f.write(f"Ins {bin(ins)} is {ins_to_str(ins)}\n ")
+    if ins_to_str(ins) not in list:
+        list.append(ins_to_str(ins))
+print(list)
+print(len(list))

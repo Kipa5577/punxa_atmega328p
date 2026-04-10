@@ -141,7 +141,7 @@ Status Register (SREG)
 |BSET|S|Flag set|SREG(S)<-1|1001 0100 0sss 1000|SREG (s)|1|0 <= s <= 7|
 |BCLR|S|Flag clear|SREG(S)<-0|1001 0100 1sss 1000|SREG (s)|1|0 <= s <= 7|
 |BST|Rr,b|Bit store from register to T|T<- Rr(b)|1111 101d dddd 0bbb|T|1|0 <= d <= 31,0 <= s <= 7|
-|BLD|Rd,b|Bit load from T to register|Rd(b)<- T |1111 101d dddd 0bbb|NONE|1|0 <= d <= 31,0 <= s <= 7|
+|BLD|Rd,b|Bit load from T to register|Rd(b)<- T |1111 100d dddd 0bbb|NONE|1|0 <= d <= 31,0 <= s <= 7|
 |SEC||Set carry|C<-1|1001 0100 0000 1000|C|1|NONE|
 |CLC||Clear carry|C<-0|1001 0100 1000 1000|C|1|NONE|
 |SEN||Set negative flag|N<-1|1001 0100 0010 1000|N|1|NONE|
