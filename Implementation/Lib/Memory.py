@@ -13,7 +13,7 @@ class MemoryInterface(Interface):
         super().__init__(parent,name)
         self.read = self.addSourceToSink("read",1)
         self.read_data = self.addSinkToSource("readdata",data_width)
-        self.address = self.addSourceToSink("address";address_width)
+        self.address = self.addSourceToSink("address",address_width)
         self.write = self.addSourceToSink("write",1)
         self.write_data = self.addSourceToSink("writedata",data_width)
         if((data_width % 8) != 0):
@@ -60,7 +60,7 @@ class Memory(Logic):
 
                 print('writing address',hex(address),'=',hex(value))
 
-                for i in range(data_width // 8)
+                for i in range(data_width // 8):
                     if((be&0x01)!=0):
                         self.values[address + 1] =value & 0xFF 
                     be = be >> 1
@@ -86,6 +86,14 @@ class PersistentMemory(Logic):
             for i in range(data_width // 8 ):
                 value = value | (self.readByte(address+i)<<(i*8))
             print('reading address',hex(address),'=',hex(value))
+
+        elif(self.prot.write.get()):
+            value = self.port.write_data.get()
+            print('witing addres',hex(address),'=',hex(value))
+
+            for i in range(data_width // 8):
+                if((be & 0x1) != 0):
+                    self.writeByte(address +i, value & 0xFF)
             
 
 

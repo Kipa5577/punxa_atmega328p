@@ -1,7 +1,6 @@
 import py4hw
 
 
-
 class ProgCounter(py4hw.Logic):
 
     def __init__(self,parent,name,Load_data,Load_Enable,OUT):
