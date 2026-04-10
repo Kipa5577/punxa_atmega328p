@@ -17,7 +17,7 @@
 #4         #| OP                       | D  D  D|OP| R  R  R|'MULSU' 'FMUL' 'FMULS' 'FMULSU'
 #5         #| OP                    | D  D  D  D| R  R  R  R| 'MULS' 'MOVW'
 #6         #| OP                    | K  K| D  D| K  K  K  K|'ADIW' 'SBIW' 
-#7         #| OP                 | D  D  D  D  D| OP        |'INC' 'DEC' 'SBRC' 'SBRS' 'LSR' 'ROR' 'ASR' 'SWAP' 'POP' 'PUSH' 'LPM' 'ST' 'LD' 'COM' 'NEG'
+#7         #| OP                 | D  D  D  D  D| OP        |'INC' 'DEC'  'LSR' 'ROR' 'ASR' 'SWAP' 'POP' 'PUSH' 'LPM' 'ST' 'LD' 'COM' 'NEG'
 #8         #| OP              | D  D  D  D  D  D  D  D  D  D|'TST' 'LSL' 'ROL' 
 #9         #| OP                       | S  S  S|OP         |'CLR' 'BSET' 'BCLR'
 #10        #| OP        | K  K  K  K  K  K  K  K  K  K  K  K|'RJMP' 'RCALL'
@@ -34,6 +34,8 @@
 #           | K  K  K  K  K  K  K  K  K  K  K  K  K  K  K  K|
 #19         | OP                 | D  D  D  D  D| OP        | 'STS' 'LDS'
 #           | K  K  K  K  K  K  K  K  K  K  K  K  K  K  K  K|
+
+#7         #| OP                 | D  D  D  D  D|OP| B  B  B| 'SBRC' 'SBRS'
 
 #RDSR = ['COM','NEG','INC','DEC']
 
@@ -70,7 +72,7 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
 
     match OP17:
         case 0b10011: return 'STD'
-        case 0b10010: return 'STD'# change this sometime
+        case 0b10010: return 'STD'# change this sometime in the future
         case 0b10000: return 'LDD'
         case 0b10001: return 'LDD'
 
@@ -104,6 +106,15 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
     match OP7:
         case 0b10010100001: return 'NEG'
         case 0b10010100000: return 'COM'
+        case 0b10010100011: return 'INC'
+        case 0b10010101010: return 'DEC'
+        case 0b10010100110: return 'LSR'
+        case 0b10010100111: return 'ROR'
+        case 0b10010100101: return 'ASR'
+        case 0b10010100010: return 'SWAP'
+        case 0b10010001111: return 'POP'
+        case 0b10010011111: return 'PUSH'
+
 
     match OP4:
         case 0b0000001100: return 'MULSU'
