@@ -28,6 +28,9 @@ Program Counter : 15bits
 - Basic ADC
 - SPI
 - I2C
+- 8-bit Timer/Counter0 with PWM
+- 8-bit Timer/Counter2 with PWM
+- 16-bit Timer/Counter1 wiht PWM
 - Interrupt handling
 - ROM loader for .hex files
 
@@ -42,6 +45,14 @@ Program Counter : 15bits
 
 ![Data Memory](./Images/Data%20Memory%20Map.png)
 
+
+#### Pointer registers
+- R26 X-register Low Byte 
+- R27 X-register High Byte
+- R28 Y-register Low Byte
+- R29 Y-register High Byte
+- R30 Z-register Low Byte 
+- R31 Z-register High Byte 
 
 ### Implementation 
 

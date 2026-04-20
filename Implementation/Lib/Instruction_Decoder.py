@@ -17,7 +17,7 @@
 #4         #| OP                       | D  D  D|OP| R  R  R|'MULSU' 'FMUL' 'FMULS' 'FMULSU'
 #5         #| OP                    | D  D  D  D| R  R  R  R| 'MULS' 'MOVW'
 #6         #| OP                    | K  K| D  D| K  K  K  K|'ADIW' 'SBIW' 
-#7         #| OP                 | D  D  D  D  D| OP        |'INC' 'DEC'  'LSR' 'ROR' 'ASR' 'SWAP' 'POP' 'PUSH' 'LPM' 'ST' 'LD' 'COM' 'NEG'
+#7         #| OP                 | D  D  D  D  D| OP        |'INC' 'DEC'  'LSR' 'ROR' 'ASR' 'SWAP' 'POP' 'PUSH' 'LPM' 'ST' 'COM' 'NEG' 'LDX' 'LDX+' 'LD-X' 'LDY' 'LDY+' 'LD-Y' 'LDZ' 'LD+Z' 'LD-Z' 'STX' 'STX+' 'ST-X' 'STY' 'STY+' 'ST-Y' 'STZ' 'STZ+' 'ST-Z' 
 #8         #| OP              | D  D  D  D  D  D  D  D  D  D|'TST' 'LSL' 'ROL' 'CLR'
 #9         #| OP                       | S  S  S|OP         |'BSET' 'BCLR'
 #10        #| OP        | K  K  K  K  K  K  K  K  K  K  K  K|'RJMP' 'RCALL'
@@ -71,10 +71,10 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
 
 
     match OP17:
-        case 0b10011: return 'STD'
-        case 0b10010: return 'STD'# change this sometime in the future
-        case 0b10000: return 'LDD'
-        case 0b10001: return 'LDD'
+        case 0b10011: return 'STDY'
+        case 0b10010: return 'STDZ'
+        case 0b10000: return 'LDDZ'
+        case 0b10001: return 'LDDY'
 
     match OP16:
         case 0b10110: return 'IN'
@@ -114,6 +114,28 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b10010100010: return 'SWAP'
         case 0b10010001111: return 'POP'
         case 0b10010011111: return 'PUSH'
+
+        #memory instructions
+        
+        case 0b10010001100: return 'LDX'
+        case 0b10010001101: return 'LDX+'
+        case 0b10010001110: return 'LD-X'
+        case 0b10000001000: return 'LDY'
+        case 0b10010001001: return 'LDY+'
+        case 0b10010001010: return 'LD-Y'
+        case 0b10000000000: return 'LDZ'
+        case 0b10010000001: return 'LDZ+'
+        case 0b10010000010: return 'LD-Z'
+
+        case 0b10010011100: return 'STX'
+        case 0b10010011101: return 'STX+'
+        case 0b10010011110: return 'ST-X'
+        case 0b10000011000: return 'STY'
+        case 0b10010011001: return 'STY+'
+        case 0b10010011010: return 'ST-Y'
+        case 0b10000010000: return 'STZ'
+        case 0b10010010001: return 'STZ+'
+        case 0b10010010010: return 'ST-Z'
 
 
     match OP4:

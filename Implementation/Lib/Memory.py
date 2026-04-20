@@ -4,6 +4,7 @@ from py4hw.logic.storage import *
 from py4hw.simulation import Simulator
 import py4hw.debug
 import mmap
+
 #2048 bytes of ram
 #32256 of rom 
 

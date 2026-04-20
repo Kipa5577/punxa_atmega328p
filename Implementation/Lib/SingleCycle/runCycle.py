@@ -32,7 +32,7 @@ class SingleCycleATmega328P(py4hw.Logic):
         self.SREG = 0 # b7: I b6: T b5: H b4: S b3: V b2: N b1: Z b0: C 
         self.should_jump = False
         self.stack_pointer  = 0 ## value sould be known by using a register
-
+        self.next_cycle = False #varible to indicate that data is ready to read from ram/memeory
 
 
     def clock():
@@ -249,17 +249,17 @@ class SingleCycleATmega328P(py4hw.Logic):
                 K = self.ins&0xFFF
                 self.pc += K
 
-            case 'ICALL':
+            ##case 'ICALL':
 
                 
-            case 'CALL':
+            ##case 'CALL':
 
 
 
-            case 'RET':
+            ##case 'RET':
 
 
-            case 'RETI':## return from interrupt 
+            ##case 'RETI':## return from interrupt 
 
 
             case 'CPSE':
@@ -466,7 +466,8 @@ class SingleCycleATmega328P(py4hw.Logic):
 
 
             case 'SBI': ## implement write in io 
-            case 'CBI': ## implement write in io 
+            ##case 'CBI': ## implement write in io 
+
             case 'LSL': ## jsut add I don't know what the best implementation would be 
                 Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
                 self.reg[Rd] += self.reg[Rd]
@@ -487,11 +488,13 @@ class SingleCycleATmega328P(py4hw.Logic):
                 
                 self.pc += 1
             case 'ROR':
-            case 'ASR':
+            ##case 'ASR':
+
             case 'SWAP':
                 Rd = (self.ins>>4)&11111
-                self.reg[Rd]=(self.reg[Rd]>>4) | (self.reg[Rd]<<4) 
+                self.reg[Rd]=((self.reg[Rd]>>4)0xF) | ((self.reg[Rd]<<4)&0xF0)
 
+                self.pc += 1
             case 'BSET':
                 s = (self.ins>>4)&0b111
                 self.SREG |=(0b1<<s) 
@@ -587,38 +590,428 @@ class SingleCycleATmega328P(py4hw.Logic):
 
                 self.pc += 1
             case 'LDI':
-            case 'LD': #X
-            case 'LD': #X+
-            case 'LD': #-X
-            case 'LD': #Y
-            case 'LD': #Y+
-            case 'LD': #-Y
-            case 'LDD':#Y+q
-            case 'LD':#Z
-            case 'LD':#Z+
-            case 'LD':#–Z
-            case 'LDD':#Z+q
-            case 'LDS':#k
-            case 'ST':#X
-            case 'ST':#X+
-            case 'ST':#–X
-            case 'ST':#Y
-            case 'ST':#Y+
-            case 'ST':#–Y
+                Rd = (self.ins>>4)&0b1111
+                K = (self.ins&0xF)|(((self.ins)>>4)&0xF0)
+
+                self.reg[Rd] = K 
+                self.pc += 1
+
+            case 'LDX': #X
+                Rd = (self.ins>>4)&0b11111 
+                X  = self.reg[26]|(self.reg[27]<<8)
+                self.mem.address.prepare(X)
+                self.mem.write.prepare(0)
+                self.mem.read.prepare(1)
+                self.mem.read.be(1)
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.reg[Rd] = self.mem.read_data.get()
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+            case 'LDX+': #X+
+                Rd = (self.ins>>4)&0b11111
+                X = self.reg[26]|(self.reg[27]<<8)
+                self.mem.address.prepare(X)
+                self.mem.write.prepare(0)
+                self.mem.read.prepare(1)
+                self.mem.read.be(1)
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.reg[Rd] = self.mem.read_data.get()
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+                X += 1 ##incrementing X
+                self.reg[26] = X&0xFF 
+                self.reg[27] = (X>>8)&0xFF
+
+            case 'LD-X': #-X
+                Rd = (self.ins>>4)&0b11111
+                X = self.reg[26]|(self.reg[27]<<8)
+                X -= 1 ##decrementing X
+                self.reg[26] = X&0xFF 
+                self.reg[27] = (X>>8)&0xFF
+
+                self.mem.address.prepare(X)
+                self.mem.write.prepare(0)
+                self.mem.read.prepare(1)
+                self.mem.read.be(1)
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.reg[Rd] = self.mem.read_data.get()
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+
+
+            case 'LDY': #Y
+                Rd = (self.ins>>4)&0b11111
+                Y = self.reg[28]|(self.reg[29]<<8)
+                self.mem.address.prepare(Y)
+                self.mem.write.prepare(0)
+                self.mem.read.prepare(1)
+                self.mem.read.be(1)
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.reg[Rd] = self.mem.read_data.get()
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+            case 'LDY+': #Y+
+                Rd = (self.ins>>4)&0b11111
+                Y = self.reg[28]|(self.reg[29]<<8)
+                self.mem.address.prepare(Y)
+                self.mem.write.prepare(0)
+                self.mem.read.prepare(1)
+                self.mem.read.be(1)
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.reg[Rd] = self.mem.read_data.get()
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+                Y += 1 ##incrementing Y
+                self.reg[28] = Y&0xFF 
+                self.reg[29] = (Y>>8)&0xFF
+
+            case 'LD-Y': #-Y
+                Rd = (self.ins>>4)&0b11111
+                Y = self.reg[28]|(self.reg[29]<<8)
+
+                Y += 1 ##incrementing Y
+                self.reg[28] = Y&0xFF 
+                self.reg[29] = (Y>>8)&0xFF
+
+                self.mem.address.prepare(Y)
+                self.mem.write.prepare(0)
+                self.mem.read.prepare(1)
+                self.mem.read.be(1)
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.reg[Rd] = self.mem.read_data.get()
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+
+            case 'LDDY':#Y+q
+                Rd = (self.ins>>4)&0b11111
+                Y = self.reg[28]|(self.reg[29]<<8)
+                q = (self.ins&0b111)|(self.ins&0b11000>>6)|(self.ins&0b100000>>7)
+                
+                self.mem.address.prepare(Y+q)
+                self.mem.write.prepare(0)
+                self.mem.read.prepare(1)
+                self.mem.read.be(1)
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.reg[Rd] = self.mem.read_data.get()
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+                
+
+            case 'LDZ':#Z
+                Rd = (self.ins>>4)&0b11111
+                Z = self.reg[30]|(self.reg[31]<<8)
+
+                self.mem.address.prepare(Z)
+                self.mem.write.prepare(0)
+                self.mem.read.prepare(1)
+                self.mem.read.be(1)
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.reg[Rd] = self.mem.read_data.get()
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+            case 'LDZ+':#Z+
+                Rd = (self.ins>>4)&0b11111
+                Z = self.reg[28]|(self.reg[29]<<8)
+                self.mem.address.prepare(Z)
+                self.mem.write.prepare(0)
+                self.mem.read.prepare(1)
+                self.mem.read.be(1)
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.reg[Rd] = self.mem.read_data.get()
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+                Z += 1 ##incrementing Z
+                self.reg[28] = Z&0xFF 
+                self.reg[29] = (Z>>8)&0xFF
+
+
+            case 'LD-Z':#–Z
+                Rd = (self.ins>>4)&0b11111
+                Z = self.reg[26]|(self.reg[27]<<8)
+                Z -= 1 ##decrementing Z
+                self.reg[26] = Z&0xFF 
+                self.reg[27] = (Z>>8)&0xFF
+
+                self.mem.address.prepare(Z)
+                self.mem.write.prepare(0)
+                self.mem.read.prepare(1)
+                self.mem.read.be(1)
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.reg[Rd] = self.mem.read_data.get()
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+            case 'LDDZ':#Z+q  verify this implementation
+                Rd = (self.ins>>4)&0b11111
+                Z = self.reg[28]|(self.reg[29]<<8)
+                q = (self.ins&0b111)|(self.ins&0b11000>>6)|(self.ins&0b100000>>7)
+                
+                self.mem.address.prepare(Z+q)
+                self.mem.write.prepare(0)
+                self.mem.read.prepare(1)
+                self.mem.read.be(1)
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.reg[Rd] = self.mem.read_data.get()
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+            case 'LDS':#k  Load direct from sram
+                Rd = (self.ins>>4)&0b11111
+                K = self.flash[self.pc+1]
+
+                self.mem.address.prepare(K)
+                self.mem.write.prepare(0)
+                self.mem.read.prepare(1)
+                self.mem.read.be(1)
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.reg[Rd] = self.mem.read_data.get()
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+            case 'STX':#X
+                Rr = (self.ins>>4)&0b11111
+                X = self.reg[26]|(self.reg[27]<<8)
+                self.mem.address.prepare(X)
+                self.mem.write.prepare(1)
+                self.mem.read.prepare()
+                self.mem.read.be(1)
+                self.mem.write_data(self.reg[Rr])
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+
+            case 'STX+':#X+
+                Rr = (self.ins>>4)&0b11111
+                X = self.reg[26]|(self.reg[27]<<8)
+                self.mem.address.prepare(X)
+                self.mem.write.prepare(1)
+                self.mem.read.prepare()
+                self.mem.read.be.preapre(1) 
+                self.mem.write_data.prepare(self.reg[Rr]) # IMPORTANT  I have to check if this is a 2 cycle operation(ST) or 3 cycle 
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+                x += 1 ##incrementing X
+                self.reg[28] = X&0xFF 
+                self.reg[29] = (X>>8)&0xFF
+
+
+            case 'ST-X':#–X
+                Rr = (self.ins>>4)&0b11111
+                x -= 1 ##incrementing X
+                self.reg[27] = X&0xFF 
+                self.reg[28] = (X>>8)&0xFF
+
+                self.mem.address.prepare(X)
+                self.mem.write.prepare(1)
+                self.mem.read.prepare()
+                self.mem.read.be.prepare(1)
+                self.mem.write_data.prepare(self.reg[Rr])
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+            case 'STY':#Y
+                Rr = (self.ins>>4)&0b11111
+                Y = self.reg[27]|(self.reg[28]<<8)
+                self.mem.address.prepare(X)
+                self.mem.write.prepare(1)
+                self.mem.read.prepare()
+                self.mem.read.be(1)
+                self.mem.write_data(self.reg[Rr])
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+
+            case 'STY+':#Y+
+                Rr = (self.ins>>4)&0b11111
+                Y = self.reg[28]|(self.reg[29]<<8)
+                self.mem.address.prepare(X)
+                self.mem.write.prepare(1)
+                self.mem.read.prepare()
+                self.mem.read.be(1)
+                self.mem.write_data(self.reg[Rr])
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+                Y += 1 ##incrementing Y
+                self.reg[28] = Y&0xFF 
+                self.reg[29] = (Y>>8)&0xFF
+
+            case 'ST-Y':#–Y
+                Rr = (self.ins>>4)&0b11111
+                Y = self.reg[26]|(self.reg[27]<<8)
+                Y -= 1 ##incrementing Y
+                self.reg[28] = Y&0xFF 
+                self.reg[29] = (Y>>8)&0xFF
+
+                self.mem.address.prepare(Y)
+                self.mem.write.prepare(1)
+                self.mem.read.prepare()
+                self.mem.read.be(1)
+                self.mem.write_data(self.reg[Rr])
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
             case 'STD':#Y+q
-            case 'ST':#Z
-            case 'ST':#Z+
-            case 'ST':#–Z
+                Rr = (self.ins>>4)&0b11111
+
+
+            case 'STZ':#Z
+                Rr = (self.ins>>4)&0b11111
+                Y = self.reg[26]|(self.reg[27]<<8)
+                self.mem.address.prepare(X)
+                self.mem.write.prepare(1)
+                self.mem.read.prepare()
+                self.mem.read.be(1)
+                self.mem.write_data(self.reg[Rr])
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+            case 'STZ+':#Z+
+                Rr = (self.ins>>4)&0b11111
+                Z = self.reg[30]|(self.reg[31]<<8)
+                self.mem.address.prepare(Z)
+                self.mem.write.prepare(1)
+                self.mem.read.prepare()
+                self.mem.read.be(1)
+                self.mem.write_data(self.reg[Rr])
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
+            case 'ST-Z':#–Z
+                Rr = (self.ins>>4)&0b11111
+                Z = self.reg[30]|(self.reg[31]<<8)
+                self.mem.address.prepare(Z)
+                self.mem.write.prepare(1)
+                self.mem.read.prepare()
+                self.mem.read.be(1)
+                self.mem.write_data(self.reg[Rr])
+
+                if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
+                    self.pc += 1
+                    self.next_cycle = False 
+                else: 
+                    self.next_cycle = True 
+
             case 'STD':#Z+q
+                Rr = (self.ins>>4)&0b11111
+
+
             case 'STS':#k
+                Rr = (self.ins>>4)&0b11111
+
+
             case 'LPM': #R0 implied
+                Z = self.reg[30]|(self.reg[31]<<8)
+                self.reg[0] = self.flash[Z]
+
+
             case 'LPM': #Z
+                Rd = (self.ins>>4)&0b11111
+                Z = self.reg[30]|(self.reg[31]<<8)
+
+                self.reg[Rd] = self.flash[Z]
+
             case 'LPM': #Z+
+                Rd = (self.ins>>4)&0b11111
+                Z = self.reg[30]|(self.reg[31]<<8)
+
+                self.reg[Rd] = self.flash[Z]
+
+                Z += 1 ##decrementing Z
+                self.reg[26] = Z&0xFF 
+                self.reg[27] = (Z>>8)&0xFF
             case 'SPM':
+                Z = self.reg[30]|(self.reg[31]<<8)
+
+                self.flash[Z] = self.reg[0]|(self.reg[1]<<8) #verifi the order of the registers
 
             case 'IN':
+                Rd = (self.ins>>4)&0b11111
+                A = (self.ins)&0xF | ((self.ins)>>5)&0b110000 #don't know what is the port
+
+
 
             case 'OUT':
+                Rr = (self.ins>>4)&0b11111
+                A = (self.ins)&0xF | ((self.ins)>>5)&0b110000 #don't know what is the port
 
 
             case 'PUSH':
