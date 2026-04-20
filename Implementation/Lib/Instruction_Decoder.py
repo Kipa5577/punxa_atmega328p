@@ -18,8 +18,8 @@
 #5         #| OP                    | D  D  D  D| R  R  R  R| 'MULS' 'MOVW'
 #6         #| OP                    | K  K| D  D| K  K  K  K|'ADIW' 'SBIW' 
 #7         #| OP                 | D  D  D  D  D| OP        |'INC' 'DEC'  'LSR' 'ROR' 'ASR' 'SWAP' 'POP' 'PUSH' 'LPM' 'ST' 'LD' 'COM' 'NEG'
-#8         #| OP              | D  D  D  D  D  D  D  D  D  D|'TST' 'LSL' 'ROL' 
-#9         #| OP                       | S  S  S|OP         |'CLR' 'BSET' 'BCLR'
+#8         #| OP              | D  D  D  D  D  D  D  D  D  D|'TST' 'LSL' 'ROL' 'CLR'
+#9         #| OP                       | S  S  S|OP         |'BSET' 'BCLR'
 #10        #| OP        | K  K  K  K  K  K  K  K  K  K  K  K|'RJMP' 'RCALL'
 #11        #| OP                                            |'IJMP' 'ICALL' 'RET' 'RETI' 'SEC' 'CLC' 'SEN' 'CLN' 'SEZ' 'CLZ' 'SEI' 'CLI' 'SES' 'CLS' 'SEV' 'CLV' 'SET' 'CLT' 'SEH' 'CLH' 'NOP' 'SLEEP' 'WDR' 'BREAK' 'SPM' 'LPM'     
 #12        #| OP                    | A  A  A  A  A| B  B  B|'SBIC' 'SBIS' 'SBI' CBI'
@@ -88,7 +88,7 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
     match OP9: 
         case 0b1001010001000: return 'BSET'
         case 0b1001010011000: return 'BCLR'
-        case 0b1001010011000: return 'CLR'
+
 
     match OP5A6A12: 
         case 0b00000010: return 'MULS'
@@ -165,9 +165,11 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         
         case 0b000011: return 'LSL'
         case 0b000111: return 'ROL'
+        case 0b001001: return 'CLR'
 
         case 0b111100: return 'BRBS'
         case 0b111101: return 'BRBC'
+
 
     match OP11:
         case 0x9408: return 'SEC'
