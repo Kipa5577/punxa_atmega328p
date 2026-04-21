@@ -29,22 +29,49 @@
 - MULS
 - FMULS
 - CPC
-
+- FMULSU
+- FMUL
+- SBC
+- CP
+- SUB
+- ADC
+- ADD
+- AND
+- EOR
+- CPI
+- MOV
+- SBCI
+- SUBI
+- ORI
+- ANDI
+- LDDZ
+- LDDY
+- STDZ
+- STDY
+- ST-X
+- STX+
+- STX
+- ST-Y
+- STY+
+- STDY
+- PUSH
+- ROR
+- 
 #### Unimplemented
 
-- ADD
-- ADC
+
+
 - ADIW
-- SUB
-- SUBI
-- SBC
-- SBCI
+
+
+
+
 - SBIW
-- AND
-- ANDI
+
+
 - OR
-- ORI
-- EOR
+
+
 - COM
 - NEG
 - SBR
@@ -56,9 +83,9 @@
 - SER
 - MUL
 - MULSU
-- FMUL
 
-- FMULSU
+
+
 
 
 
@@ -73,9 +100,9 @@
 - RET
 - RETI
 - CPSE
-- CP
 
-- CPI
+
+
 - SBRC
 - SBRS
 - SBIC
@@ -134,7 +161,7 @@
 
 
 
-- MOV
+
 
 - LDI
 - LD
@@ -143,11 +170,11 @@
 - LD
 - LD
 - LD
-- LDD
+
 - LD
 - LD
 - LD
-- LDD
+
 - LDS
 - ST
 - ST

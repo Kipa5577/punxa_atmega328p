@@ -11,7 +11,7 @@
 
 
 #          #|15|14|13|12|11|10| 9| 8| 7| 6| 5| 4| 3| 2| 1| 0|
-#1         #| OP              | R| D| D  D  D  D| R  R  R  R|'ADD' 'ADC' 'SUB' 'SBC' 'AND' 'OR' 'EOR' 'CPSE' 'CP' 'CPC' 'MUL'
+#1         #| OP              | R| D| D  D  D  D| R  R  R  R|'ADD' 'ADC' 'SUB' 'SBC' 'AND' 'OR' 'EOR' 'CPSE' 'CP' 'CPC' 'MUL' 'MOV'
 #2         #| OP        | K  K  K  K| D  D  D  D| K  K  K  K|'SBCI' 'SUBI' 'ANDI' 'ORI' 'SBR' 'CBR' 'CPI'
 #3         #| OP                    | D  D  D  D| OP        |'SER'
 #4         #| OP                       | D  D  D|OP| R  R  R|'MULSU' 'FMUL' 'FMULS' 'FMULSU'
@@ -20,7 +20,7 @@
 #7         #| OP                 | D  D  D  D  D| OP        |'INC' 'DEC'  'LSR' 'ROR' 'ASR' 'SWAP' 'POP' 'PUSH' 'LPM' 'ST' 'COM' 'NEG' 'LDX' 'LDX+' 'LD-X' 'LDY' 'LDY+' 'LD-Y' 'LDZ' 'LD+Z' 'LD-Z' 'STX' 'STX+' 'ST-X' 'STY' 'STY+' 'ST-Y' 'STZ' 'STZ+' 'ST-Z' 
 #8         #| OP              | D  D  D  D  D  D  D  D  D  D|'TST' 'LSL' 'ROL' 'CLR'
 #9         #| OP                       | S  S  S|OP         |'BSET' 'BCLR'
-#10        #| OP        | K  K  K  K  K  K  K  K  K  K  K  K|'RJMP' 'RCALL'
+#10        #| OP        | K  K  K  K  K  K  K  K  K  K  K  K|'RJMP' 'RCALL' 'LDI'
 #11        #| OP                                            |'IJMP' 'ICALL' 'RET' 'RETI' 'SEC' 'CLC' 'SEN' 'CLN' 'SEZ' 'CLZ' 'SEI' 'CLI' 'SES' 'CLS' 'SEV' 'CLV' 'SET' 'CLT' 'SEH' 'CLH' 'NOP' 'SLEEP' 'WDR' 'BREAK' 'SPM' 'LPM'     
 #12        #| OP                    | A  A  A  A  A| B  B  B|'SBIC' 'SBIS' 'SBI' CBI'
 #13        #| OP              | K  K  K  K  K  K  K| S  S  S|'BRBS' 'BRBC'
@@ -49,9 +49,9 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
     OP1A8A13 = ins>>10 # for lines 1,8 and 13 of the table
     OP2A10 = ins>>12 # for lines 2 and 10 of the table
     OP3 = (ins>>4)|(ins&0x0F)
-    OP4 = (ins>>6)|(ins>>3 &0x01)
+    OP4 = ((ins>>7)<<1)|(ins>>3 &0x01)
     OP5A6A12 = (ins>>8) # for lines 5,6 and 12 of the table
-    OP7 = (ins>>5)|(ins&0x0F)
+    OP7 = ((ins>>10)<<4)|(ins&0xF)
     OP9 = (ins>>3)|(ins&0x0F)
     OP11= ins 
     OP14= (ins>>7)|(ins&0x07)
@@ -171,6 +171,10 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b0110: return 'ORI' ##or SBR it is the same thing
         case 0b0011: return 'CPI'
 
+        case 0b1100: return 'RJMP'
+        case 0b1101: return 'RCALL'
+        case 0b1110: return 'LDI'
+
 
     match OP1A8A13 :
         case 0b000011: return 'ADD'
@@ -184,6 +188,7 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b100111: return 'MUL'
         case 0b000101: return 'CP'
         case 0b000001: return 'CPC'
+        case 0b001011: return 'MOV'
         
         case 0b000011: return 'LSL'
         case 0b000111: return 'ROL'
@@ -191,6 +196,7 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
 
         case 0b111100: return 'BRBS'
         case 0b111101: return 'BRBC'
+        case 0b000100: return 'CPSE'
 
 
     match OP11:
