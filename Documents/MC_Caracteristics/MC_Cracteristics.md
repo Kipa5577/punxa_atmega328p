@@ -14,6 +14,8 @@ Program Counter : 15bits
 
 ### Block Diagram of the AVR Architecture:
 
+![Chip_Overview](./Images/Chip_Overview.png)
+
 ![Block Diagram of the AVR Architecture](./Images/Block%20Diagram%20of%20the%20AVR%20Architecture.png)
 
 
@@ -22,17 +24,45 @@ Program Counter : 15bits
 
 ### Peripherals
 
-- GPIO
-- Timer/Counters
-- UART
-- Basic ADC
-- SPI
-- I2C
-- 8-bit Timer/Counter0 with PWM
-- 8-bit Timer/Counter2 with PWM
-- 16-bit Timer/Counter1 wiht PWM
-- Interrupt handling
-- ROM loader for .hex files
+#### GPIO
+
+#### Timer/Counters
+
+#### UART
+
+![USART_Block_Diagram](./Images/USART_Block_Diagram.png)
+
+![USART_Clock_Generation_Logic](./Images/USART_Clock_Generation_Logic.png)
+
+#### Basic ADC
+
+![Analog_to_Digital_Converter](./Images/Analog_to_Digital_Converter.png)
+
+#### SPI
+
+![SPI_Block_Diagram](./Images/SPI_Block_Diagram.png)
+
+#### I2C
+
+#### 8-bit Timer/Counter0 with PWM
+
+![8 bit Timer counter Block Diagram](./Images/8%20Bit%20Timer%20Counter%20Block%20Diagram.png)
+
+#### 8-bit Timer/Counter2 with PWM
+
+![8 bit Timer counter Block Diagram](./Images/8%20Bit%20Timer%20Counter%20Block%20Diagram.png)
+
+#### 16-bit Timer/Counter1 wiht PWM
+
+![16 Bit Timer Counter Block Diagram](./Images/16%20Bit%20Timer%20Counter%20Block%20Diagram.png)
+
+#### Interrupt handling
+
+#### ROM loader for .hex files
+
+#### TWI 
+
+![Overview_of_the_TWI_module](./Images/Overview_of_the_TWI_module.png)
 
 
 ### Memory
@@ -53,6 +83,196 @@ Program Counter : 15bits
 - R29 Y-register High Byte
 - R30 Z-register Low Byte 
 - R31 Z-register High Byte 
+
+
+
+#### Memory Map
+
+There are "Read-While-Write" and "No Read-While-Write Flash Section" in the flash memory:
+
+![Read_While_Write_Section](./Images/Read_While_Write_Section.png)
+
+![RWW_and_NRWW](./Images/RWW_and_NRWW.png)
+
+if there are 2 adresses such as 0x3F (0x5F):
+0x3F address is to be used by instructions such as "IN" and "OUT"
+0x5F address is to be used by instructions such as "LD" "LDS" "ST" "STS"
+
+0x00 to 0x1F General Purpose Working Registers
+
+##### UART
+0xC6 UDR0
+0xC5 UBRR0H
+0xC2 UCSR0C
+0xC1 UCSR0B
+0xC0 UCSR0A
+
+##### 2-wire Serial Interface
+0xBD TWAMR
+0xBC TWCR
+0xBB TWDR
+0xBA TWAR
+0xB9 TWSR
+0xB8 TWBR
+
+##### Timer/Counter2 
+
+0xB6 ASSR
+0xB4 OCR2B
+0xB3 OCR2A
+0xB2 TCNT2
+0xB1 TCCR2B
+0xB0 TCCR2A 
+
+Interrupts:
+0x70 TIMSK2
+0x17 (0x37) TIFR2 – Timer/Counter2 Interrupt Flag Register
+
+##### Timer/Counter1
+
+0x8B OCR1BH
+0x8A OCR1BL
+0x89 OCR1AH
+0x88 OCR1AL
+0x87 ICR1H
+0x86 ICR1L
+0x85 TCNT1H
+0x84 TCNT1L
+
+0x82 TCCR1C
+0x81 TCCR1B
+0x80 TCCR1A
+
+Interrupts:
+0x6C TIMSK1
+0x16 (0x36) TIFR1 – Timer/Counter1 Interrupt Flag Register
+0x15 (0x35) TIFR0 – Timer/Counter 0 Interrupt Flag Register
+
+##### Timer/Counter0
+Interrupts:
+0x6E TIMSK0
+
+0x28 (0x48) OCR0B – Output Compare Register B
+0x27 (0x47) OCR0A – Output Compare Register A
+0x26 (0x46) TCNT0 – Timer/Counter Register
+0x25 (0x45) TCCR0B – Timer/Counter Control Register B
+0x24 (0x44) TCCR0A – Timer/Counter Control Register A
+0x23 (0x43) GTCCR – General Timer/Counter Control Register
+
+##### Analog/ADC
+Comparator:
+0x7F DIDR1
+0x30 (0x50) ACSR – Analog Comparator Control and Status Register
+
+ADC:
+0x7E DIDR0
+0x7C ADMUX
+0x7B ADCSRB
+0x7A ADCSRA
+0x79 ADCH
+0x78 ADCL
+
+##### GPIO
+
+
+
+0x2B (0x4B) GPIOR2 – General Purpose I/O Register 2
+0x2A (0x4A) GPIOR1 – General Purpose I/O Register 1
+0x1E (0x3E) GPIOR0 – General Purpose I/O Register 0
+
+Interrupts:
+0x6D PCMSK2
+0x6C PCMSK1
+0x6B PCMSK0
+0x69 EICRA 
+0x68 PCICR
+0x1D (0x3D) EIMSK – External Interrupt Mask Register
+0x1C (0x3C) EIFR – External Interrupt Flag Register
+0x1B (0x3B) PCIFR – Pin Change Interrupt Flag Register
+
+D:
+0x0B (0x2B) PORTD – The Port D Data Register
+0x0A (0x2A) DDRD – The Port D Data Direction Register
+0x09 (0x29)  PIND – The Port D Input Pins Address
+
+C:
+0x08 (0x28) PORTC – The Port C Data Register
+0x07 (0x27) DDRC – The Port C Data Direction Register
+0x06 (0x26) PINC – The Port C Input Pins Address
+
+B:
+0x05 (0x25) PORTB – The Port B Data Register
+0x04 (0x24) DDRB – The Port B Data Direction Register
+0x03 (0x23) PINB – The Port B Input Pins Address
+
+##### General Control 
+
+0x66 OSCCAL
+0x64 PRR
+0x61 CLKPR
+0x3F (0x5F) SREG - AVR Status Register
+
+0x3E (0x5E) SPH - Stack Pointer High
+0x3D (0x5D) SPL - Stack Pointer Low Register
+
+0x37 (0x57) SPMCSR -  Store Program Memory Control and Status Register
+0x35 (0x55) MCUCR – MCU Control Register
+0x34 (0x54) MCUSR – MCU Status Register
+0x33 (0x53) SMCR – Sleep Mode Control Register
+
+##### EEPROM
+0x22 (0x42) EEARH - EEPROM address register high byte
+0x21 (0x41) EEARL - EEPROM address register low byte
+0x20 (0x40) EEDR – The EEPROM Data Register
+0x1F (0x3F) EECR – The EEPROM Control Register
+
+##### Watch dog
+0x60 WDTCSR -  Watchdog Timer Control Register
+
+##### SPI
+
+0x2E (0x4E) SPDR – SPI Data Register
+0x2D (0x4D) SPSR – SPI Status Register
+0x2C (0x4C) SPCR – SPI Control Register
+
+##### Reserved
+(0xFF) (0xFE) (0xFD) (0xFC) (0xFB) (0xFA)
+(0xF9) (0xF8) (0xF7) (0xF6) (0xF5) (0xF4)
+(0xF3) (0xF2) (0xF1) (0xF0) (0xEF) (0xEE)
+(0xED) (0xEC) (0xEB) (0xEA) (0xE9) (0xE8)
+(0xE7) (0xE6) (0xE5) (0xE4) (0xE3) (0xE2)
+(0xE1) (0xE0) (0xDF) (0xDE) (0xDD) (0xDC)
+(0xDB) (0xDA) (0xD9) (0xD8) (0xD7) (0xD6)
+(0xD5) (0xD4) (0xD3) (0xD2) (0xD1) (0xD0)
+(0xCF) (0xCE) (0xCD) (0xCC) (0xCB) (0xCA)
+(0xC9) (0xC8) (0xC7) (0xC3) (0xBF) (0xBE)
+(0xB7) (0xB5) (0xAF) (0xAE) (0xAD) (0xAC)
+(0xAB) (0xAA) (0xA9) (0xA8) (0xA7) (0xA6)
+(0xA5) (0xA4) (0xA3) (0xA2) (0xA1) (0xA0)
+(0x9F) (0x9E) (0x9D) (0x9C) (0x9B) (0x9A)
+(0x99) (0x98) (0x97) (0x96) (0x95) (0x94)
+(0x93) (0x92) (0x91) (0x90) (0x8F) (0x8E)
+(0x8D) (0x8C) (0x83) (0x77) (0x76) (0x75)
+(0x74) (0x73) (0x72) (0x71) (0x6A) (0x67)
+(0x65) (0x63) (0x62)
+
+0x3C (0x5C) 0x3B (0x5B) 0x3A (0x5A)
+0x39 (0x59) 0x38 (0x58) 0x32 (0x52)
+0x31 (0x51) 0x2F (0x4F) 0x29 (0x49)
+0x1A (0x3A) 0x19 (0x39) 0x18 (0x38)
+0x14 (0x34) 0x13 (0x33) 0x12 (0x32)
+0x11 (0x31) 0x10 (0x30) 0x0F (0x2F)
+0x0E (0x2E) 0x0D (0x2D) 0x0C (0x2C)
+0x02 (0x22) 0x01 (0x21) 0x0 (0x20)
+
+##### Interrupt Vectors
+
+![Reset_and_Interrupt_Vectors_in_ATmega328P]
+
+ 
+#### The Stack
+
+![Stack_Pointer_instructions](./Images/Stack_Pointer_instructions.png)
 
 ### Implementation 
 
@@ -218,3 +438,26 @@ Status Register (SREG)
 |SLEEP||Sleep||1001 0101 1000 1000|NONE|1|NONE|
 |WDR||Watchdog reset||1001 0101 1010 1000|NONE|1|NONE|
 |BREAK||Break||1001 0101 1001 1000|NONE|N/A|NONE|
+
+
+## BOOT LOADER / Programming 
+
+
+
+### Boot loader
+
+![Boot Size Configuration](./Images/Boot%20Size%20Configuration.png)
+
+### Programming 
+
+
+### Serial Programming
+
+![Serial_Programming_Instruction_Set](./Images/Serial_Programming_Instruction_Set.pngs)
+
+![Serial_Programming_Instruction_Example](./Images/Serial_Programming_Instruction_Example.png)
+
+![Memory_Sections](./Images/Memory_Sections.png)
+
+#### Self programming
+
