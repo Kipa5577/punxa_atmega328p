@@ -101,84 +101,84 @@ if there are 2 adresses such as 0x3F (0x5F):
 0x00 to 0x1F General Purpose Working Registers
 
 ##### UART
-0xC6 UDR0
-0xC5 UBRR0H
-0xC2 UCSR0C
-0xC1 UCSR0B
-0xC0 UCSR0A
+- 0xC6 UDR0
+- 0xC5 UBRR0H
+- 0xC2 UCSR0C
+- 0xC1 UCSR0B
+- 0xC0 UCSR0A
 
 ##### 2-wire Serial Interface
-0xBD TWAMR
-0xBC TWCR
-0xBB TWDR
-0xBA TWAR
-0xB9 TWSR
-0xB8 TWBR
+- 0xBD TWAMR
+- 0xBC TWCR
+- 0xBB TWDR
+- 0xBA TWAR
+- 0xB9 TWSR
+- 0xB8 TWBR
 
 ##### Timer/Counter2 
 
-0xB6 ASSR
-0xB4 OCR2B
-0xB3 OCR2A
-0xB2 TCNT2
-0xB1 TCCR2B
-0xB0 TCCR2A 
+- 0xB6 ASSR
+- 0xB4 OCR2B
+- 0xB3 OCR2A
+- 0xB2 TCNT2
+- 0xB1 TCCR2B
+- 0xB0 TCCR2A 
 
 Interrupts:
-0x70 TIMSK2
-0x17 (0x37) TIFR2 – Timer/Counter2 Interrupt Flag Register
+- 0x70 TIMSK2
+- 0x17 (0x37) TIFR2 – Timer/Counter2 Interrupt Flag Register
 
 ##### Timer/Counter1
 
-0x8B OCR1BH
-0x8A OCR1BL
-0x89 OCR1AH
-0x88 OCR1AL
-0x87 ICR1H
-0x86 ICR1L
-0x85 TCNT1H
-0x84 TCNT1L
+- 0x8B OCR1BH
+- 0x8A OCR1BL
+- 0x89 OCR1AH
+- 0x88 OCR1AL
+- 0x87 ICR1H
+- 0x86 ICR1L
+- 0x85 TCNT1H
+- 0x84 TCNT1L
 
-0x82 TCCR1C
-0x81 TCCR1B
-0x80 TCCR1A
+- 0x82 TCCR1C
+- 0x81 TCCR1B
+- 0x80 TCCR1A
 
 Interrupts:
-0x6C TIMSK1
-0x16 (0x36) TIFR1 – Timer/Counter1 Interrupt Flag Register
-0x15 (0x35) TIFR0 – Timer/Counter 0 Interrupt Flag Register
+- 0x6C TIMSK1
+- 0x16 (0x36) TIFR1 – Timer/Counter1 Interrupt Flag Register
+- 0x15 (0x35) TIFR0 – Timer/Counter 0 Interrupt Flag Register
 
 ##### Timer/Counter0
 Interrupts:
-0x6E TIMSK0
+- 0x6E TIMSK0
 
-0x28 (0x48) OCR0B – Output Compare Register B
-0x27 (0x47) OCR0A – Output Compare Register A
-0x26 (0x46) TCNT0 – Timer/Counter Register
-0x25 (0x45) TCCR0B – Timer/Counter Control Register B
-0x24 (0x44) TCCR0A – Timer/Counter Control Register A
-0x23 (0x43) GTCCR – General Timer/Counter Control Register
+- 0x28 (0x48) OCR0B – Output Compare Register B
+- 0x27 (0x47) OCR0A – Output Compare Register A
+- 0x26 (0x46) TCNT0 – Timer/Counter Register
+- 0x25 (0x45) TCCR0B – Timer/Counter Control Register B
+- 0x24 (0x44) TCCR0A – Timer/Counter Control Register A
+- 0x23 (0x43) GTCCR – General Timer/Counter Control Register
 
 ##### Analog/ADC
 Comparator:
-0x7F DIDR1
-0x30 (0x50) ACSR – Analog Comparator Control and Status Register
+- 0x7F DIDR1
+- 0x30 (0x50) ACSR – Analog Comparator Control and Status Register
 
 ADC:
-0x7E DIDR0
-0x7C ADMUX
-0x7B ADCSRB
-0x7A ADCSRA
-0x79 ADCH
-0x78 ADCL
+- 0x7E DIDR0
+- 0x7C ADMUX
+- 0x7B ADCSRB
+- 0x7A ADCSRA
+- 0x79 ADCH
+- 0x78 ADCL
 
 ##### GPIO
 
 
 
-0x2B (0x4B) GPIOR2 – General Purpose I/O Register 2
-0x2A (0x4A) GPIOR1 – General Purpose I/O Register 1
-0x1E (0x3E) GPIOR0 – General Purpose I/O Register 0
+- 0x2B (0x4B) GPIOR2 – General Purpose I/O Register 2
+- 0x2A (0x4A) GPIOR1 – General Purpose I/O Register 1
+- 0x1E (0x3E) GPIOR0 – General Purpose I/O Register 0
 
 Interrupts:
 0x6D PCMSK2
