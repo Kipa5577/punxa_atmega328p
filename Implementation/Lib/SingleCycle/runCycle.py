@@ -35,7 +35,7 @@ class SingleCycleATmega328P(py4hw.Logic):
         self.next_cycle = False #varible to indicate that data is ready to read from ram/memeory
 
 
-    def clock():
+    def clock(self):
         self.fetchIns()
         self.execute()
 
@@ -466,6 +466,7 @@ class SingleCycleATmega328P(py4hw.Logic):
 
 
             case 'SBI': ## implement write in io 
+                print("SBI")
             ##case 'CBI': ## implement write in io 
 
             case 'LSL': ## jsut add I don't know what the best implementation would be 
@@ -488,11 +489,12 @@ class SingleCycleATmega328P(py4hw.Logic):
                 
                 self.pc += 1
             case 'ROR':
+                print("ROR")
             ##case 'ASR':
 
             case 'SWAP':
                 Rd = (self.ins>>4)&11111
-                self.reg[Rd]=((self.reg[Rd]>>4)0xF) | ((self.reg[Rd]<<4)&0xF0)
+                self.reg[Rd]= ((self.reg[Rd]>>4)&0xF) | ((self.reg[Rd]<<4)&0xF0)
 
                 self.pc += 1
             case 'BSET':

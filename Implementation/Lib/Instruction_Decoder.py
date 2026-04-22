@@ -1,13 +1,9 @@
 #number of instructions 131
 
-
-
-#|    |    |    |Type 
-#| OP      | Rd |Register Direct Single Register (RDSR)
-#| OP | Rr | Rd |Register Direct Two Registers (RDTR)
-#| OP      | K  |Direct Program Addressing (DPA)
-#| OP | K  | d  | K |
-
+#Instructions in the data sheet 131
+#Acounted for 131
+#Decoded by the function 131 
+#Instructions found in test 98 + CBR + BRLO + BRCC + SBR  + 16(for the SREG clear and set instructions) Total: 118 missing 13 instructions
 
 
 #          #|15|14|13|12|11|10| 9| 8| 7| 6| 5| 4| 3| 2| 1| 0|
@@ -17,7 +13,7 @@
 #4         #| OP                       | D  D  D|OP| R  R  R|'MULSU' 'FMUL' 'FMULS' 'FMULSU'
 #5         #| OP                    | D  D  D  D| R  R  R  R| 'MULS' 'MOVW'
 #6         #| OP                    | K  K| D  D| K  K  K  K|'ADIW' 'SBIW' 
-#7         #| OP                 | D  D  D  D  D| OP        |'INC' 'DEC'  'LSR' 'ROR' 'ASR' 'SWAP' 'POP' 'PUSH' 'LPM' 'ST' 'COM' 'NEG' 'LDX' 'LDX+' 'LD-X' 'LDY' 'LDY+' 'LD-Y' 'LDZ' 'LD+Z' 'LD-Z' 'STX' 'STX+' 'ST-X' 'STY' 'STY+' 'ST-Y' 'STZ' 'STZ+' 'ST-Z' 
+#7         #| OP                 | D  D  D  D  D| OP        |'INC' 'DEC'  'LSR' 'ROR' 'ASR' 'SWAP' 'POP' 'PUSH' 'LPMZ' 'LPMZ+' 'ST' 'COM' 'NEG' 'LDX' 'LDX+' 'LD-X' 'LDY' 'LDY+' 'LD-Y' 'LDZ' 'LD+Z' 'LD-Z' 'STX' 'STX+' 'ST-X' 'STY' 'STY+' 'ST-Y' 'STZ' 'STZ+' 'ST-Z' 
 #8         #| OP              | D  D  D  D  D  D  D  D  D  D|'TST' 'LSL' 'ROL' 'CLR'
 #9         #| OP                       | S  S  S|OP         |'BSET' 'BCLR'
 #10        #| OP        | K  K  K  K  K  K  K  K  K  K  K  K|'RJMP' 'RCALL' 'LDI'
@@ -26,8 +22,8 @@
 #13        #| OP              | K  K  K  K  K  K  K| S  S  S|'BRBS' 'BRBC'
 #14        #| OP              | K  K  K  K  K  K  K|OP      |'BREQ' 'BRNE' 'BRCS' 'BRCC' 'BRSH' 'BRLO' 'BRMI' 'BRPL' 'BRGE' 'BRLT' 'BRHS' 'BRHC' 'BRTS' 'BRTC' 'BRVS' 'BRVC' 'BRIE' 'BRID'
 #15        #| OP                 | D  D  D  D  D|OP| B  B  B|'BST' 'BLD' 
-#16        #| OP           | A  A|  R  R  R  R  R| A  A  A  A|'OUT' 'IN'
-#17        #| OP  | q|OP| q  q|OP| D  D  D  D  D|OP| q  q  q|'LDD' 'STD'
+#16        #| OP           | A  A| R  R  R  R  R| A  A  A  A|'OUT' 'IN'
+#17        #| OP  | q|OP| q  q|OP| D  D  D  D  D|OP| q  q  q|'LDDZ' 'LDDZ' 'STDY' 'STDZ'
 
 #2line
 #18         | OP                 | K  K  K  K  K|OP      | K| 'CALL' 'JMP' 
@@ -35,32 +31,32 @@
 #19         | OP                 | D  D  D  D  D| OP        | 'STS' 'LDS'
 #           | K  K  K  K  K  K  K  K  K  K  K  K  K  K  K  K|
 
-#7         #| OP                 | D  D  D  D  D|OP| B  B  B| 'SBRC' 'SBRS'
-
-#RDSR = ['COM','NEG','INC','DEC']
-
-#RDTR = ['ADD','ADC','SUB','SBC','AND','OR','EOR',] # OP Rr Rd
+#20        #| OP                 | D  D  D  D  D|OP| B  B  B| 'SBRC' 'SBRS'
 
 
-#DPA =['BREQ','BRNE','BRCS','BRCC','BRSH','BRLO','BRMI','BRPL','BRGE','BRLT','BRHS','BRHC','BRTS','BRTC','BRVS','BRVC','BRIE','BRID'] # OP K 
-
+ # I need to investigate the spm instruction
 
 def ins_to_str(ins): # I am packing all the OP bits, keeping the order 
     OP1A8A13 = ins>>10 # for lines 1,8 and 13 of the table
     OP2A10 = ins>>12 # for lines 2 and 10 of the table
-    OP3 = (ins>>4)|(ins&0x0F)
-    OP4 = ((ins>>7)<<1)|(ins>>3 &0x01)
+    OP3  = ((ins>>8)<<4)|(ins&0x0F)
+    OP4  = ((ins>>7)<<1)|((ins>>3)&0x01)
     OP5A6A12 = (ins>>8) # for lines 5,6 and 12 of the table
-    OP7 = ((ins>>10)<<4)|(ins&0xF)
-    OP9 = (ins>>3)|(ins&0x0F)
-    OP11= ins 
-    OP14= (ins>>7)|(ins&0x07)
-    OP15= (ins>>8)|(ins>>3&0x01)
-    OP16= (ins>>11)
-    OP17= ((ins>>11)&0b11000)|((ins>>10)&0b100)|((ins>>8)&0b10)|((ins>>3)&1)
-    OP18= (ins>>1&0b111)|(ins>>6) 
-    OP19= (ins&0b1111)|(ins>>6)
+    OP7  = ((ins>>9)<<4)|(ins&0xF)
+    OP9  = ((ins>>7)<<4)|(ins&0x0F)
+    OP11 = ins 
+    OP14 = ((ins>>10)<<3)|(ins&0b111)
+    OP15 = ((ins>>9)<<1)|(ins>>3&0b1)
+    OP16 = (ins>>11)
+    OP17 = ((ins>>3)&0b1)|(((ins>>9)&0b1)<<1)|(((ins>>12)&0b1)<<2)|((ins>>14)<<3)
+    OP18 = (ins>>1&0b111)|((ins>>9)<<3) 
+    OP19 = (ins&0b1111)|((ins>>9)<<4)
+    OP20 = ((ins>>3)&0b1)|((ins>>9)<<1)
 
+    match OP20:
+        case 0b11111100: 'SBRC'
+        case 0b11111110: 'SBRS'
+    
     match OP19: 
         case 0b10010000000: return 'LDS'
         case 0b10010010000: return 'STS'
@@ -96,9 +92,9 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b10010110: return 'ADIW'
         case 0b10010111: return 'SBIW'
         case 0b10011001: return 'SBIC'
-        case 0b10011011: return 'SBRS'
         case 0b10011010: return 'SBI'
         case 0b10011000: return 'CBI'
+        case 0b10011011: return 'SBIS'
 
     match OP3:
         case 0b111011111111: return 'SER'
@@ -137,6 +133,9 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b10010010001: return 'STZ+'
         case 0b10010010010: return 'ST-Z'
 
+        case 0b10010000100: return 'LPMZ'
+        case 0b10010000101: return 'LPMZ+'
+
 
     match OP4:
         case 0b0000001100: return 'MULSU'
@@ -148,7 +147,7 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b111100001: return 'BREQ'
         case 0b111101001: return 'BRNE' 
         case 0b111100000: return 'BRCS' #or BRLO
-        case 0b111101000: return 'BRSH'#or BRCC
+        case 0b111101000: return 'BRSH' #or BRCC
         case 0b111100010: return 'BRMI'
         case 0b111101010: return 'BRPL'
         case 0b111101100: return 'BRGE'
@@ -198,32 +197,35 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b111101: return 'BRBC'
         case 0b000100: return 'CPSE'
 
-
+    
     match OP11:
-        case 0x9408: return 'SEC'
-        case 0x9488: return 'CLC'
-        case 0x9428: return 'SEN'
-        case 0x94A8: return 'CLN'
-        case 0x9418: return 'SEZ'
-        case 0x9498: return 'CLZ'
-        case 0x9478: return 'SEI'
-        case 0x94F8: return 'CLI'
-        case 0x9448: return 'SES'
-        case 0x94C8: return 'CLS'
-        case 0x9438: return 'SEV'
-        case 0x94D8: return 'CLV'
-        case 0x9468: return 'SET'
-        case 0x94E8: return 'CLT'
-        case 0x9458: return 'SEH'
-        case 0x94D8: return 'CLH'
+        ## These instructions are use less at harware level because they default to BSET or BCLR
+        case 0b1001010000001000: return 'SEC'
+        case 0b1001010010001000: return 'CLC'
+        case 0b1001010000101000: return 'SEN'
+        case 0b1001010010101000: return 'CLN'
+        case 0b1001010000011000: return 'SEZ'
+        case 0b1001010010011000: return 'CLZ'
+        case 0b1001010001111000: return 'SEI'
+        case 0b1001010011111000: return 'CLI'
+        case 0b1001010001001000: return 'SES'
+        case 0b1001010011001000: return 'CLS'
+        case 0b1001010000111000: return 'SEV'
+        case 0b1001010010111000: return 'CLV'
+        case 0b1001010001101000: return 'SET'
+        case 0b1001010011101000: return 'CLT'
+        case 0b1001010001011000: return 'SEH'
+        case 0b1001010011011000: return 'CLH'
+        ##
         case 0x0: return 'NOP'
-        case 0x9588: return 'SLEEP'
-        case 0x95A8: return 'WDR'
-        case 0x9598: return 'BREAK'
-        case 0x9409: return 'IJMP'
-        case 0x9509: return 'ICALL'
-        case 0x9508: return 'RET'
-        case 0x9518: return 'RETI'
+        case 0b1001010110001000: return 'SLEEP'
+        case 0b1001010110101000: return 'WDR'
+        case 0b1001010110011000: return 'BREAK'
+        case 0b1001010000001001: return 'IJMP'
+        case 0b1001010100001001: return 'ICALL'
+        case 0b1001010100001000: return 'RET'
+        case 0b1001010100011000: return 'RETI'
+        case 0b1001010111101000: return'SPM'
 
 
     return 'invalid'

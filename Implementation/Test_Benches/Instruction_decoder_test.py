@@ -27,6 +27,9 @@ sys.getSimulator().clk(100)
 wvf.gui()
 '''
 
+ins = 0b101
+print(ins[1])
+
 list = []
 f = open("output.txt", "a")
 for ins in range(2**16):
