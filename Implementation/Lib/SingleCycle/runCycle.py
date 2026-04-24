@@ -2,6 +2,15 @@ import py4hw
 from ..Instruction_Decoder import *  
 from ..Memory import * 
 
+global C
+global Z
+global N
+global V
+global S
+global H
+global T
+global I
+
 C = 0
 Z = 1
 N = 2
@@ -10,6 +19,8 @@ S = 4
 H = 5 
 T = 6
 I = 7
+
+
 
 #0x0000 to 0x3FFF flash memory range 
 
@@ -29,10 +40,26 @@ class SingleCycleATmega328P(py4hw.Logic):
         self.pc = 0
         self.reg = [0]*32
         # self.ram = [0]*2048
-        self.flash = [0]*32256
+        self.flash = [0]*16384
         self.SREG = 0 # b7: I b6: T b5: H b4: S b3: V b2: N b1: Z b0: C 
         self.stack_pointer  = 0 ## value sould be known by using a register, I need to verify that it doesent go in to the negatives
         self.next_cycle = False #varible to indicate that data is ready to read from ram/memeory
+        self.ins = 0
+        self.opp = 'NOP'
+        self.Rr = 0
+        self.Rd = 0
+        self.res = 0
+        self.K = 0
+        self.FirstBoot = True #is this actuatly odable ?
+        self.BOOTRST = 1
+
+        self.C = 0
+        self.Z = 0
+        self.N = 0
+        self.V = 0
+        self.N = 0
+        self.Z = 0
+        self.C = 0
 
 
     def clock(self):
@@ -85,367 +112,370 @@ class SingleCycleATmega328P(py4hw.Logic):
 
 
     def execute(self):
-        opp =  ins_to_str(self.ins)
+        self.opp =  ins_to_str(self.ins)
 
-        match opp: 
+        match self.opp: 
             case 'ADD':
-                Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
-                Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                res = self.reg[Rd] + self.reg[Rr]
-                self.testC(res)
-                self.testZ(res)
-                self.testN(res)
-                self.testV(self.reg[Rd],self.reg[Rr],res)
+                self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
+                self.res = self.reg[self.Rd] + self.reg[self.Rr]
+                self.testC(self.res)
+                self.testZ(self.res)
+                self.testN(self.res)
+                self.testV(self.reg[self.Rd],self.reg[self.Rr],self.res)
                 self.testS()
-                self.testH(self.reg[Rd],self.reg[Rr],res)
+                self.testH(self.reg[self.Rd],self.reg[self.Rr],self.res)
                 
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
 
                 self.pc += 1
             case 'ADC':
-                Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
-                Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                res =  self.reg[Rd] + self.reg[Rr] + (self.SREG & 0b1)
-                self.testC(res)
-                self.testZ(res)
-                self.testN(res)
-                self.testV(self.reg[Rd],self.reg[Rr],res)
+
+                self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
+                self.res =  self.reg[self.Rd] + self.reg[self.Rr] + (self.SREG & 0b1)
+                self.testC(self.res)
+                self.testZ(self.res)
+                self.testN(self.res)
+                self.testV(self.reg[self.Rd],self.reg[self.Rr],self.res)
                 self.testS()
-                self.testH(self.reg[Rd],self.reg[Rr],res)
-                self.reg[Rd] =  res
+                self.testH(self.reg[self.Rd],self.reg[self.Rr],self.res)
+
+                self.reg[self.Rd] =  self.res
 
                 self.pc += 1
             case 'ADIW':
-                K = (((self.ins>>6)&0b11)<<4)|(self.ins & 0xF)
-                Rd = (self.ins>>4)&0b11
-                res =  self.reg[Rd] +  K
-                self.testC(res)
-                self.testZ(res)
-                self.testN(res)
-                self.testV(self.reg[Rd],self.reg[Rr],res)
+                self.K = (((self.ins>>6)&0b11)<<4)|(self.ins & 0xF)
+                self.Rd = (self.ins>>4)&0b11
+                self.res =  self.reg[self.Rd] +  self.K
+                self.testC(self.res)
+                self.testZ(self.res)
+                self.testN(self.res)
+                self.testV(self.reg[self.Rd],self.reg[self.Rr],self.res)
                 self.testS()
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
 
                 self.pc += 1
             case 'SUB':
-                Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
-                Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                res =  self.reg[Rd] - self.reg[Rr]
+                self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
+                self.res =  self.reg[self.Rd] - self.reg[self.Rr]
 
-                self.testC(res)
-                self.testZ(res)
-                self.testN(res)
-                self.testV(self.reg[Rd],self.reg[Rr],res)
+                self.testC(self.res)
+                self.testZ(self.res)
+                self.testN(self.res)
+                self.testV(self.reg[self.Rd],self.reg[self.Rr],self.res)
                 self.testS()
-                #self.testH(self.reg[Rd],self.reg[Rr],res) different methode to determining H 
-                self.reg[Rd] =  res
+                #self.testH(self.reg[self.Rd],self.reg[self.Rr],self.res) different methode to determining H 
+                self.reg[self.Rd] =  self.res
 
                 self.pc += 1
 
             case 'SUBI':
-                K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
-                Rd = (self.ins>>4)&0b11
-                res =  self.reg[Rd] -  K
+                self.K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
+                self.Rd = (self.ins>>4)&0b11
+                self.res =  self.reg[self.Rd] -  self.K
 
-                self.testC(res)
-                self.testZ(res)
-                self.testN(res)
-                self.testV(self.reg[Rd],self.reg[Rr],res)
+                self.testC(self.res)
+                self.testZ(self.res)
+                self.testN(self.res)
+                self.testV(self.reg[self.Rd],self.reg[self.Rr],self.res)
                 self.testS()
-                #self.testH(self.reg[Rd],self.reg[Rr],res)  different methode to determining H 
+                #self.testH(self.reg[self.Rd],self.reg[self.Rr],self.res)  different methode to determining H 
 
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
 
                 self.pc += 1
             case 'SBC':
-                Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
-                Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                res =  self.reg[Rd] - self.reg[Rr] - (self.SREG & 0b1)
+                self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
+                self.res =  self.reg[self.Rd] - self.reg[self.Rr] - (self.SREG & 0b1)
 
-                self.testC(res)
-                self.testZ(res)
-                self.testN(res)
-                self.testV(self.reg[Rd],self.reg[Rr],res)
+                self.testC(self.res)
+                self.testZ(self.res)
+                self.testN(self.res)
+                self.testV(self.reg[self.Rd],self.reg[self.Rr],self.res)
                 self.testS()
-                #self.testH(self.reg[Rd],self.reg[Rr],res)  different methode to determining H
+                #self.testH(self.reg[self.Rd],self.reg[self.Rr],self.res)  different methode to determining H
 
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
                 self.pc += 1
 
             case 'SBCI':
-                K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
-                Rd = ((self.ins>>4) & 0xF)
-                res =  self.reg[Rd] - K - (self.SREG & 0b1)
+                self.K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
+                self.Rd = ((self.ins>>4) & 0xF)
+                self.res =  self.reg[self.Rd] - self.K - (self.SREG & 0b1)
 
-                self.testC(res)
-                self.testZ(res)
-                self.testN(res)
-                self.testV(self.reg[Rd],self.reg[Rr],res)
+                self.testC(self.res)
+                self.testZ(self.res)
+                self.testN(self.res)
+                self.testV(self.reg[self.Rd],self.reg[self.Rr],self.res)
                 self.testS()
-                #self.testH(self.reg[Rd],self.reg[Rr],res)  different methode to determining H
+                #self.testH(self.reg[self.Rd],self.reg[self.Rr],self.res)  different methode to determining H
 
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
 
                 self.pc += 1
             case 'SBIW':
-                K = (((self.ins>>6)&0b11)<<4)|(self.ins & 0xF)
-                Rd = (self.ins>>4)&0b11
-                res =  self.reg[Rd] +  K
+                self.K = (((self.ins>>6)&0b11)<<4)|(self.ins & 0xF)
+                self.Rd = (self.ins>>4)&0b11
+                self.res =  self.reg[self.Rd] +  self.K
 
-                self.testC(res)
-                self.testZ(res)
-                self.testN(res)
-                self.testV(self.reg[Rd],self.reg[Rr],res)
+                self.testC(self.res)
+                self.testZ(self.res)
+                self.testN(self.res)
+                self.testV(self.reg[self.Rd],self.reg[self.Rr],self.res)
                 self.testS()
 
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
 
                 self.pc += 1
             case 'AND':
-                Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
-                Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                res =  self.reg[Rd] & self.reg[Rr]
+                self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
+                self.res =  self.reg[self.Rd] & self.reg[self.Rr]
 
 
 
-                self.testZ(res)
-                self.testN(res)
+                self.testZ(self.res)
+                self.testN(self.res)
                 self.SREG &= ~(1<<V) #flag V to 0
                 self.testS()
 
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
 
                 self.pc += 1
             case 'ANDI':
-                K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
-                Rd = ((self.ins>>4) & 0xF)
-                res =  self.reg[Rd] & K 
+                self.K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
+                self.Rd = ((self.ins>>4) & 0xF)
+                self.res =  self.reg[self.Rd] & self.K 
 
-                self.testZ(res)
-                self.testN(res)
+                self.testZ(self.res)
+                self.testN(self.res)
                 self.SREG &= ~(1<<V) # flag V to 0
                 self.testS()
 
 
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
                 self.pc += 1
 
             case 'OR':
-                Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
-                Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                res =  self.reg[Rd] | self.reg[Rr]
+                self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
+                self.res =  self.reg[self.Rd] | self.reg[self.Rr]
 
 
-                self.testZ(res)
-                self.testN(res)
+                self.testZ(self.res)
+                self.testN(self.res)
                 self.SREG &= ~(1<<V) # flag V to 0
                 self.testS()
 
 
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
 
                 self.pc += 1
             case 'ORI':
-                K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
-                Rd = ((self.ins>>4) & 0xF)
-                res =  self.reg[Rd] & K 
+                self.K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
+                self.Rd = ((self.ins>>4) & 0xF)
+                self.res =  self.reg[self.Rd] & self.K 
 
-                self.testZ(res)
-                self.testN(res)
+                self.testZ(self.res)
+                self.testN(self.res)
                 self.SREG &= ~(1<<V) # flag V to 0
                 self.testS()
 
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
                 self.pc += 1
             case 'EOR':
-                Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
-                Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                res =  self.reg[Rd] ^ self.reg[Rr]
+                self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
+                self.res =  self.reg[self.Rd] ^ self.reg[self.Rr]
 
-                self.testZ(res)
-                self.testN(res)
+                self.testZ(self.res)
+                self.testN(self.res)
                 self.SREG &= ~(1<<V) # flag V to 0
                 self.testS()
 
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
 
                 self.pc += 1
             case 'COM':
-                Rd = ((self.ins>>4) & 0xF)
-                res = 0xFF - self.reg[Rd] 
+                self.Rd = ((self.ins>>4) & 0xF)
+                self.res = 0xFF - self.reg[self.Rd] 
 
                 self.SREG |= (1<<C) # flag V to 1
-                self.testZ(res)
-                self.testN(res)
+                self.testZ(self.res)
+                self.testN(self.res)
                 self.SREG &= ~(1<<V) # flag V to 0
                 self.testS()
 
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
 
                 self.pc += 1
             case 'NEG':
-                Rd = ((self.ins>>4) & 0xF)
-                res = 0x00 - self.reg[Rd] 
+                self.Rd = ((self.ins>>4) & 0xF)
+                self.res = 0x00 - self.reg[self.Rd] 
 
-                self.testC(res)
-                self.testZ(res)
-                self.testN(res)
-                self.testV(self.reg[Rd],self.reg[Rr],res)
+                self.testC(self.res)
+                self.testZ(self.res)
+                self.testN(self.res)
+                self.testV(self.reg[self.Rd],self.reg[self.Rr],self.res)
                 self.testS()
-                #self.testH(self.reg[Rd],self.reg[Rr],res) again a different methode to determining H 
+                #self.testH(self.reg[self.Rd],self.reg[self.Rr],self.res) again a different methode to determining H 
 
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
                 self.pc += 1
-            case 'SBR':
-                K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
-                Rd = ((self.ins>>4) & 0xF)
-                res =  self.reg[Rd] | K 
 
-                self.testZ(res)
-                self.testN(res)
+            case 'SBR':
+                self.K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
+                self.Rd = ((self.ins>>4) & 0xF)
+                self.res =  self.reg[self.Rd] | self.K 
+
+                self.testZ(self.res)
+                self.testN(self.res)
                 self.SREG &= ~(1<<V) # flag V to 0
                 self.testS()          
 
-                self.reg[Rd] =  res     
+                self.reg[self.Rd] =  self.res     
                 self.pc += 1
             case 'CBR':
-                K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
-                Rd = ((self.ins>>4) & 0xF)
-                res =  self.reg[Rd] & K 
+                self.K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
+                self.Rd = ((self.ins>>4) & 0xF)
+                self.res =  self.reg[self.Rd] & self.K 
 
-                self.testZ(res)
-                self.testN(res)
+                self.testZ(self.res)
+                self.testN(self.res)
                 self.SREG &= ~(1<<V) # flag V to 0
                 self.testS()     
 
-                self.reg[Rd] =  res 
+                self.reg[self.Rd] =  self.res 
                 self.pc += 1
             case 'INC':
-                Rd = ((self.ins>>4) & 0xF)
-                res = self.reg[Rd] + 1 
+                self.Rd = ((self.ins>>4) & 0xF)
+                self.res = self.reg[self.Rd] + 1 
 
-                self.testZ(res)
-                self.testN(res)
-                self.testV(self.reg[Rd],self.reg[Rr],res)
+                self.testZ(self.res)
+                self.testN(self.res)
+                self.testV(self.reg[self.Rd],self.reg[self.Rr],self.res)
                 self.testS()
 
-                self.reg[Rd] =  res 
+                self.reg[self.Rd] =  self.res 
                 self.pc += 1
             case 'DEC':
-                Rd = ((self.ins>>4) & 0xF)
-                res = self.reg[Rd] - 1
+                self.Rd = ((self.ins>>4) & 0xF)
+                self.res = self.reg[self.Rd] - 1
 
-                self.testZ(res)
-                self.testN(res)
-                self.testV(self.reg[Rd],self.reg[Rr],res)
+                self.testZ(self.res)
+                self.testN(self.res)
+                self.testV(self.reg[self.Rd],self.reg[self.Rr],self.res)
                 self.testS()
 
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
                 self.pc += 1
             case 'TST':
                 Rd1 = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
                 #Rd2 = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                res =  self.reg[Rd1] & self.reg[Rd1]
+                self.res =  self.reg[Rd1] & self.reg[Rd1]
 
-                self.testZ(res)
-                self.testN(res)
+                self.testZ(self.res)
+                self.testN(self.res)
                 self.SREG &= ~(1<<V) # flag V to 0
                 self.testS()     
 
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
                 self.pc +=1
 
             case 'CLR':
                 Rd1 = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
                 #Rd2 = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                res =  self.reg[Rd1] ^ self.reg[Rd1]
+                self.res =  self.reg[Rd1] ^ self.reg[Rd1]
 
                 self.SREG &= ~(1<<S) # flag V to 0
                 self.SREG &= ~(1<<V) # flag V to 0
                 self.SREG &= ~(1<<N) # flag N to 0
                 self.SREG &= (1<<Z) # flag Z to 1
 
-                self.reg[Rd] =  res
+                self.reg[self.Rd] =  self.res
                 self.pc +=1
 
             case 'SER':
-                Rd = (self.ins>>4)&0b11
-                self.reg[Rd1] = 0xFF
+                self.Rd = (self.ins>>4)&0b11
+                self.reg[self.Rd] = 0xFF
 
                 self.pc +=1 
             case 'MUL':
-                Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
-                Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                res =  self.reg[Rd] * self.reg[Rr]
+                self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
+                self.res =  self.reg[self.Rd] * self.reg[self.Rr]
 
-                #self.testC(res) need of a special function
-                self.testZ(res)
+                #self.testC(self.res) need of a special function
+                self.testZ(self.res)
 
-                self.reg[1] = res>>8 &0xFF
-                self.reg[0] = res & 0xFF
+                self.reg[1] = self.res>>8 &0xFF
+                self.reg[0] = self.res & 0xFF
 
                 self.pc += 1
 
             case 'MULS': ## Don't know the implementation difference with MUL
-                Rr = (self.ins & 0xF)
-                Rd = ((self.ins>>4) & 0xF)
-                res =  self.reg[Rd] * self.reg[Rr]
+                self.Rr = (self.ins & 0xF)
+                self.Rd = ((self.ins>>4) & 0xF)
+                self.res =  self.reg[self.Rd] * self.reg[self.Rr]
 
-                #self.testC(res) need of a special function
-                self.testZ(res)
+                #self.testC(self.res) need of a special function
+                self.testZ(self.res)
 
-                self.reg[1]= res>>8 & 0xFF
-                self.reg[0]= res & 0xFF
+                self.reg[1]= self.res>>8 & 0xFF
+                self.reg[0]= self.res & 0xFF
 
                 self.pc += 1
             case 'MULSU':## Don't know the implementation difference with MUL
-                Rr = (self.ins & 0b111)
-                Rd = ((self.ins>>4) & 0b111)
-                res =  self.reg[Rd] * self.reg[Rr]
+                self.Rr = (self.ins & 0b111)
+                self.Rd = ((self.ins>>4) & 0b111)
+                self.res =  self.reg[self.Rd] * self.reg[self.Rr]
 
-                #self.testC(res) need of a special function
-                self.testZ(res)
+                #self.testC(self.res) need of a special function
+                self.testZ(self.res)
 
-                self.reg[1]= res>>8 & 0xFF
-                self.reg[0]= res & 0xFF
+                self.reg[1]= self.res>>8 & 0xFF
+                self.reg[0]= self.res & 0xFF
 
                 self.pc += 1
             case 'FMUL':## Don't know the implementation difference with MUL
-                Rr = (self.ins & 0b111)
-                Rd = ((self.ins>>4) & 0b111)
-                res =  self.reg[Rd] * self.reg[Rr]
+                self.Rr = (self.ins & 0b111)
+                self.Rd = ((self.ins>>4) & 0b111)
+                self.res =  self.reg[self.Rd] * self.reg[self.Rr]
 
-                #self.testC(res) need of a special function
-                self.testZ(res)
+                #self.testC(self.res) need of a special function
+                self.testZ(self.res)
 
-                self.reg[1]= res>>8 & 0xFF
-                self.reg[0]= res & 0xFF
+                self.reg[1]= self.res>>8 & 0xFF
+                self.reg[0]= self.res & 0xFF
 
                 self.pc += 1
 
             case 'FMULS': ## Don't know the implementation difference with MUL
-                Rr = (self.ins & 0b111)
-                Rd = ((self.ins>>4) & 0b111)
-                res =  self.reg[Rd] * self.reg[Rr]
+                self.Rr = (self.ins & 0b111)
+                self.Rd = ((self.ins>>4) & 0b111)
+                self.res =  self.reg[self.Rd] * self.reg[self.Rr]
 
-                #self.testC(res) need of a special function
-                self.testZ(res)
+                #self.testC(self.res) need of a special function
+                self.testZ(self.res)
 
-                self.reg[1]= res>>8 & 0xFF
-                self.reg[0]= res & 0xFF
+                self.reg[1]= self.res>>8 & 0xFF
+                self.reg[0]= self.res & 0xFF
 
                 self.pc += 1
 
             case 'FMULSU':## Don't know the implementation difference with MUL
-                Rr = (self.ins & 0b111)
-                Rd = ((self.ins>>4) & 0b111)
-                res =  self.reg[Rd] * self.reg[Rr]
+                self.Rr = (self.ins & 0b111)
+                self.Rd = ((self.ins>>4) & 0b111)
+                self.res =  self.reg[self.Rd] * self.reg[self.Rr]
 
-                #self.testC(res) need of a special function
-                self.testZ(res)
+                #self.testC(self.res) need of a special function
+                self.testZ(self.res)
 
-                self.reg[1]= res>>8 & 0xFF
-                self.reg[0]= res & 0xFF
+                self.reg[1]= self.res>>8 & 0xFF
+                self.reg[0]= self.res & 0xFF
 
                 self.pc += 1
 
@@ -454,11 +484,11 @@ class SingleCycleATmega328P(py4hw.Logic):
 
 
             case 'RJMP':
-                K = self.ins & 0xFFF
-                if K>>11:
-                    self.pc = self.pc -((~K)&0xFFF) + 1 
+                self.K = self.ins & 0xFFF
+                if self.K>>11:
+                    self.pc -=((~self.K)&0xFFF) + 1 
                 else:
-                    self.pc =self.pc + K + 1 
+                    self.pc += self.K + 1 
                 
 
 
@@ -466,10 +496,10 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.pc  = + (self.reg[30] | self.reg[31]<<8)
 
             case 'JMP':
-                K = (((self.ins&0b1)|((self.ins>>4)&0xF)|((self.ins>>8)&0b1))<<16)|self.flash[self.pc+1]
-                self.pc = K
+                self.K = (((self.ins&0b1)|((self.ins>>4)&0xF)|((self.ins>>8)&0b1))<<16)|self.flash[self.pc+1]
+                self.pc = self.K
             case 'RCALL':
-                K = self.ins&0xFFF
+                self.K = self.ins&0xFFF
                 #The return addres must be pushed to the stack ( the stack is in ram)
                 self.mem.address.prepare(self.stack_pointer)
                 self.mem.write.prepare(1)
@@ -485,7 +515,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 #self.mem.write_data(self.pc) ## writing to the stack(ram) the value  I have to write 2 bytes as pc is 16 bits
                 #self.stack_pointer -= 1
             
-                self.pc += K
+                self.pc += self.K
 
             case 'ICALL':
 
@@ -499,7 +529,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.pc += self.reg[30]<<16|self.reg[31]
                 
             case 'CALL':
-                K = (((self.ins&0b1)|((self.ins>>4)&0xF)|((self.ins>>8)&0b1))<<16)|self.flash[self.pc+1]
+                self.K = (((self.ins&0b1)|((self.ins>>4)&0xF)|((self.ins>>8)&0b1))<<16)|self.flash[self.pc+1]
 
                 self.mem.address.prepare(self.stack_pointer)
                 self.mem.write.prepare(1)
@@ -508,7 +538,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.write_data(self.pc+2) ## writing to the stack(ram) the value 
                 self.stack_pointer -= 2
 
-                self.pc = K
+                self.pc = self.K
             ##case 'RET':
                 #pop instruction 
 
@@ -532,9 +562,10 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.SREG |= (1<<I) #enabling interruts
 
             case 'CPSE':
-                Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
-                Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                if Rr == Rd:
+                self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
+
+                if self.Rr == self.Rd:
                     next_ins = ins_to_str(self.flash[self.pc])
                     if(next_ins == 'CALL' or next_ins == 'JMP' or next_ins == 'STS' or next_ins == 'LDS'):
                         self.pc += 3 ##skip 2 word instruction
@@ -545,42 +576,42 @@ class SingleCycleATmega328P(py4hw.Logic):
 
             #double check the SREG flags for the CP instructions
             case 'CP':
-                Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
-                Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                res =  self.reg[Rd] + self.reg[Rr] 
+                self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
+                self.res =  self.reg[self.Rd] + self.reg[self.Rr] 
 
-                #self.testC(res) calculated other wise
-                self.testZ(res)
-                self.testN(res)
-                self.testV(self.reg[Rd],self.reg[Rr],res)
+                #self.testC(self.res) calculated other wise
+                self.testZ(self.res)
+                self.testN(self.res)
+                self.testV(self.reg[self.Rd],self.reg[self.Rr],self.res)
                 self.testS()
-                self.testH(self.reg[Rd],self.reg[Rr],res)
+                self.testH(self.reg[self.Rd],self.reg[self.Rr],self.res)
 
                 self.pc += 1
             case 'CPC':
-                Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
-                Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                res =  self.reg[Rd] + self.reg[Rr] + (self.SREG & 0b1)
+                self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
+                self.res =  self.reg[self.Rd] + self.reg[self.Rr] + (self.SREG & 0b1)
 
-                #self.testC(res) calculated other wise
-                #self.testZ(res) a bit different 
-                self.testN(res)
-                self.testV(self.reg[Rd],self.reg[Rr],res)
+                #self.testC(self.res) calculated other wise
+                #self.testZ(self.res) a bit different 
+                self.testN(self.res)
+                self.testV(self.reg[self.Rd],self.reg[self.Rr],self.res)
                 self.testS()
-                self.testH(self.reg[Rd],self.reg[Rr],res)
+                self.testH(self.reg[self.Rd],self.reg[self.Rr],self.res)
 
                 self.pc += 1
             case 'CPI':
-                K = (self.ins&0xF)|(self.ins>>4)&0xF0
+                self.K = (self.ins&0xF)|(self.ins>>4)&0xF0
                 d = (self.ins>>4)&0xF
-                res = self.reg[d]-K
+                self.res = self.reg[d]-self.K
 
-                #self.testC(res) calculated other wise
-                #self.testZ(res) a bit different 
-                self.testN(res)
-                self.testV(self.reg[d],K,res)
+                #self.testC(self.res) calculated other wise
+                #self.testZ(self.res) a bit different 
+                self.testN(self.res)
+                self.testV(self.reg[d],self.K,self.res)
                 self.testS()
-                self.testH(self.reg[d],K,res)
+                self.testH(self.reg[d],self.K,self.res)
 
                 self.pc+=1
 
@@ -624,134 +655,135 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.pc += 1
 
             case 'BRBS':
-                K =  (self.ins>>3)&0b1111111 
+                self.K =  (self.ins>>3)&0b1111111 
                 S =  self.ins&0b111
                 if(self.SREG>>S)&1 == 1:
-                    self.pc += + K +1
+                    self.pc += + self.K +1
                 else:
                     self.pc += 1 
 
             case 'BRBC':
-                K =  (self.ins>>3)&0b1111111 
+                self.K =  (self.ins>>3)&0b1111111 
                 S =  self.ins&0b111
                 if(self.SREG>>S)&1 == 0:
-                    self.pc += + K +1
+                    self.pc += + self.K +1
                 else:
                     self.pc += 1 
 
             case 'BREQ':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>Z)&1) == 1:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
             case 'BRNE':
-                K = (self.ins>>3) & 0b1111111
-                if((self.SREG>>Z)&1) == 0:
-                    self.pc += K + 1
+                self.K = (self.ins>>3) & 0b1111111
+
+                if((self.SREG>>1)&1) == 0:
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
 
             case 'BRCS':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>C)&1) == 1:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
 
             case 'BRCC':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>C)&1) == 0:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
             case 'BRSH':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>C)&1) == 0:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
             case 'BRLO':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>C)&1) == 1:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
 
             case 'BRMI':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>N)&1) == 1:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
 
             case 'BRGE':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>S)&1) == 0:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
 
             case 'BRLT':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>S)&1) == 1:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
 
             case 'BRHS':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>H)&1) == 1:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
 
             case 'BRHC':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>H)&1) == 0:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
 
             case 'BRTS':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>T)&1) == 1:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
 
             case 'BRTC':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>T)&1) == 0:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
 
             case 'BRVS':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>V)&1) == 1:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
 
             case 'BRVC':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>V)&1) == 0:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
 
             case 'BRIE':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>I)&1) == 1:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
 
             case 'BRID':
-                K = (self.ins>>3) & 0b1111111
+                self.K = (self.ins>>3) & 0b1111111
                 if((self.SREG>>I)&1) == 0:
-                    self.pc += K + 1
+                    self.pc += self.K + 1
                 else:
                     self.pc += 1
 
@@ -767,22 +799,22 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.pc += 1
 
             case 'LSL': ## jsut add I don't know what the best implementation would be 
-                Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                self.reg[Rd] += self.reg[Rd]
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
+                self.reg[self.Rd] += self.reg[self.Rd]
                 
                 self.pc += 1
 
             case 'LSR':
-                Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                self.SREG = self.SREG | ((self.reg[Rd]&1)<<C)
-                self.reg[Rd] = self.reg[Rd]>>1
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
+                self.SREG = self.SREG | ((self.reg[self.Rd]&1)<<C)
+                self.reg[self.Rd] = self.reg[self.Rd]>>1
                 
                 self.pc += 1
 
             case 'ROL':
-                Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                self.SREG = self.SREG | ((self.reg[Rd]&1)<<C)
-                self.reg[Rd] = self.reg[Rd]>>1
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
+                self.SREG = self.SREG | ((self.reg[self.Rd]&1)<<C)
+                self.reg[self.Rd] = self.reg[self.Rd]>>1
                 
                 self.pc += 1
             case 'ROR':
@@ -790,8 +822,8 @@ class SingleCycleATmega328P(py4hw.Logic):
             ##case 'ASR':
 
             case 'SWAP':
-                Rd = (self.ins>>4)&11111
-                self.reg[Rd]= ((self.reg[Rd]>>4)&0xF) | ((self.reg[Rd]<<4)&0xF0)
+                self.Rd = (self.ins>>4)&11111
+                self.reg[self.Rd]= ((self.reg[self.Rd]>>4)&0xF) | ((self.reg[self.Rd]<<4)&0xF0)
 
                 self.pc += 1
             case 'BSET':
@@ -806,16 +838,16 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.pc = 1
             case 'BST':
                 b = self.ins&0b111
-                Rd = (self.ins>>4)&0b11111
+                self.Rd = (self.ins>>4)&0b11111
                 self.SREG &= ~(0b1<<T)
-                self.SREG |= ((self.reg[Rd]>>b)&1)<<T
+                self.SREG |= ((self.reg[self.Rd]>>b)&1)<<T
 
                 self.pc += 1
             case 'BLD':
                 b = self.ins&0b111
-                Rd = (self.ins>>4)&0b11111
-                self.reg[Rd] &= ~(0b1<<b)
-                self.reg[Rd] |= ((self.SREG>>T)&1)<<b
+                self.Rd = (self.ins>>4)&0b11111
+                self.reg[self.Rd] &= ~(0b1<<b)
+                self.reg[self.Rd] |= ((self.SREG>>T)&1)<<b
 
                 self.pc += 1
 # Useless code because these instructions don't exist in hardware
@@ -878,27 +910,27 @@ class SingleCycleATmega328P(py4hw.Logic):
 # R31 Z-register High Byte 
 
             case 'MOV':
-                Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
-                Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
-                self.reg[Rd] =  self.reg[Rr]
+                self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
+                self.reg[self.Rd] =  self.reg[self.Rr]
 
                 self.pc += 1
             case 'MOVW':
-                Rr = (self.ins & 0xF)
-                Rd = ((self.ins>>4) & 0xF)
-                self.reg[Rd] =  self.reg[Rr]
-                self.reg[Rd+1] = self.reg[Rr+1]
+                self.Rr = (self.ins & 0xF)
+                self.Rd = ((self.ins>>4) & 0xF)
+                self.reg[self.Rd] =  self.reg[self.Rr]
+                self.reg[self.Rd+1] = self.reg[self.Rr+1]
 
                 self.pc += 1
             case 'LDI':
-                Rd = (self.ins>>4)&0b1111
-                K = (self.ins&0xF)|(((self.ins)>>4)&0xF0)
+                self.Rd = (self.ins>>4)&0b1111
+                self.K = (self.ins&0xF)|(((self.ins)>>4)&0xF0)
 
-                self.reg[Rd] = K 
+                self.reg[self.Rd] = self.K 
                 self.pc += 1
 
             case 'LDX': #X
-                Rd = (self.ins>>4)&0b11111 
+                self.Rd = (self.ins>>4)&0b11111 
                 X  = self.reg[26]|(self.reg[27]<<8)
                 self.mem.address.prepare(X)
                 self.mem.write.prepare(0)
@@ -906,14 +938,14 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.read.be(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
-                    self.reg[Rd] = self.mem.read_data.get()
+                    self.reg[self.Rd] = self.mem.read_data.get()
                     self.pc += 1
                     self.next_cycle = False 
                 else: 
                     self.next_cycle = True 
 
             case 'LDX+': #X+
-                Rd = (self.ins>>4)&0b11111
+                self.Rd = (self.ins>>4)&0b11111
                 X = self.reg[26]|(self.reg[27]<<8)
                 self.mem.address.prepare(X)
                 self.mem.write.prepare(0)
@@ -921,7 +953,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.read.be(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
-                    self.reg[Rd] = self.mem.read_data.get()
+                    self.reg[self.Rd] = self.mem.read_data.get()
                     self.pc += 1
                     self.next_cycle = False 
                 else: 
@@ -932,7 +964,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.reg[27] = (X>>8)&0xFF
 
             case 'LD-X': #-X
-                Rd = (self.ins>>4)&0b11111
+                self.Rd = (self.ins>>4)&0b11111
                 X = self.reg[26]|(self.reg[27]<<8)
                 X -= 1 ##decrementing X
                 self.reg[26] = X&0xFF 
@@ -944,7 +976,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.read.be(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
-                    self.reg[Rd] = self.mem.read_data.get()
+                    self.reg[self.Rd] = self.mem.read_data.get()
                     self.pc += 1
                     self.next_cycle = False 
                 else: 
@@ -953,7 +985,7 @@ class SingleCycleATmega328P(py4hw.Logic):
 
 
             case 'LDY': #Y
-                Rd = (self.ins>>4)&0b11111
+                self.Rd = (self.ins>>4)&0b11111
                 Y = self.reg[28]|(self.reg[29]<<8)
                 self.mem.address.prepare(Y)
                 self.mem.write.prepare(0)
@@ -961,14 +993,14 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.read.be(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
-                    self.reg[Rd] = self.mem.read_data.get()
+                    self.reg[self.Rd] = self.mem.read_data.get()
                     self.pc += 1
                     self.next_cycle = False 
                 else: 
                     self.next_cycle = True 
 
             case 'LDY+': #Y+
-                Rd = (self.ins>>4)&0b11111
+                self.Rd = (self.ins>>4)&0b11111
                 Y = self.reg[28]|(self.reg[29]<<8)
                 self.mem.address.prepare(Y)
                 self.mem.write.prepare(0)
@@ -976,7 +1008,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.read.be(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
-                    self.reg[Rd] = self.mem.read_data.get()
+                    self.reg[self.Rd] = self.mem.read_data.get()
                     self.pc += 1
                     self.next_cycle = False 
                 else: 
@@ -987,7 +1019,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.reg[29] = (Y>>8)&0xFF
 
             case 'LD-Y': #-Y
-                Rd = (self.ins>>4)&0b11111
+                self.Rd = (self.ins>>4)&0b11111
                 Y = self.reg[28]|(self.reg[29]<<8)
 
                 Y += 1 ##incrementing Y
@@ -1000,7 +1032,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.read.be(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
-                    self.reg[Rd] = self.mem.read_data.get()
+                    self.reg[self.Rd] = self.mem.read_data.get()
                     self.pc += 1
                     self.next_cycle = False 
                 else: 
@@ -1008,7 +1040,7 @@ class SingleCycleATmega328P(py4hw.Logic):
 
 
             case 'LDDY':#Y+q
-                Rd = (self.ins>>4)&0b11111
+                self.Rd = (self.ins>>4)&0b11111
                 Y = self.reg[28]|(self.reg[29]<<8)
                 q = (self.ins&0b111)|(self.ins&0b11000>>6)|(self.ins&0b100000>>7)
                 
@@ -1018,7 +1050,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.read.be(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
-                    self.reg[Rd] = self.mem.read_data.get()
+                    self.reg[self.Rd] = self.mem.read_data.get()
                     self.pc += 1
                     self.next_cycle = False 
                 else: 
@@ -1027,7 +1059,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 
 
             case 'LDZ':#Z
-                Rd = (self.ins>>4)&0b11111
+                self.Rd = (self.ins>>4)&0b11111
                 Z = self.reg[30]|(self.reg[31]<<8)
 
                 self.mem.address.prepare(Z)
@@ -1036,14 +1068,14 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.read.be(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
-                    self.reg[Rd] = self.mem.read_data.get()
+                    self.reg[self.Rd] = self.mem.read_data.get()
                     self.pc += 1
                     self.next_cycle = False 
                 else: 
                     self.next_cycle = True 
 
             case 'LDZ+':#Z+
-                Rd = (self.ins>>4)&0b11111
+                self.Rd = (self.ins>>4)&0b11111
                 Z = self.reg[28]|(self.reg[29]<<8)
                 self.mem.address.prepare(Z)
                 self.mem.write.prepare(0)
@@ -1051,7 +1083,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.read.be(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
-                    self.reg[Rd] = self.mem.read_data.get()
+                    self.reg[self.Rd] = self.mem.read_data.get()
                     self.pc += 1
                     self.next_cycle = False 
                 else: 
@@ -1063,7 +1095,7 @@ class SingleCycleATmega328P(py4hw.Logic):
 
 
             case 'LD-Z':#–Z
-                Rd = (self.ins>>4)&0b11111
+                self.Rd = (self.ins>>4)&0b11111
                 Z = self.reg[26]|(self.reg[27]<<8)
                 Z -= 1 ##decrementing Z
                 self.reg[26] = Z&0xFF 
@@ -1075,14 +1107,14 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.read.be(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
-                    self.reg[Rd] = self.mem.read_data.get()
+                    self.reg[self.Rd] = self.mem.read_data.get()
                     self.pc += 1
                     self.next_cycle = False 
                 else: 
                     self.next_cycle = True 
 
             case 'LDDZ':#Z+q  verify this implementation
-                Rd = (self.ins>>4)&0b11111
+                self.Rd = (self.ins>>4)&0b11111
                 Z = self.reg[28]|(self.reg[29]<<8)
                 q = (self.ins&0b111)|(self.ins&0b11000>>6)|(self.ins&0b100000>>7)
                 
@@ -1092,36 +1124,36 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.read.be(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
-                    self.reg[Rd] = self.mem.read_data.get()
+                    self.reg[self.Rd] = self.mem.read_data.get()
                     self.pc += 1
                     self.next_cycle = False 
                 else: 
                     self.next_cycle = True 
 
             case 'LDS':#k  Load direct from sram
-                Rd = (self.ins>>4)&0b11111
-                K = self.flash[self.pc+1]
+                self.Rd = (self.ins>>4)&0b11111
+                self.K = self.flash[self.pc+1]
 
-                self.mem.address.prepare(K)
+                self.mem.address.prepare(self.K)
                 self.mem.write.prepare(0)
                 self.mem.read.prepare(1)
                 self.mem.read.be(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
-                    self.reg[Rd] = self.mem.read_data.get()
+                    self.reg[self.Rd] = self.mem.read_data.get()
                     self.pc += 1
                     self.next_cycle = False 
                 else: 
                     self.next_cycle = True 
 
             case 'STX':#X
-                Rr = (self.ins>>4)&0b11111
+                self.Rr = (self.ins>>4)&0b11111
                 X = self.reg[26]|(self.reg[27]<<8)
                 self.mem.address.prepare(X)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
                 self.mem.read.be(1)
-                self.mem.write_data(self.reg[Rr])
+                self.mem.write_data(self.reg[self.Rr])
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
                     self.pc += 1
@@ -1131,13 +1163,13 @@ class SingleCycleATmega328P(py4hw.Logic):
 
 
             case 'STX+':#X+
-                Rr = (self.ins>>4)&0b11111
+                self.Rr = (self.ins>>4)&0b11111
                 X = self.reg[26]|(self.reg[27]<<8)
                 self.mem.address.prepare(X)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
                 self.mem.read.be.preapre(1) 
-                self.mem.write_data.prepare(self.reg[Rr]) # IMPORTANT  I have to check if this is a 2 cycle operation(ST) or 3 cycle 
+                self.mem.write_data.prepare(self.reg[self.Rr]) # IMPORTANT  I have to check if this is a 2 cycle operation(ST) or 3 cycle 
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
                     self.pc += 1
@@ -1151,7 +1183,7 @@ class SingleCycleATmega328P(py4hw.Logic):
 
 
             case 'ST-X':#–X
-                Rr = (self.ins>>4)&0b11111
+                self.Rr = (self.ins>>4)&0b11111
                 x -= 1 ##incrementing X
                 self.reg[27] = X&0xFF 
                 self.reg[28] = (X>>8)&0xFF
@@ -1160,7 +1192,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
                 self.mem.read.be.prepare(1)
-                self.mem.write_data.prepare(self.reg[Rr])
+                self.mem.write_data.prepare(self.reg[self.Rr])
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
                     self.pc += 1
@@ -1169,13 +1201,13 @@ class SingleCycleATmega328P(py4hw.Logic):
                     self.next_cycle = True 
 
             case 'STY':#Y
-                Rr = (self.ins>>4)&0b11111
+                self.Rr = (self.ins>>4)&0b11111
                 Y = self.reg[27]|(self.reg[28]<<8)
                 self.mem.address.prepare(X)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
                 self.mem.read.be(1)
-                self.mem.write_data(self.reg[Rr])
+                self.mem.write_data(self.reg[self.Rr])
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
                     self.pc += 1
@@ -1185,13 +1217,13 @@ class SingleCycleATmega328P(py4hw.Logic):
 
 
             case 'STY+':#Y+
-                Rr = (self.ins>>4)&0b11111
+                self.Rr = (self.ins>>4)&0b11111
                 Y = self.reg[28]|(self.reg[29]<<8)
                 self.mem.address.prepare(X)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
                 self.mem.read.be(1)
-                self.mem.write_data(self.reg[Rr])
+                self.mem.write_data(self.reg[self.Rr])
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
                     self.pc += 1
@@ -1204,7 +1236,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.reg[29] = (Y>>8)&0xFF
 
             case 'ST-Y':#–Y
-                Rr = (self.ins>>4)&0b11111
+                self.Rr = (self.ins>>4)&0b11111
                 Y = self.reg[26]|(self.reg[27]<<8)
                 Y -= 1 ##incrementing Y
                 self.reg[28] = Y&0xFF 
@@ -1214,7 +1246,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
                 self.mem.read.be(1)
-                self.mem.write_data(self.reg[Rr])
+                self.mem.write_data(self.reg[self.Rr])
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
                     self.pc += 1
@@ -1223,17 +1255,17 @@ class SingleCycleATmega328P(py4hw.Logic):
                     self.next_cycle = True 
 
             case 'STD':#Y+q
-                Rr = (self.ins>>4)&0b11111
+                self.Rr = (self.ins>>4)&0b11111
 
 
             case 'STZ':#Z
-                Rr = (self.ins>>4)&0b11111
+                self.Rr = (self.ins>>4)&0b11111
                 Y = self.reg[26]|(self.reg[27]<<8)
                 self.mem.address.prepare(X)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
                 self.mem.read.be(1)
-                self.mem.write_data(self.reg[Rr])
+                self.mem.write_data(self.reg[self.Rr])
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
                     self.pc += 1
@@ -1242,13 +1274,13 @@ class SingleCycleATmega328P(py4hw.Logic):
                     self.next_cycle = True 
 
             case 'STZ+':#Z+
-                Rr = (self.ins>>4)&0b11111
+                self.Rr = (self.ins>>4)&0b11111
                 Z = self.reg[30]|(self.reg[31]<<8)
                 self.mem.address.prepare(Z)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
                 self.mem.read.be(1)
-                self.mem.write_data(self.reg[Rr])
+                self.mem.write_data(self.reg[self.Rr])
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
                     self.pc += 1
@@ -1257,13 +1289,13 @@ class SingleCycleATmega328P(py4hw.Logic):
                     self.next_cycle = True 
 
             case 'ST-Z':#–Z
-                Rr = (self.ins>>4)&0b11111
+                self.Rr = (self.ins>>4)&0b11111
                 Z = self.reg[30]|(self.reg[31]<<8)
                 self.mem.address.prepare(Z)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
                 self.mem.read.be(1)
-                self.mem.write_data(self.reg[Rr])
+                self.mem.write_data(self.reg[self.Rr])
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
                     self.pc += 1
@@ -1272,11 +1304,11 @@ class SingleCycleATmega328P(py4hw.Logic):
                     self.next_cycle = True 
 
             case 'STD':#Z+q
-                Rr = (self.ins>>4)&0b11111
+                self.Rr = (self.ins>>4)&0b11111
 
 
             case 'STS':#k
-                Rr = (self.ins>>4)&0b11111
+                self.Rr = (self.ins>>4)&0b11111
 
 
             case 'LPM': #R0 implied
@@ -1285,16 +1317,16 @@ class SingleCycleATmega328P(py4hw.Logic):
 
 
             case 'LPM': #Z
-                Rd = (self.ins>>4)&0b11111
+                self.Rd = (self.ins>>4)&0b11111
                 Z = self.reg[30]|(self.reg[31]<<8)
 
-                self.reg[Rd] = self.flash[Z]
+                self.reg[self.Rd] = self.flash[Z]
 
             case 'LPM': #Z+
-                Rd = (self.ins>>4)&0b11111
+                self.Rd = (self.ins>>4)&0b11111
                 Z = self.reg[30]|(self.reg[31]<<8)
 
-                self.reg[Rd] = self.flash[Z]
+                self.reg[self.Rd] = self.flash[Z]
 
                 Z += 1 ##decrementing Z
                 self.reg[26] = Z&0xFF 
@@ -1305,16 +1337,16 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.flash[Z] = self.reg[0]|(self.reg[1]<<8) #verifi the order of the registers
 
             case 'IN':
-                Rd = (self.ins>>4)&0b11111
+                self.Rd = (self.ins>>4)&0b11111
                 A = (self.ins)&0xF | ((self.ins)>>5)&0b110000 #don't know what is the port
 
-
+                self.pc+=1
 
             case 'OUT':
-                Rr = (self.ins>>4)&0b11111
+                self.Rr = (self.ins>>4)&0b11111
                 A = (self.ins)&0xF | ((self.ins)>>5)&0b110000 #don't know what is the port
 
-
+                self.pc+=1
             case 'PUSH':
                 d =  (self.ins>>4)&11111
 

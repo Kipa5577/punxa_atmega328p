@@ -62,6 +62,7 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b10010010000: return 'STS'
 
     match OP18:
+        
         case 0b1001010111: return 'CALL'
         case 0b1001010110: return 'JMP'
 

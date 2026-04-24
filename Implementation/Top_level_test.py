@@ -60,37 +60,77 @@ with open('./Code_Test/main.hex','rb') as f:
         start_Code = str(start_Code,'utf-8')
         print(start_Code)
         nbbytes = str(f.read(2),'utf-8')
-        #print(nbbytes)
+        print(nbbytes)
         starting_address =  str(f.read(4),'utf-8')
-        #print(starting_address)
+        print(starting_address)
         record_type = str(f.read(2),'utf-8')
-        #print(record_type)
+        print(record_type)
         if record_type == "00": # To write only "Data Record"
             ##print("True")
             memory_position = int(starting_address,16)//2
+
             for i in range(int(nbbytes,16)//2): 
-                byte = str(f.read(4),'utf-8')
-                print("{index} {val}".format(index = i ,val = byte))    
+                byteLSB = str(f.read(2),'utf-8')  #there may be a problem between word adressis and byte adressis but I am willing to let it slide
+                byteMSB = str(f.read(2),'utf-8')
+                byte = byteMSB + byteLSB
                 CPU.flash[memory_position] = int(byte,16)  #little or big 
+                print("{flash} {mem_pos} {index} {val}".format(flash=hex(CPU.flash[memory_position]),mem_pos=memory_position,index = i ,val = byte))   
                 memory_position+=1
 
             checksum = str(f.read(2),'utf-8')
             print(checksum)
             end_of_line_caracters = str(f.read(2),'utf-8')
             print(end_of_line_caracters)
+
+        elif record_type == '01': #"End of Record."
+
+            memory_position = int(starting_address,16)//2
+            byte = str(f.read(4),'utf-8')
+            print("{index} {val}".format(index = i ,val = byte)) 
+            #CPU.flash[memory_position] = int(byte,16)  #little or big 
+            checksum = str(f.read(2),'utf-8')
+            print(checksum)
+            end_of_line_caracters = str(f.read(2),'utf-8')
+            print(end_of_line_caracters)
+            
+        elif record_type == '02':  #"Extended Segment Address Record"
+            print("Record type 02 not implemented")
+
+        elif record_type == '03':  #"Start Segment Address Record"
+            print("Record type 03 not implemented")
+
+        elif record_type == '04':  #"Extended Linear Address Record"
+            byte = str(f.read(4),'utf-8')
+            print("{val}".format( val = byte)) 
+            memory_position = 0
+            checksum = str(f.read(2),'utf-8')
+            print(checksum)
+            end_of_line_caracters = str(f.read(2),'utf-8')
+            print(end_of_line_caracters)
+
+        elif record_type == '05':  #"Extended Linear Address Record"
+            print("Record type 05 not implemented")
+            
     f.close()
+
+
+
+print("Hello \n n : next instruction \n r: ram memory dump \n f: flash memory dump \n e: exit ")
+    
+print("Register State")
+#print register state 
+print("Current instruction:{instruction}".format(instruction =  ins_to_str(CPU.flash[CPU.pc])))
+for i in range(32):
+    print("R{index} : {value}".format(index = i, value = CPU.reg[i]),end=" ")
+print("Pc:{value}".format(value = CPU.pc))
+print("Ps:{value}".format(value = CPU.stack_pointer))
+print("opp:{value1} ins:{value2} Rr:{value3} Rd:{value4} K:{value5}".format(value1 = CPU.opp,value2 = CPU.ins, value3 = CPU.Rr, value4 = CPU.Rd,value5 = CPU.K))
+#print("I:{I} T:{T} H:{H} S:{S} V:{V} N:{N} Z:{Z} C{C}".format(I = CPU.I))
+print("SREG:{0:>08b}".format(CPU.SREG))
 
 main_loop = True
 while main_loop == True:
-    print("Hello \n n : next instruction \n r: ram memory dump \n f: flash memory dump \n e: exit ")
-    
-    print("Register State")
-    #print register state 
-    print("Current instruction:{instruction}".format(instruction =  ins_to_str(CPU.flash[CPU.pc])))
-    for i in range(32):
-        print("R{index} : {value}".format(index = i, value = CPU.reg[i]),end=" ")
-    print("Pc:{value}".format(value = CPU.pc))
-    print("Ps:{value}".format(value = CPU.stack_pointer))
+
 
     user_command = input()
     if user_command ==  'f':
@@ -129,6 +169,8 @@ while main_loop == True:
             print("R{index}:{value}".format(index = i, value = CPU.reg[i]),end=" ")
         print("Pc:{value}".format(value = CPU.pc))
         print("Ps:{value}".format(value = CPU.stack_pointer))
+        print("opp:{value1} ins:{value2} Rr:{value3} Rd:{value4} K:{value5}".format(value1 = CPU.opp,value2 = CPU.ins, value3 = CPU.Rr, value4 = CPU.Rd,value5 = CPU.K))
+        print("SREG:{0:>08b}".format(CPU.SREG))
         print("---------------------------------------------------------------")
     
     elif user_command == 'e':#to exit

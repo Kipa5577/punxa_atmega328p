@@ -1,5 +1,10 @@
 import py4hw
-from Memory import * 
+from Lib.Memory import * 
+import py4hw
+from py4hw.logic import *
+from py4hw.logic.storage import *
+from py4hw.simulation import Simulator
+import py4hw.debug
 
 ## *_IO = IN and OUT instruction address
 ## *_LS =  LD LDS ST STS instruction address
@@ -18,55 +23,76 @@ class GPIO(py4hw.Logic):
         self.GPIOR0_addr_IO = 0x1E
         self.GPIOR0_addr_LS = 0x3E
         self.opp = 'none'
-        self.oppOut = py4hw.Wire(parent,'oppOut',2)
-        self.addr=  py4hw.Wire(parent,'addr',self.interface.address_width)
-        self.stateB = py4hw.Wire(parent,'stateB',1)
-        self.stateC = py4hw.Wire(parent,'stateC',1)
-        self.stateD = py4hw.Wire(parent,'stateD',1)
-        self.dataIN = py4hw.Wire(parent,'state',8)
+        self.addresGot = 0
+        self.writeab = 0
+        self.readab = 0
+#       self.oppOut = py4hw.Wire(self,'oppOut',2)
+#       self.addr=  py4hw.Wire(self,'addr',16)
+#       self.stateB = py4hw.Wire(self,'stateB',1)
+#       self.stateC = py4hw.Wire(self,'stateC',1)
+#       self.stateD = py4hw.Wire(self,'stateD',1)
+#       self.dataIN = py4hw.Wire(self,'dataIN',8)
 
-        self.PORTB =  PortX(parent,'PORTB',0x05,0x25,0x04,0x24,0x03,0x23,self.oppOut,self.addr,self.dataIN,self.stateB)
-        self.PORTC =  PortX(parent,'PORTB',0x08,0x28,0x07,0x27,0x06,0x26,self.oppOut,self.addr,self.dataIN,self.stateC)
-        self.PORTD =  PortX(parent,'PORTB',0x0B,0x2B,0x0A,0x2A,0x09,0x29,self.oppOut,self.addr,self.dataIN,self.stateD)
+        #self.PORTB =  PortX(self,'PORTB',0x05,0x25,0x04,0x24,0x03,0x23,self.oppOut,self.addr,self.dataIN,self.stateB)
+        #self.PORTC =  PortX(self,'PORTC',0x08,0x28,0x07,0x27,0x06,0x26,self.oppOut,self.addr,self.dataIN,self.stateC)
+        #self.PORTD =  PortX(self,'PORTD',0x0B,0x2B,0x0A,0x2A,0x09,0x29,self.oppOut,self.addr,self.dataIN,self.stateD)
+
+#        def propagate(self):
+#            if self.interface.address.get() == self.GPIOR2_addr_IO:
+#                if self.interface.read.get() == 1:
+#                   self.interface.read_data.put(self.GPIOR2)
+#                elif self.interface.write.get() ==1:
+#                    self.GPIOR2 = self.interface.write_data.get()
+                
 
         def clock(self):
-            if self.interface.read.get():
-                self.opp = 'read'
-            elif self.interface.write.get():
-                self.opp = 'write'
-            else:
-                self.opp = 'none'
-                self.oppOut.oppOut(0)
+            self.addresGot = self.interface.address.get()
+            self.writeab =  self.interface.write.get()
+            self.readab =  self.interface.read.get()
+            if self.interface.address.get() == self.GPIOR2_addr_IO:
+                if self.interface.read.get() == 1:
+                    self.interface.read_data.prepare(self.GPIOR2)
+                elif self.interface.write.get() ==1:
+                    self.GPIOR2 = self.interface.write_data.get()
 
-            if self.opp != 'none':
-                addr =  self.interface.address()
-                match addr:
-                    case self.GPIOR2_addr_IO | self.GPIOR2_addr_LS:
-                        match self.opp:
-                            case 'read':
-                                self.interface.read_data.prepare(self.GPIOR2)
-                            case 'write':
-                                self.PORTX = self.interface.write_data.get()
+#        def clock(self):
+#            if self.interface.read.get() == 1:
+#                 self.opp = 'read'
+#            elif self.interface.write.get() == 1:
+#                 self.opp = 'write'
+#            else:
+#                self.opp = 'none'
+#                self.oppOut.oppOut(0)
 
-                    case self.GPIOR1_addr_IO | self.GPIOR1_addr_LS:
-                        match self.opp:
-                            case 'read':
-                                self.interface.read_data.prepare(self.GPIOR1)
-                            case 'write':
-                                self.PORTX = self.dataIN.get()
-                    case self.GPIOR0_addr_IO | self.GPIOR0_addr_LS:
-                        match self.opp:
-                            case 'read':
-                                self.interface.read_data.prepare(self.GPIOR0)
-                            case 'write':
-                                self.PORTX = self.interface.write_data.get()
-                    case _:
-                        match self.opp:
-                            case 'read':
-                                self.oppOut.prepare(2)
-                            case 'write':
-                                self.oppOut.prepare(1)
-                                self.dataIN.prepare(self.interface.write_data.get())
+#                addr =  self.interface.address.get()
+#                match self.interface.address.get():
+#                    case self.GPIOR2_addr_IO | self.GPIOR2_addr_LS:
+#                        match self.opp:
+#                            case 'read':
+#                                self.interface.read_data.prepare(self.GPIOR2)
+#                            case 'write':
+#                                self.PORTX = self.interface.write_data.get()
+#
+#                    case self.GPIOR1_addr_IO | self.GPIOR1_addr_LS:
+#                        match self.opp:
+#                            case 'read':
+#                                self.interface.read_data.prepare(self.GPIOR1)
+#                            case 'write':
+#                                self.PORTX = self.dataIN.get()
+#                    case self.GPIOR0_addr_IO | self.GPIOR0_addr_LS:
+#                        match self.opp:
+#                            case 'read':
+#                                self.interface.read_data.prepare(self.GPIOR0)
+#                            case 'write':
+#                                self.PORTX = self.interface.write_data.get()
+#                    case _:
+#                        print("ohlolo")
+#                        match self.opp:
+#                            case 'read':
+#                                self.oppOut.prepare(2)
+#                            case 'write':
+#                                self.oppOut.prepare(1)
+#                               self.dataIN.prepare(self.interface.write_data.get())
                      
 
 
