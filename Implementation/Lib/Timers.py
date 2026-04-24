@@ -20,6 +20,25 @@ class TimerCounter0(py4hw.Logic): #8 Bit timer
 
 
     def clock(self):
+        print(nop) 
+
+#Bit flags 
+#TCCR1A
+COM1A1 = 7
+COM1A0 = 6
+COM1B1 = 5
+COM1B0 = 4
+WGM11 = 1
+WGM10 = 0
+#TCCR1B
+ICNC1 = 7
+ICES1 = 6
+WGM13 = 4 
+WGM12 = 3
+CS12 = 2
+CS11 = 1 
+CS10 = 0
+#TCCR1C
 
 
 class TimerCounter1(py4hw.Logic): #16 Bit timer

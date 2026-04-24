@@ -3,7 +3,7 @@
 #Instructions in the data sheet 131
 #Acounted for 131
 #Decoded by the function 131 
-#Instructions found in test 98 + CBR + BRLO + BRCC + SBR  + 16(for the SREG clear and set instructions) Total: 118 missing 13 instructions
+#Instructions found in test 98 + CBR + BRLO + BRCC + SBR + TST +CLR + 16(for the SREG clear and set instructions) Total: 121 ,missing 10 instructions
 
 
 #          #|15|14|13|12|11|10| 9| 8| 7| 6| 5| 4| 3| 2| 1| 0|
@@ -13,7 +13,7 @@
 #4         #| OP                       | D  D  D|OP| R  R  R|'MULSU' 'FMUL' 'FMULS' 'FMULSU'
 #5         #| OP                    | D  D  D  D| R  R  R  R| 'MULS' 'MOVW'
 #6         #| OP                    | K  K| D  D| K  K  K  K|'ADIW' 'SBIW' 
-#7         #| OP                 | D  D  D  D  D| OP        |'INC' 'DEC'  'LSR' 'ROR' 'ASR' 'SWAP' 'POP' 'PUSH' 'LPMZ' 'LPMZ+' 'ST' 'COM' 'NEG' 'LDX' 'LDX+' 'LD-X' 'LDY' 'LDY+' 'LD-Y' 'LDZ' 'LD+Z' 'LD-Z' 'STX' 'STX+' 'ST-X' 'STY' 'STY+' 'ST-Y' 'STZ' 'STZ+' 'ST-Z' 
+#7         #| OP                 | D  D  D  D  D| OP        |'INC' 'DEC'  'LSR' 'ROR' 'ASR' 'SWAP' 'POP' 'PUSH' 'LPMZ' 'LPMZ+' 'ST' 'COM' 'NEG' 'LDX' 'LDX+' 'LD-X' 'LDY' 'LDY+' 'LD-Y' 'LDZ' 'LD+Z' 'LD-Z' 'STX' 'STX+' 'ST-X' 'STY' 'STY+' 'ST-Y' 'STZ' 'STZ+' 'ST-Z' 'ELPM'
 #8         #| OP              | D  D  D  D  D  D  D  D  D  D|'TST' 'LSL' 'ROL' 'CLR'
 #9         #| OP                       | S  S  S|OP         |'BSET' 'BCLR'
 #10        #| OP        | K  K  K  K  K  K  K  K  K  K  K  K|'RJMP' 'RCALL' 'LDI'
@@ -51,7 +51,7 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
     OP17 = ((ins>>3)&0b1)|(((ins>>9)&0b1)<<1)|(((ins>>12)&0b1)<<2)|((ins>>14)<<3)
     OP18 = (ins>>1&0b111)|((ins>>9)<<3) 
     OP19 = (ins&0b1111)|((ins>>9)<<4)
-    OP20 = ((ins>>3)&0b1)|((ins>>9)<<1)
+    OP20 = ((ins>>3)&0b1)|((ins>>10)<<1)
 
     match OP20:
         case 0b11111100: 'SBRC'
@@ -133,8 +133,10 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b10010010001: return 'STZ+'
         case 0b10010010010: return 'ST-Z'
 
+        case 0b10010000111: return 'ELPM'
         case 0b10010000100: return 'LPMZ'
         case 0b10010000101: return 'LPMZ+'
+
 
 
     match OP4:

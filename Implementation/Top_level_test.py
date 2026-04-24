@@ -1,4 +1,5 @@
 import py4hw
+import os
 from Lib.SingleCycle.runCycle import *
 from Lib.Memory import *
 from Lib.Instruction_Decoder import *
@@ -52,37 +53,89 @@ RAM = Memory(sys,'mem',8,16,mem)
 ## loading hex file to memory
 memory_position = 0
 with open('./Code_Test/main.hex','rb') as f:
-    while 1:
-        byte = f.read(2)
-        if not byte:
+    while 1 :
+        start_Code = f.read(1)
+        if not start_Code:
             break
-        CPU.flash[memory_position] = int.from_bytes(byte,"big")  #little or big 
-        memory_position+=1
+        start_Code = str(start_Code,'utf-8')
+        print(start_Code)
+        nbbytes = str(f.read(2),'utf-8')
+        #print(nbbytes)
+        starting_address =  str(f.read(4),'utf-8')
+        #print(starting_address)
+        record_type = str(f.read(2),'utf-8')
+        #print(record_type)
+        if record_type == "00": # To write only "Data Record"
+            ##print("True")
+            memory_position = int(starting_address,16)//2
+            for i in range(int(nbbytes,16)//2): 
+                byte = str(f.read(4),'utf-8')
+                print("{index} {val}".format(index = i ,val = byte))    
+                CPU.flash[memory_position] = int(byte,16)  #little or big 
+                memory_position+=1
+
+            checksum = str(f.read(2),'utf-8')
+            print(checksum)
+            end_of_line_caracters = str(f.read(2),'utf-8')
+            print(end_of_line_caracters)
     f.close()
 
+main_loop = True
+while main_loop == True:
+    print("Hello \n n : next instruction \n r: ram memory dump \n f: flash memory dump \n e: exit ")
+    
+    print("Register State")
+    #print register state 
+    print("Current instruction:{instruction}".format(instruction =  ins_to_str(CPU.flash[CPU.pc])))
+    for i in range(32):
+        print("R{index} : {value}".format(index = i, value = CPU.reg[i]),end=" ")
+    print("Pc:{value}".format(value = CPU.pc))
+    print("Ps:{value}".format(value = CPU.stack_pointer))
 
-## CPU memory dump raw 
-dump = open("memoryDump.txt", "a")
+    user_command = input()
+    if user_command ==  'f':
+        if os.path.exists("FlashMemoryDump.txt"):
+            os.remove("FlashMemoryDump.txt")
 
-#for i in range(len(CPU.flash)):
-#    dump.write(str(CPU.flash[i]))
-#    if i % 16 == 0:
-#        dump.write("\n")
+        ## CPU Flash memory dump  
+        dump = open("FlashMemoryDump.txt", "a")
+        #dump with instrucions decoded. #CALL and JUMP are 32bits 
+        for i in range(0,len(CPU.flash)):
+            ins = CPU.flash[i] 
+            if CPU.pc == i: 
+                dump.write(">{0:>016b} : {instr} \n".format(ins,instr = ins_to_str(ins)))
+            else:
+                dump.write("{0:>016b} : {instr} \n".format(ins,instr = ins_to_str(ins)))
 
+        dump.close()
 
-print(type(CPU.flash[0]))
-print(bin(CPU.flash[0] ))#+ CPU.flash[1]))
+    elif user_command == 'r':
+        if os.path.exists("RamMemoryDump.txt"):
+            os.remove("RamMemoryDump.txt")
 
-#dump with instrucions decoded.
-for i in range(0,len(CPU.flash)):
-    ins = CPU.flash[i] 
-    dump.write("{0:>016b} : {instr} \n".format(ins,instr = ins_to_str(ins)))
+        ## CPU Flash memory dump  
+        dump = open("RamMemoryDump.txt", "a")
+        #dump with instrucions decoded. #CALL and JUMP are 32bits 
+        for i in range(0,len(CPU.flash)):
+            ins = CPU.flash[i] 
+            dump.write("{0:>016b} : {instr} \n".format(ins,instr = ins_to_str(ins)))
 
-dump.close()
+        dump.close()
         
+    elif user_command == 'n':        
+        sys.getSimulator().clk(1)
+        print("Current instruction:{instruction}".format(instruction =  ins_to_str(CPU.flash[CPU.pc])))
+        for i in range(32):
+            print("R{index}:{value}".format(index = i, value = CPU.reg[i]),end=" ")
+        print("Pc:{value}".format(value = CPU.pc))
+        print("Ps:{value}".format(value = CPU.stack_pointer))
+        print("---------------------------------------------------------------")
+    
+    elif user_command == 'e':#to exit
+        main_loop = False
 
 
-
+#print register state 
 
 
 #UART
