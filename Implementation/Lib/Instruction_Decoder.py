@@ -3,7 +3,7 @@
 #Instructions in the data sheet 131
 #Acounted for 131
 #Decoded by the function 131 
-#Instructions found in test 98 + CBR + BRLO + BRCC + SBR + TST +CLR + 16(for the SREG clear and set instructions) Total: 121 ,missing 10 instructions
+#Instructions found in test 98 + CBR + BRLO + BRCC + SBR + TST +CLR +LPM+ 16(for the SREG clear and set instructions) Total: 122 ,missing 9 instructions
 
 
 #          #|15|14|13|12|11|10| 9| 8| 7| 6| 5| 4| 3| 2| 1| 0|
@@ -229,6 +229,7 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b1001010100001000: return 'RET'
         case 0b1001010100011000: return 'RETI'
         case 0b1001010111101000: return'SPM'
+        case 0b1001010111001000: return 'LPM'
 
 
     return 'invalid'

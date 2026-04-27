@@ -2,14 +2,14 @@ import py4hw
 from ..Instruction_Decoder import *  
 from ..Memory import * 
 
-global C
-global Z
-global N
-global V
-global S
-global H
-global T
-global I
+#global C
+#global Z
+#global N
+#global V
+#global S
+#global H
+#global T
+#global I
 
 C = 0
 Z = 1
@@ -37,7 +37,7 @@ class SingleCycleATmega328P(py4hw.Logic):
         super().__init__(parent,name)
 
         self.mem = self.addInterfaceSource('memory',memory)
-        self.pc = 0
+        self.pc = 0x3F00 ##bootloarder
         self.reg = [0]*32
         # self.ram = [0]*2048
         self.flash = [0]*16384
@@ -116,9 +116,11 @@ class SingleCycleATmega328P(py4hw.Logic):
 
         match self.opp: 
             case 'ADD':
+                
                 self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
                 self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
                 self.res = self.reg[self.Rd] + self.reg[self.Rr]
+
                 self.testC(self.res)
                 self.testZ(self.res)
                 self.testN(self.res)
@@ -504,16 +506,9 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.address.prepare(self.stack_pointer)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
-                self.mem.read.be(2)
-                self.mem.write_data(self.pc+1) ## writing to the stack(ram) the value  I have to write 2 bytes as pc is 16 bits
+                self.mem.be.prepare(2)
+                self.mem.write_data.prepare(self.pc+1) ## writing to the stack(ram) the value  I have to write 2 bytes as pc is 16 bits
                 self.stack_pointer -= 2
-                #I have to fix this problem sometime in the future 
-                #self.mem.address.prepare(self.stack_pointer)
-                #self.mem.write.prepare(1)
-                #self.mem.read.prepare(0)
-                #self.mem.read.be(1)
-                #self.mem.write_data(self.pc) ## writing to the stack(ram) the value  I have to write 2 bytes as pc is 16 bits
-                #self.stack_pointer -= 1
             
                 self.pc += self.K
 
@@ -522,8 +517,8 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.address.prepare(self.stack_pointer)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
-                self.mem.read.be(2)
-                self.mem.write_data(self.pc+1) ## writing to the stack(ram) the value 
+                self.mem.be.prepare(2)
+                self.mem.write_data.prepare(self.pc+1) ## writing to the stack(ram) the value 
                 self.stack_pointer -= 2
             
                 self.pc += self.reg[30]<<16|self.reg[31]
@@ -534,28 +529,29 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.address.prepare(self.stack_pointer)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
-                self.mem.read.be(2)
-                self.mem.write_data(self.pc+2) ## writing to the stack(ram) the value 
+                self.mem.be.prepare(2)
+                self.mem.write_data.prepare(self.pc+2) ## writing to the stack(ram) the value 
                 self.stack_pointer -= 2
 
                 self.pc = self.K
-            ##case 'RET':
+            case 'RET':
                 #pop instruction 
 
-                self.mem.address.prepare(self.stack_pointer)
-                self.mem.write.prepare(0)
-                self.mem.read.prepare(1)
-                self.mem.read.be(2)
-                self.pc = self.mem.read_data.get() #verifi that it is correct
                 self.stack_pointer += 2
+                self.mem.address.prepare(self.stack_pointer)
+                self.mem.write.prepare(0)
+                self.mem.read.prepare(1)
+                self.mem.be.prepare(2)
+                self.pc = self.mem.read_data.get() #verifi that it is correct
 
 
-            ##case 'RETI':## return from interrupt 
+
+            case 'RETI':## return from interrupt 
 
                 self.mem.address.prepare(self.stack_pointer)
                 self.mem.write.prepare(0)
                 self.mem.read.prepare(1)
-                self.mem.read.be(2)
+                self.mem.be.prepare(2)
                 self.pc = self.mem.read_data.get() #verifi that it is correct
                 self.stack_pointer += 2
 
@@ -672,7 +668,7 @@ class SingleCycleATmega328P(py4hw.Logic):
 
             case 'BREQ':
                 self.K = (self.ins>>3) & 0b1111111
-                if((self.SREG>>Z)&1) == 1:
+                if((self.SREG>>1)&1) == 1:
                     self.pc += self.K + 1
                 else:
                     self.pc += 1
@@ -830,12 +826,12 @@ class SingleCycleATmega328P(py4hw.Logic):
                 s = (self.ins>>4)&0b111
                 self.SREG |=(0b1<<s) 
 
-                self.pc = 1
+                self.pc += 1
             case 'BCLR':
                 s = (self.ins>>4)&0b111
                 self.SREG &=~(0b1<<s) 
 
-                self.pc = 1
+                self.pc += 1
             case 'BST':
                 b = self.ins&0b111
                 self.Rd = (self.ins>>4)&0b11111
@@ -1121,7 +1117,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.address.prepare(Z+q)
                 self.mem.write.prepare(0)
                 self.mem.read.prepare(1)
-                self.mem.read.be(1)
+                self.mem.be.prepare(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
                     self.reg[self.Rd] = self.mem.read_data.get()
@@ -1137,7 +1133,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.address.prepare(self.K)
                 self.mem.write.prepare(0)
                 self.mem.read.prepare(1)
-                self.mem.read.be(1)
+                self.mem.be.prepare(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
                     self.reg[self.Rd] = self.mem.read_data.get()
@@ -1168,7 +1164,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.address.prepare(X)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
-                self.mem.read.be.preapre(1) 
+                self.mem.be.preapre(1) 
                 self.mem.write_data.prepare(self.reg[self.Rr]) # IMPORTANT  I have to check if this is a 2 cycle operation(ST) or 3 cycle 
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
@@ -1191,7 +1187,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.address.prepare(X)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
-                self.mem.read.be.prepare(1)
+                self.mem.be.prepare(1)
                 self.mem.write_data.prepare(self.reg[self.Rr])
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
@@ -1206,7 +1202,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.address.prepare(X)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
-                self.mem.read.be(1)
+                self.mem.be.prepare(1)
                 self.mem.write_data(self.reg[self.Rr])
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
@@ -1294,7 +1290,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.address.prepare(Z)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
-                self.mem.read.be(1)
+                self.mem.be.prepare(1)
                 self.mem.write_data(self.reg[self.Rr])
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
@@ -1309,13 +1305,24 @@ class SingleCycleATmega328P(py4hw.Logic):
 
             case 'STS':#k
                 self.Rr = (self.ins>>4)&0b11111
+                self.K =  self.flash[self.pc+1]
+                self.mem.address.prepare(self.reg[self.Rr])
+                self.mem.write.prepare(1)
+                self.mem.read.prepare(0)
+                self.mem.be.prepare(1)               
+                self.mem.write_data.prepare(self.reg[self.Rr])
 
+
+                self.pc+=2
 
             case 'LPM': #R0 implied
                 Z = self.reg[30]|(self.reg[31]<<8)
-                self.reg[0] = self.flash[Z]
+                if(Z&0b1 == 1 ):##high byte
+                    self.reg[0] = (self.flash[Z] & 0xFF00)>>8
+                else: ## low byte 
+                    self.reg[0] = (self.flash[Z]&0xFF)
 
-
+                self.pc += 1 
             case 'LPM': #Z
                 self.Rd = (self.ins>>4)&0b11111
                 Z = self.reg[30]|(self.reg[31]<<8)
