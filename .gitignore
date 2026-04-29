@@ -1,2 +1,6 @@
 Implementation/cpu_env/
-*.txt
+memoryDump.txt
+output.txt
+RamMemoryDump.txt
+FlashMemoryDump.txt
+Implementation/__pycache__
