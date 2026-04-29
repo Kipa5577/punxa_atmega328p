@@ -27,45 +27,45 @@ class Memory(Logic):
     def __init__(self, parent:Logic, name:str, data_width:int, address_width:int, port:MemoryInterface):
         super().__init__(parent, name)
 
-        self.port = self.addInterfaceSink('port',port)
+        self.port0 = self.addInterfaceSink('port',port)
 
         self.verbose = False
         self.values = bytearray((1 << address_width) * (data_width // 8))
 
 
-        def wrtieByte(self,address:int, value:int):
-            if(address>=0 and address < len(self.values)):
-                return self.values[address]
+    def wrtieByte(self,address:int, value:int):
+        if(address>=0 and address < len(self.values)):
+            return self.values[address]
             
-        def readByte(self,address):
-            if(address >= 0 and address < len(self.values)):
-                return self.values[address]
+    def readByte(self,address):
+        if(address >= 0 and address < len(self.values)):
+            return self.values[address]
 
-        def clock(self):
-            data_width = self.port.read_data.getWidth()
+    def clock(self):
+        data_width = self.port0.read_data.getWidth()
 
-            address = self.port.address.get()
-            be = self.port.be.get()
-            self.port.resp.prepare(0)
+        address = self.port0.address.get()
+        be = self.port0.be.get()
+        self.port0.resp.prepare(0)
 
-            if(self.port.read.get()):
-                value = 0
+        if(self.port0.read.get()):
+            value = 0
 
-                for i in range(data_width // 8):
-                    value = value | (self.values[address+i]<< (i*8))
+            for i in range(data_width // 8):
+                value = value | (self.readByte(address+i)<< (i*8))
 
-                self.port.read_data.prepare(value)
-                print('reading address', hex(address),'=',hex(value))
-            elif(self.prot.write.get()):
-                value = self.port.write_data.get()
+            self.port0.read_data.prepare(value)
+            print('reading address', address,'=',hex(value))
+        elif(self.port0.write.get()):
+            value = self.port0.write_data.get()
 
-                print('writing address',hex(address),'=',hex(value))
+            print('writing address',address,'=',hex(value))
 
-                for i in range(data_width // 8):
-                    if((be&0x01)!=0):
-                        self.values[address + 1] =value & 0xFF 
-                    be = be >> 1
-                    value = value >> 8          
+            for i in range(data_width // 8):
+                if((be & 0x1)!=0):
+                    self.wrtieByte(address + 1 ,value & 0xFF) 
+                be = be >> 1
+                value = value >> 8          
 
 
 class PersistentMemory(Logic):
@@ -110,10 +110,10 @@ class ProgramMemory(py4hw.Logic):
         self.DATA_IN = self.addIn('DATA_IN',DATA_IN)
         self.Write_Enable = self.addIn('Write_Enable',Write_Enable)
 
-        def clock(self):
-            if self.Write_Enable.get() == 1:
-                self.DATA_OUT.prepare(self.memory[self.ADRESS.get()])
-            else: 
-                self.memory[self.ADRESS.get()] = self.DATA_IN
+    def clock(self):
+        if self.Write_Enable.get() == 1:
+            self.DATA_OUT.prepare(self.memory[self.ADRESS.get()])
+        else: 
+            self.memory[self.ADRESS.get()] = self.DATA_IN
 
 

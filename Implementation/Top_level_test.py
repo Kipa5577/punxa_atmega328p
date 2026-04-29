@@ -47,7 +47,22 @@ CPU = SingleCycleATmega328P(sys,'Arduino',mem)
 RAM = Memory(sys,'mem',8,16,mem)
 
 
+port_C = MemoryInterface(sys,'port_C',8,16)
+port_B = MemoryInterface(sys,'port_B',8,16)
+port_U = MemoryInterface(sys,'port_U',8,16)
+port_S = MemoryInterface(sys,'port_S',8,16)
+port_A = MemoryInterface(sys,'port_A',8,16)
+port_G = MemoryInterface(sys,'port_G',8,16)
+port_T0= MemoryInterface(sys,'prot_T0',8,16)
+port_T1= MemoryInterface(sys,'prot_T1',8,16)
+port_T2= MemoryInterface(sys,'prot_T2',8,16)
 
+
+
+
+
+#sch = py4hw.Schematic(sys)
+#sch.draw()
  
 
 ## loading hex file to memory
@@ -156,9 +171,9 @@ while main_loop == True:
         ## CPU Flash memory dump  
         dump = open("RamMemoryDump.txt", "a")
         #dump with instrucions decoded. #CALL and JUMP are 32bits 
-        for i in range(0,len(CPU.flash)):
-            ins = CPU.flash[i] 
-            dump.write("{0:>016b} : {instr} \n".format(ins,instr = ins_to_str(ins)))
+        for i in range(0,len(RAM.values)):
+            val = RAM.values[i]
+            dump.write("{0:>016b} : {val1} \n".format(val,val1 = val))
 
         dump.close()
         

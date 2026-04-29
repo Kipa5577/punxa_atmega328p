@@ -30,7 +30,7 @@ import py4hw.debug
 
 #INSTYPE 0 for IO | 1 for LS
 class GPIO(py4hw.Logic):
-    def __init__(self,parent,name:str,memory:MemoryInterface,INSTYPE,):
+    def __init__(self,parent,name:str,memory:MemoryInterface,INSTYPE):
         super().__init__(parent,name)
 
         self.interface = self.addInterfaceSink('port',memory)
