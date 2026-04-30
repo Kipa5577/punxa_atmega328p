@@ -51,11 +51,11 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
     OP17 = ((ins>>3)&0b1)|(((ins>>9)&0b1)<<1)|(((ins>>12)&0b1)<<2)|((ins>>14)<<3)
     OP18 = (ins>>1&0b111)|((ins>>9)<<3) 
     OP19 = (ins&0b1111)|((ins>>9)<<4)
-    OP20 = ((ins>>3)&0b1)|((ins>>10)<<1)
+    OP20 = ((ins>>3)&0b1)|(((ins>>9)&0b1111111)<<1)
 
     match OP20:
-        case 0b11111100: 'SBRC'
-        case 0b11111110: 'SBRS'
+        case 0b11111100: return 'SBRC'
+        case 0b11111110: return 'SBRS'
     
     match OP19: 
         case 0b10010000000: return 'LDS'
@@ -130,7 +130,7 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b10000011000: return 'STY'
         case 0b10010011001: return 'STY+'
         case 0b10010011010: return 'ST-Y'
-        case 0b10000010000: return 'STZ'
+        case 0b10000010000: return 'STZ'#STDZ but q=0
         case 0b10010010001: return 'STZ+'
         case 0b10010010010: return 'ST-Z'
 

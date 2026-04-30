@@ -20,10 +20,12 @@ H = 5
 T = 6
 I = 7
 
-
+## *_IO = IN and OUT instruction address
+## *_LS =  LD LDS ST STS instruction address
 
 #0x0000 to 0x3FFF flash memory range 
 
+#Start of Sram : 0x0100 | End of Sram : 0x08FF
 #pointer registers
 # R26 X-register Low Byte 
 # R27 X-register High Byte
@@ -41,8 +43,10 @@ class SingleCycleATmega328P(py4hw.Logic):
         self.reg = [0]*32
         # self.ram = [0]*2048
         self.flash = [0]*16384
-        self.SREG = 0 # b7: I b6: T b5: H b4: S b3: V b2: N b1: Z b0: C 
-        self.stack_pointer  = 0 ## value sould be known by using a register, I need to verify that it doesent go in to the negatives
+
+
+
+        #self.stack_pointer  = 0x08FF ## value sould be known by using a register, I need to verify that it doesent go in to the negatives  
         self.next_cycle = False #varible to indicate that data is ready to read from ram/memeory
         self.ins = 0
         self.opp = 'NOP'
@@ -52,14 +56,39 @@ class SingleCycleATmega328P(py4hw.Logic):
         self.K = 0
         self.FirstBoot = True #is this actuatly odable ?
         self.BOOTRST = 1
+        self.databyteNb = 0
+        self.FSM = 'Begin' # 
 
-        self.C = 0
-        self.Z = 0
-        self.N = 0
-        self.V = 0
-        self.N = 0
-        self.Z = 0
-        self.C = 0
+        self.A = 0
+        self.q = 0
+        self.high = 0
+        self.low = 0
+
+        #registers
+        self.SREG = 0 # b7: I b6: T b5: H b4: S b3: V b2: N b1: Z b0: C 
+        self.SREG_addr_IO = 0x3F
+        self.SREG_addr_LS = 0x5F
+
+        self.MCUCR = 0
+        self.MCUCR_addr_IO = 0x35
+        self.MCUCR_addr_LS = 0x55
+
+        #Stack Pointer
+        self.SPH = 0x08
+        self.SPH_addr_IO = 0x3E
+        self.SPH_addr_LS = 0x5E
+
+        self.SPL = 0xFF
+        self.SPL_addr_IO = 0x3D
+        self.SPH_addr_LS = 0x5D
+
+        self.MCUSR = 0x02 # Power-on Reset  or it can be 0x02 External Reset
+        self.MCUSR_addr_IO = 0x34
+        self.MCUSR_addr_LS = 0x54
+
+        #Warchdog Timer Configruation
+        self.WDTCSR = 0
+        self.WDTCSR_addr_LS = 0x60
 
 
     def clock(self):
@@ -500,60 +529,170 @@ class SingleCycleATmega328P(py4hw.Logic):
             case 'JMP':
                 self.K = (((self.ins&0b1)|((self.ins>>4)&0xF)|((self.ins>>8)&0b1))<<16)|self.flash[self.pc+1]
                 self.pc = self.K
+
             case 'RCALL':
+                
                 self.K = self.ins&0xFFF
-                #The return addres must be pushed to the stack ( the stack is in ram)
-                self.mem.address.prepare(self.stack_pointer)
-                self.mem.write.prepare(1)
-                self.mem.read.prepare(0)
-                self.mem.be.prepare(2)
-                self.mem.write_data.prepare(self.pc+1) ## writing to the stack(ram) the value  I have to write 2 bytes as pc is 16 bits
-                self.stack_pointer -= 2
-            
-                self.pc += self.K
+                #handeling negative K numbers
+                if self.K>>11 == 1:
+                    self.K = -(((~self.K)&0xFFF) + 1)
+                else:
+                    self.K = self.K
+                    
+                SP = ((self.SPH<<8) | (self.SPL))
+                print("SP=",SP)
+                PC_to_store = (self.pc+1)&0xFFFF
+                print("PC_to_store=",bin(PC_to_store))
+                #separation of PC in 2 bytes
+
+                PClwo = PC_to_store&0xFF
+                PChigh = PC_to_store>>8
+                print("PClwo=",bin(PClwo))
+                print("PChigh=",bin(PChigh))
+
+                #preparing write operation
+                if self.databyteNb == 2:
+                    self.mem.write.prepare(0)
+                    self.mem.read.prepare(0) 
+                else:
+                    self.mem.write.prepare(1)
+                    self.mem.read.prepare(0)
+
+                if (self.databyteNb == 0) and (self.mem.resp.get() == 0):
+                    #writing the first byte
+                    self.mem.address.prepare(SP)
+                    self.mem.write_data.prepare(PClwo)  
+                    self.databyteNb = 1 
+                    print("byte 1")
+                elif((self.databyteNb == 1) and (self.mem.resp.get() == 1)):# if it is time to write the second byte and the memory finished writing the first byte
+                    self.mem.address.prepare(SP-1)
+                    self.mem.write_data.prepare(PChigh)
+                    self.databyteNb = 2
+                    #changing the stack pointer
+                    SP -= 2
+                    self.SPH = (SP>>8)&0xFF
+                    self.SPL = SP&0xFF
+                    print("byte 2")
+                elif((self.databyteNb == 2) and (self.mem.resp.get() == 1)):
+                    self.pc += self.K + 1
+                    self.databyteNb = 0
+
 
             case 'ICALL':
+                SP = ((self.SPH<<8) | (self.SPL&0xF))
 
-                self.mem.address.prepare(self.stack_pointer)
+                #separation of PC in 2 bytes
+                PClwo= self.pc&0xFF
+                PChigh= self.pc>>8
+                #preparing read operation
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
-                self.mem.be.prepare(2)
+                #writing the firstbyte
+
+#               slef.mem.address.prepare(SP)
+#               self.mem.w
+                self.mem.address.prepare(SP)
+
                 self.mem.write_data.prepare(self.pc+1) ## writing to the stack(ram) the value 
-                self.stack_pointer -= 2
+                SP -= 2
+                self.SPH = (SP>>8)&0xFF
+                self.SPL = SP&0xF
             
-                self.pc += self.reg[30]<<16|self.reg[31]
+                #self.pc += self.reg[30]<<16|self.reg[31]
                 
             case 'CALL':
                 self.K = (((self.ins&0b1)|((self.ins>>4)&0xF)|((self.ins>>8)&0b1))<<16)|self.flash[self.pc+1]
-
-                self.mem.address.prepare(self.stack_pointer)
+                SP = ((self.SPH<<8) | (self.SPL&0xF))
+                self.mem.address.prepare(SP)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
-                self.mem.be.prepare(2)
                 self.mem.write_data.prepare(self.pc+2) ## writing to the stack(ram) the value 
-                self.stack_pointer -= 2
+                SP -= 2
+                self.SPH = SP&0xF0
+                self.SPL = SP&0xFF
 
                 self.pc = self.K
             case 'RET':
-                #pop instruction 
 
-                self.stack_pointer += 2
-                self.mem.address.prepare(self.stack_pointer)
-                self.mem.write.prepare(0)
-                self.mem.read.prepare(1)
-                self.mem.be.prepare(2)
-                self.pc = self.mem.read_data.get() #verifi that it is correct
+                    
+                if (self.databyteNb == 0) and (self.mem.resp.get() == 0):
+                    SP = ((self.SPH<<8) | (self.SPL))+1
+                    self.mem.write.prepare(0)
+                    self.mem.read.prepare(1)
+                    self.mem.address.prepare(SP)
+
+
+                elif (self.databyteNb == 0) and (self.mem.resp.get() == 1):
+                    self.high = self.mem.read_data.get()
+                    print("high=",bin(self.high))
+                    self.databyteNb = 1 
+                    self.mem.write.prepare(0)
+                    self.mem.read.prepare(0)
+                    print("byte 1")
+
+
+                elif (self.databyteNb == 1) and (self.mem.resp.get() == 0):
+                    SP = ((self.SPH<<8) | (self.SPL))+2
+                    self.mem.address.prepare(SP)
+                    self.mem.write.prepare(0)
+                    self.mem.read.prepare(1)
+                    self.databyteNb = 2
+
+                elif (self.databyteNb == 2) and (self.mem.resp.get() == 1):
+                    self.low = self.mem.read_data.get()
+                    print("low=",bin(self.low))
+                    self.databyteNb = 0
+                    print("byte 2")
+                    self.K = (self.high<<8) | self.low
+                    self.pc  = self.K
+                    SP = ((self.SPH<<8) | (self.SPL))+2
+                    self.SPH = (SP>>8)&0xFF
+                    self.SPL = SP&0xFF
+
+                
+#                if (self.databyteNb == 0) and (self.mem.resp.get() == 1):
+#                    self.mem.write.prepare(0)
+#                    self.mem.read.prepare(0) 
+#                elif (self.databyteNb == 1) and (self.mem.resp.get() == 1):
+#                    self.mem.write.prepare(0)
+#                    self.mem.read.prepare(0) 
+#                else:
+#                    self.mem.write.prepare(0)
+#                    self.mem.read.prepare(1)
+
+#                if (self.databyteNb == 0) and (self.mem.resp.get() == 0):
+#                    self.mem.address.prepare(SP)  
+#                elif (self.databyteNb == 0) and (self.mem.resp.get() == 1):
+#                    high = self.mem.read_data.get()
+#                    print("high=",bin(high))
+#                    self.databyteNb = 1 
+#                    print("byte 1")
+
+#                elif (self.databyteNb == 1) and (self.mem.resp.get() == 0):
+#                    self.mem.address.prepare(SP-1)
+#                elif (self.databyteNb == 1) and (self.mem.resp.get() == 1):
+#                    low = self.mem.read_data.get()
+#                    print("low=",bin(low))
+#                    self.databyteNb = 0
+#                    print("byte 2")
+#                    self.K = (high<<8) | low
+#                    self.pc  = self.K 
+#                    SP+=2
+#                    self.SPH = (SP>>8)&0xFF
+#                    self.SPL = SP&0xFF
+
 
 
 
             case 'RETI':## return from interrupt 
-
-                self.mem.address.prepare(self.stack_pointer)
+                SP = ((self.SPH<<8) | (self.SPL&0xF))
+                self.mem.address.prepare(SP)
                 self.mem.write.prepare(0)
                 self.mem.read.prepare(1)
-                self.mem.be.prepare(2)
                 self.pc = self.mem.read_data.get() #verifi that it is correct
-                self.stack_pointer += 2
+                SP += 2
+                self.SPH = SP&0xF0
+                self.SPL = SP&0xF
 
                 self.SREG |= (1<<I) #enabling interruts
 
@@ -919,8 +1058,8 @@ class SingleCycleATmega328P(py4hw.Logic):
 
                 self.pc += 1
             case 'LDI':
-                self.Rd = (self.ins>>4)&0b1111
-                self.K = (self.ins&0xF)|(((self.ins)>>4)&0xF0)
+                self.Rd = ((self.ins>>4)&0b1111)+16
+                self.K = (self.ins&0xF)|((((self.ins)>>8)&0xF)<<4)
 
                 self.reg[self.Rd] = self.K 
                 self.pc += 1
@@ -1056,7 +1195,7 @@ class SingleCycleATmega328P(py4hw.Logic):
 
             case 'LDZ':#Z
                 self.Rd = (self.ins>>4)&0b11111
-                Z = self.reg[30]|(self.reg[31]<<8)
+                self.A = self.reg[30]|(self.reg[31]<<8) # A but it is a Z memory address
 
                 self.mem.address.prepare(Z)
                 self.mem.write.prepare(0)
@@ -1117,7 +1256,6 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.address.prepare(Z+q)
                 self.mem.write.prepare(0)
                 self.mem.read.prepare(1)
-                self.mem.be.prepare(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
                     self.reg[self.Rd] = self.mem.read_data.get()
@@ -1133,7 +1271,6 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.address.prepare(self.K)
                 self.mem.write.prepare(0)
                 self.mem.read.prepare(1)
-                self.mem.be.prepare(1)
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
                     self.reg[self.Rd] = self.mem.read_data.get()
@@ -1187,7 +1324,6 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.address.prepare(X)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
-                self.mem.be.prepare(1)
                 self.mem.write_data.prepare(self.reg[self.Rr])
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
@@ -1202,7 +1338,6 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.address.prepare(X)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
-                self.mem.be.prepare(1)
                 self.mem.write_data(self.reg[self.Rr])
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
@@ -1250,7 +1385,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 else: 
                     self.next_cycle = True 
 
-            case 'STD':#Y+q
+            case 'STDY':#Y+q or STY
                 self.Rr = (self.ins>>4)&0b11111
 
 
@@ -1290,7 +1425,6 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.mem.address.prepare(Z)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
-                self.mem.be.prepare(1)
                 self.mem.write_data(self.reg[self.Rr])
 
                 if self.next_cycle == True: ## this is to wait a cycle for the data to be ready
@@ -1299,21 +1433,56 @@ class SingleCycleATmega328P(py4hw.Logic):
                 else: 
                     self.next_cycle = True 
 
-            case 'STD':#Z+q
+            case 'STDZ':#Z+q or STZ
                 self.Rr = (self.ins>>4)&0b11111
+                self.q = (self.ins&0b111) | (((self.ins>>10)&0b11)<<3) | (((self.ins>>13)&0b11)<<3)
+                self.A = self.reg[30]|(self.reg[31]<<8) #named A but it is a Z address
 
+                if ((self.A+self.q) == self.WDTCSR_addr_LS):
+                    self.WDTCSR = self.reg[self.Rr]
+                    print("WDTCSR:",self.WDTCSR)
+                    self.pc += 1
+                else:
+               #if write to external peripheral like ram 
+                    if self.databyteNb == 1:
+                        self.mem.write.prepare(0)
+                        self.mem.read.prepare(0) 
+                    else:
+                        self.mem.write.prepare(1)
+                        self.mem.read.prepare(0)
+
+                    if (self.databyteNb == 0) and (self.mem.resp.get() == 0):
+                        #writing the first byte
+                        self.mem.address.prepare(self.A)
+                        self.mem.write_data.prepare(self.reg[self.Rr])
+                        self.databyteNb = 1 
+                        print("byte 1")
+                    elif((self.databyteNb == 1) and (self.mem.resp.get() == 1)):
+                        self.pc += 1
+                        self.databyteNb = 0
 
             case 'STS':#k
                 self.Rr = (self.ins>>4)&0b11111
-                self.K =  self.flash[self.pc+1]
-                self.mem.address.prepare(self.reg[self.Rr])
-                self.mem.write.prepare(1)
-                self.mem.read.prepare(0)
-                self.mem.be.prepare(1)               
-                self.mem.write_data.prepare(self.reg[self.Rr])
+                self.A =  self.flash[self.pc+1]
 
+                ##writing to external peripheral
+                if self.databyteNb == 1 :
+                    self.mem.write.prepare(0)
+                    self.mem.read.prepare(0)
+                else:
+                    self.mem.write.prepare(1)
+                    self.mem.read.prepare(0)
 
-                self.pc+=2
+                if (self.databyteNb == 0) and (self.mem.resp.get() == 0):
+                    self.mem.address.prepare(self.A)
+                    self.mem.write_data.prepare(self.reg[self.Rr])
+                    self.databyteNb = 1
+                    print("byte 1")
+                elif ((self.databyteNb == 1) and (self.mem.resp.get() == 1)):
+                    self.pc +=2
+                    self.databyteNb
+
+                
 
             case 'LPM': #R0 implied
                 Z = self.reg[30]|(self.reg[31]<<8)
@@ -1345,37 +1514,61 @@ class SingleCycleATmega328P(py4hw.Logic):
 
             case 'IN':
                 self.Rd = (self.ins>>4)&0b11111
-                A = (self.ins)&0xF | ((self.ins)>>5)&0b110000 #don't know what is the port
+                self.A = ((self.ins)&0xF) | ((((self.ins)>>9)&0b11)<<4) #don't know what is the port
+
+                #internal addreses
+                if (self.A == self.SREG_addr_IO):
+                    self.reg[self.Rd] = self.SREG #status register
+                    print("Register:SREG")
+                elif (self.A == self.MCUSR_addr_IO):
+                    self.reg[self.Rd] = self.MCUSR
+                    print("Register:MCUSR = {val}".format(val = self.MCUSR)) 
+
 
                 self.pc+=1
 
             case 'OUT':
+
                 self.Rr = (self.ins>>4)&0b11111
-                A = (self.ins)&0xF | ((self.ins)>>5)&0b110000 #don't know what is the port
+                self.A = ((self.ins)&0xF) | ((((self.ins)>>9)&0b11)<<4) #don't know what is the port
+
+                #internal addreses
+                if (self.A == self.SREG_addr_IO):
+                    self.SREG = self.reg[self.Rr] #status register
+                    print("Register:SREG")
+                elif (self.A == self.MCUSR_addr_IO):
+                    self.MCUSR = self.reg[self.Rr]
+                    print("Register:MCUSR = {val}".format(val = self.MCUSR)) 
+        
 
                 self.pc+=1
             case 'PUSH':
                 d =  (self.ins>>4)&11111
-
-                self.mem.address.prepare(self.stack_pointer)
+                SP = (self.SPH<<8) | (self.SPL&0xF)
+                self.mem.address.prepare(SP)
                 self.mem.write.prepare(1)
                 self.mem.read.prepare(0)
                 self.mem.read.be(1)
                 self.mem.write_data(self.reg[d]) ## writing to the stack(ram) the value 
-                self.stack_pointer -= 1
-
+                SP -= 1
+                
+                self.SPH = SP&0xF0
+                self.SPL = SP&0xF
                 self.pc+=1
 
             case 'POP':
                 d =  (self.ins>>4)&11111
 
-                self.mem.address.prepare(self.stack_pointer)
+                SP = (self.SPH<<8) | (self.SPL&0xF)
+                self.mem.address.prepare(SP)
                 self.mem.write.prepare(0)
                 self.mem.read.prepare(1)
                 self.mem.read.be(1)
                 self.reg[d] = self.mem.read_data.get() #verifi that it is correct
                 
-                self.stack_pointer += 1
+                SP += 1
+                self.SPH = SP&0xF0
+                self.SPL = SP&0xF
                 self.pc+=1
 
             case 'NOP':

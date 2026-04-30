@@ -43,7 +43,7 @@ sys = py4hw.HWSystem()
 
 mem = MemoryInterface(sys,'port0',8,16)
 
-CPU = SingleCycleATmega328P(sys,'Arduino',mem)
+CPU = SingleCycleATmega328P(sys,'CPU',mem)
 RAM = Memory(sys,'mem',8,16,mem)
 
 
@@ -73,13 +73,13 @@ with open('./Code_Test/main.hex','rb') as f:
         if not start_Code:
             break
         start_Code = str(start_Code,'utf-8')
-        print(start_Code)
+        #print(start_Code)
         nbbytes = str(f.read(2),'utf-8')
-        print(nbbytes)
+        #print(nbbytes)
         starting_address =  str(f.read(4),'utf-8')
-        print(starting_address)
+        #print(starting_address)
         record_type = str(f.read(2),'utf-8')
-        print(record_type)
+        #print(record_type)
         if record_type == "00": # To write only "Data Record"
             ##print("True")
             memory_position = int(starting_address,16)//2
@@ -89,24 +89,24 @@ with open('./Code_Test/main.hex','rb') as f:
                 byteMSB = str(f.read(2),'utf-8')
                 byte = byteMSB + byteLSB
                 CPU.flash[memory_position] = int(byte,16)  #little or big 
-                print("{flash} {mem_pos} {index} {val}".format(flash=hex(CPU.flash[memory_position]),mem_pos=memory_position,index = i ,val = byte))   
+                #print("{flash} {mem_pos} {index} {val}".format(flash=hex(CPU.flash[memory_position]),mem_pos=memory_position,index = i ,val = byte))   
                 memory_position+=1
 
             checksum = str(f.read(2),'utf-8')
-            print(checksum)
+            #print(checksum)
             end_of_line_caracters = str(f.read(2),'utf-8')
-            print(end_of_line_caracters)
+            #print(end_of_line_caracters)
 
         elif record_type == '01': #"End of Record."
 
             memory_position = int(starting_address,16)//2
             byte = str(f.read(4),'utf-8')
-            print("{index} {val}".format(index = i ,val = byte)) 
+            #print("{index} {val}".format(index = i ,val = byte)) 
             #CPU.flash[memory_position] = int(byte,16)  #little or big 
             checksum = str(f.read(2),'utf-8')
-            print(checksum)
+            #print(checksum)
             end_of_line_caracters = str(f.read(2),'utf-8')
-            print(end_of_line_caracters)
+            #print(end_of_line_caracters)
             
         elif record_type == '02':  #"Extended Segment Address Record"
             print("Record type 02 not implemented")
@@ -116,12 +116,12 @@ with open('./Code_Test/main.hex','rb') as f:
 
         elif record_type == '04':  #"Extended Linear Address Record"
             byte = str(f.read(4),'utf-8')
-            print("{val}".format( val = byte)) 
+            #print("{val}".format( val = byte)) 
             memory_position = 0
             checksum = str(f.read(2),'utf-8')
-            print(checksum)
+            #print(checksum)
             end_of_line_caracters = str(f.read(2),'utf-8')
-            print(end_of_line_caracters)
+            #print(end_of_line_caracters)
 
         elif record_type == '05':  #"Extended Linear Address Record"
             print("Record type 05 not implemented")
@@ -134,12 +134,12 @@ print("Hello \n n : next instruction \n r: ram memory dump \n f: flash memory du
     
 print("Register State")
 #print register state 
-print("Current instruction:{instruction}".format(instruction =  ins_to_str(CPU.flash[CPU.pc])))
+print("Next instruction:{instruction}".format(instruction =  ins_to_str(CPU.flash[CPU.pc])))
 for i in range(32):
     print("R{index} : {value}".format(index = i, value = CPU.reg[i]),end=" ")
 print("Pc:{value}".format(value = CPU.pc))
-print("Ps:{value}".format(value = CPU.stack_pointer))
-print("opp:{value1} ins:{value2} Rr:{value3} Rd:{value4} K:{value5}".format(value1 = CPU.opp,value2 = CPU.ins, value3 = CPU.Rr, value4 = CPU.Rd,value5 = CPU.K))
+print("Ps:{value}".format(value = (CPU.SPH<<8) | (CPU.SPL&0xF)))
+print("opp:{value1} ins:{value2} Rr:{value3} Rd:{value4} K:{value5} A:{value6}".format(value1 = CPU.opp,value2 = bin(CPU.ins), value3 = CPU.Rr, value4 = CPU.Rd,value5 = CPU.K, value6 = hex(CPU.A)))
 #print("I:{I} T:{T} H:{H} S:{S} V:{V} N:{N} Z:{Z} C{C}".format(I = CPU.I))
 print("SREG:{0:>08b}".format(CPU.SREG))
 
@@ -157,7 +157,7 @@ while main_loop == True:
         #dump with instrucions decoded. #CALL and JUMP are 32bits 
         for i in range(0,len(CPU.flash)):
             ins = CPU.flash[i] 
-            if CPU.pc == i: 
+            if CPU.pc == (i-1): 
                 dump.write(">{0:>016b} : {instr} \n".format(ins,instr = ins_to_str(ins)))
             else:
                 dump.write("{0:>016b} : {instr} \n".format(ins,instr = ins_to_str(ins)))
@@ -173,18 +173,18 @@ while main_loop == True:
         #dump with instrucions decoded. #CALL and JUMP are 32bits 
         for i in range(0,len(RAM.values)):
             val = RAM.values[i]
-            dump.write("{0:>016b} : {val1} \n".format(val,val1 = val))
+            dump.write("{0:>08b} : {val1} \n".format(val,val1 = val))
 
         dump.close()
         
     elif user_command == 'n':        
         sys.getSimulator().clk(1)
-        print("Current instruction:{instruction}".format(instruction =  ins_to_str(CPU.flash[CPU.pc])))
+        print("Next instruction:{instruction}".format(instruction =  ins_to_str(CPU.flash[CPU.pc])))
         for i in range(32):
             print("R{index}:{value}".format(index = i, value = CPU.reg[i]),end=" ")
         print("Pc:{value}".format(value = CPU.pc))
-        print("Ps:{value}".format(value = CPU.stack_pointer))
-        print("opp:{value1} ins:{value2} Rr:{value3} Rd:{value4} K:{value5}".format(value1 = CPU.opp,value2 = CPU.ins, value3 = CPU.Rr, value4 = CPU.Rd,value5 = CPU.K))
+        print("Ps:{value}".format(value = (CPU.SPH<<8) | (CPU.SPL&0xFF)))
+        print("opp:{value1} ins:{value2} Rr:{value3} Rd:{value4} K:{value5} A:{value6}".format( value1 = CPU.opp , value2 = bin(CPU.ins) , value3 = CPU.Rr , value4 = CPU.Rd ,value5 = CPU.K, value6 = hex(CPU.A)))
         print("SREG:{0:>08b}".format(CPU.SREG))
         print("---------------------------------------------------------------")
     
