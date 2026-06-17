@@ -104,13 +104,14 @@ ALL_AVR_INSTRUCTIONS = (
 
 def ins_to_str(ins): # I am packing all the OP bits, keeping the order 
 
-    mask_4  = 0b1111_0000_0000_0000 # used by LDI, RJMP
-    mask_6  = 0b1111_1100_0000_0000 # used in ADD
-    mask_8  = 0b1111_1110_0000_1000 # used in SBRC, SBRS
-    mask_8b = 0b1111_1111_0000_0000 # used in MULS
-    mask_10 = 0b1111_1110_0000_1110 # used in JMP, CALL
-    mask_11 = 0b1111_1110_0000_1111 # used in LDS, STS, DEC
-    mask_13 = 0b1111_1111_1000_1111 # used in BSET
+    mask_4   = 0b1111_0000_0000_0000 # used by LDI, RJMP
+    mask_6   = 0b1111_1100_0000_0000 # used in ADD
+    mask_8   = 0b1111_1110_0000_1000 # used in SBRC, SBRS
+    mask_8b  = 0b1111_1111_0000_0000 # used in MULS
+    mask_10  = 0b1111_1110_0000_1110 # used in JMP, CALL
+    mask_10b = 0b1111_1111_1000_1000 # used in MULSU
+    mask_11  = 0b1111_1110_0000_1111 # used in LDS, STS, DEC
+    mask_13  = 0b1111_1111_1000_1111 # used in BSET
     
     
     match (ins):
@@ -118,6 +119,7 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b1001_0100_0001_1001: return 'IJMP'
         
     match (ins & mask_4):
+        case 0b0111_0000_0000_0000: return 'ANDI'
         case 0b1110_0000_0000_0000: return 'LDI'
         case 0b1100_0000_0000_0000: return 'RJMP'
         
@@ -137,7 +139,11 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b1001_0100_0000_1100: return 'JMP'
         case 0b1001_0100_0000_1110: return 'CALL'
     
-    
+    match (ins & mask_10b):
+        case 0b0000_0011_0000_0000: return 'MULSU'
+        case 0b0000_0011_1000_0000: return 'FMULS'
+        case 0b0000_0011_1000_1000: return 'FMULSU'
+        
     
     match (ins & mask_11):
         case 0b1001_0000_0000_0000: return 'LDS'
@@ -250,13 +256,13 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b0100: return 'SBCI'
         case 0b0101: return 'SUBI'
 
-        case 0b0111: return 'ANDI' ##or CBR it is the same thing
+        
         case 0b0110: return 'ORI' ##or SBR it is the same thing
         case 0b0011: return 'CPI'
 
         case 0b1100: return 'RJMP'
         case 0b1101: return 'RCALL'
-        case 0b1110: return 'LDI'
+
 
 
     match OP1A8A13 :

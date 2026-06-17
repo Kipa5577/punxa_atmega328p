@@ -24,7 +24,7 @@ reset:
     ldi r16, 0xFF
     out SPL, r16
 ; init state
-    ldi r16, 0
+    ldi r16, 1
     sts test_case, r16
     ldi r16, 1
     sts final_result, r16

@@ -78,14 +78,13 @@ def parts_to_ins(parts):
     
     elif (op == 'ANDI'):
         # ANDI Rd, K -> 0111 KKKK dddd KKKK
-        p0 = 0b0111
         Rd = reg_to_index(parts[1])
         assert(Rd >= 16)
         K = get_int(parts[2])
-        p1 = (K >> 8) & 0xF
+        p1 = (K >> 4) & 0xF
         p2 = (Rd - 16) & 0xF
         p3 = K & 0xF
-        return [((p0 << 12) | (p1 << 8) | (p2 << 4) | p3) ]
+        return [0b0111_0000_0000_0000 | (p1 << 8) | (p2 << 4) | p3 ]
     
     elif (op == 'ASR'):
         # ASR Rd -> 1001 010d dddd 0101
@@ -454,6 +453,30 @@ def parts_to_ins(parts):
         p3 = Rr & 0xF    
         return [((p0 << 12) | (p1 << 8) | (p2 << 4) | p3) ]
     
+    elif (op == 'FMUL'):
+        # FMUL Rd, Rr -> 0000 0011 0ddd 1rrr
+        Rd = reg_to_index(parts[1])
+        Rr = reg_to_index(parts[2])
+        assert (Rd >= 16) and (Rd <= 23)
+        assert (Rr >= 16) and (Rr <= 23)        
+        return [0b0000_0011_0000_1000 | (Rd << 4) | (Rr)]
+        
+    elif (op == 'FMULS'):
+        # FMULS Rd, Rr -> 0000 0011 1ddd 0rrr
+        Rd = reg_to_index(parts[1])
+        Rr = reg_to_index(parts[2])
+        assert (Rd >= 16) and (Rd <= 23)
+        assert (Rr >= 16) and (Rr <= 23)        
+        return [0b0000_0011_1000_0000 | (Rd << 4) | (Rr)]
+    
+    elif (op == 'FMULSU'):
+        # FMULSU Rd, Rr -> 0000 0011 1ddd 1rrr
+        Rd = reg_to_index(parts[1])
+        Rr = reg_to_index(parts[2])
+        assert (Rd >= 16) and (Rd <= 23)
+        assert (Rr >= 16) and (Rr <= 23)        
+        return [0b0000_0011_1000_1000 | (Rd << 4) | (Rr)]
+    
     elif (op == 'ICALL'):
         # ICALL-> 1001 0101 0001 1001
         return [0b1001_0101_0001_1001]
@@ -586,6 +609,22 @@ def parts_to_ins(parts):
         p3 = Rr & 0xF
         
         return [((p0 << 12) | (p1 << 8) | (p2 << 4) | p3) ]
+    
+    elif (op == 'MULS'):
+        # MULS Rd, Rr -> 0000 0010 dddd rrrr
+        Rd = reg_to_index(parts[1])
+        Rr = reg_to_index(parts[2])
+        assert (Rd >= 16) and (Rd <= 31)
+        assert (Rr >= 16) and (Rr <= 31)        
+        return [0b0000_0010_0000_0000 | ((Rd & 0xF) << 4) | (Rr & 0xF)]
+    
+    elif (op == 'MULSU'):
+        # MULSU Rd, Rr -> 0000 0011 0ddd 0rrr
+        Rd = reg_to_index(parts[1])
+        Rr = reg_to_index(parts[2])
+        assert (Rd >= 16) and (Rd <= 23)
+        assert (Rr >= 16) and (Rr <= 23)        
+        return [0b0000_0011_0000_0000 | ((Rd & 0b111) << 4) | (Rr & 0b111)]
     
     elif (op == 'NEG'):
         # NEG Rd -> 1001 010d dddd 0001

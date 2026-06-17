@@ -228,10 +228,12 @@ class SingleCycleATmega328P(py4hw.Logic):
         b3 = self.ins & 0b111
         s3 = (self.ins>>4) & 0b111
         
+        Rd3 = ((self.ins>>4) & 0x7)
         Rd4 = ((self.ins>>4) & 0xF)
         Rd5 = ((self.ins>>4) & 0x1F)
         RdW = 24 + (((self.ins >> 4) & 0b11) * 2)
 
+        Rr3 = (self.ins & 0x7)
         Rr5 = (((self.ins>>9) & 1) << 4) | (self.ins & 0xF)
         
         K6 = (((self.ins>>6) & 0b11) << 4) | (self.ins & 0xF)
@@ -512,6 +514,45 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.reg[self.Rd] =  self.res 
                 self.pc += 1
                 
+            case 'FMUL':
+                # FMUL Rd, Rr -> 0000 0011 0ddd 1rrr
+                Rr , Rd = Rr3 + 16, Rd3 + 16
+                vRr = yield from self.readByte(Rr)
+                vRd = yield from self.readByte(Rd)
+                res =  (vRd * vRr) 
+                self.C = (res >> 15) & 1
+                res = res << 1
+                self.updateFlags(res, is16=True)
+                yield from self.writeByte(1, (res >> 8) & 0xFF)
+                yield from self.writeByte(0, res & 0xFF)
+                
+            case 'FMULS': 
+                # FMULS Rd, Rr -> 0000 0011 1ddd 0rrr
+                Rr , Rd = Rr3 + 16, Rd3 + 16
+                vRr = yield from self.readByte(Rr)
+                vRd = yield from self.readByte(Rd)
+                vRd = py4hw.IntegerHelper.c2_to_signed(vRd, 8)
+                vRr = py4hw.IntegerHelper.c2_to_signed(vRr, 8)
+                res =  vRd * vRr
+                self.C = (res >> 15) & 1
+                res = res << 1
+                self.updateFlags(res, is16=True)
+                yield from self.writeByte(1, (res >> 8) & 0xFF)
+                yield from self.writeByte(0, res & 0xFF)
+                
+            case 'FMULSU':
+                # FMULSU Rd, Rr -> 0000 0011 1ddd 1rrr
+                Rr , Rd = Rr3 + 16, Rd3 + 16
+                vRr = yield from self.readByte(Rr)
+                vRd = yield from self.readByte(Rd)
+                vRd = py4hw.IntegerHelper.c2_to_signed(vRd, 8)
+                res =  vRd * vRr
+                self.C = (res >> 15) & 1
+                res = res << 1
+                self.updateFlags(res, is16=True)
+                yield from self.writeByte(1, (res >> 8) & 0xFF)
+                yield from self.writeByte(0, res & 0xFF)
+                
             case 'ICALL':
                 # ICALL-> 1001 0101 0001 1001
                 # Indirect call to Z
@@ -574,7 +615,6 @@ class SingleCycleATmega328P(py4hw.Logic):
                 vRr = yield from self.readByte(Rr)
                 vRd = yield from self.readByte(Rd)
                 res =  vRd * vRr
-
                 yield from self.writeByte(1, (res >> 8) & 0xFF)
                 yield from self.writeByte(0, res & 0xFF)
                 
@@ -584,156 +624,32 @@ class SingleCycleATmega328P(py4hw.Logic):
     
 
             case 'MULS': 
-                raise Exception('MULS not reviewed')
-                self.Rr = (self.ins & 0xF) + 16
-                self.Rd = ((self.ins>>4) & 0xF) + 16
-
-                val_Rd = self.reg[self.Rd] & 0xFF
-                val_Rr = self.reg[self.Rr] & 0xFF
-
-                if val_Rd >= 128:
-                    val_Rd -=256
-                if val_Rr >= 128:
-                    val_Rr -=256
-
-                self.res =  (val_Rd * val_Rr) & 0xFFFF
-
-                R15 = (self.res>>15) & 0b1
-
-                if R15 == 1:
-                    self.SREG |= (1<<0)
-                else:
-                    self.SREG &= ~(1<<0) 
-
-                if self.res == 0:
-                    self.SREG |= (1<<1)
-                else:
-                    self.SREG &= ~(1<<1)
-
-                self.reg[1]= (self.res>>8) & 0xFF
-                self.reg[0]= self.res & 0xFF
-
-                self.pc += 1
+                # MULS Rd, Rr -> 0000 0010 dddd rrrr
+                Rr , Rd = Rr3 + 16, Rd3 + 16
+                vRr = yield from self.readByte(Rr)
+                vRd = yield from self.readByte(Rd)
+                vRd = py4hw.IntegerHelper.c2_to_signed(vRd, 8)
+                vRr = py4hw.IntegerHelper.c2_to_signed(vRr, 8)
+                res =  vRd * vRr
+                self.C = (res >> 15) & 1
+                self.updateFlags(res, is16=True)
+                yield from self.writeByte(1, (res >> 8) & 0xFF)
+                yield from self.writeByte(0, res & 0xFF)
+                
             case 'MULSU':
-                raise Exception('MULSU not reviewed')
-                self.Rr = (self.ins & 0b111) + 16
-                self.Rd = ((self.ins>>4) & 0b111) + 16
-
-                val_Rd = self.reg[self.Rd] & 0xFF
-                val_Rr = self.reg[self.Rr] & 0xFF
-
-                if val_Rd >= 128:
-                    val_Rd -=256
-                if val_Rr >= 128:
-                    val_Rr -=256
-
-                self.res =  (val_Rd * val_Rr) & 0xFFFF
-
-                R15 = (self.res>>15) & 0b1
-
-                if R15 == 1:
-                    self.SREG |= (1<<0)
-                else:
-                    self.SREG &= ~(1<<0) 
-
-                if self.res == 0:
-                    self.SREG |= (1<<1)
-                else:
-                    self.SREG &= ~(1<<1)
-
-                self.reg[1]= self.res>>8 & 0xFF
-                self.reg[0]= self.res & 0xFF
-
-                self.pc += 1
-            case 'FMUL':
-                raise Exception('FMUL not reviewed')
-                self.Rr = (self.ins & 0b111) + 16
-                self.Rd = ((self.ins>>4) & 0b111) + 16
-                self.res =  (self.reg[self.Rd]&0xFF) * (self.reg[self.Rr]&0xFF)
-
-                R15 = (self.res>>15) & 0b1
-
-                if R15 == 1:
-                    self.SREG |= (1<<0)
-                else:
-                    self.SREG &= ~(1<<0) 
-
-                self.res = (self.res <<1) &0xFFFF
-
-                if self.res == 0:
-                    self.SREG |= (1<<1)
-                else:
-                    self.SREG &= ~(1<<1)
-
-                self.reg[1]= self.res>>8 & 0xFF
-                self.reg[0]= self.res & 0xFF
-
-                self.pc += 1
-            case 'FMULS': 
-                raise Exception('FMULS not reviewed')
-                self.Rr = (self.ins & 0b111) + 16
-                self.Rd = ((self.ins>>4) & 0b111) + 16
-                val_Rd = self.reg[self.Rd] & 0xFF
-                val_Rr = self.reg[self.Rr] & 0xFF
-
-                if val_Rd >= 128:
-                    val_Rd -=256
-                if val_Rr >= 128:
-                    val_Rr -=256
-
-                self.res =  (val_Rd * val_Rr) & 0xFFFF
-
-                R15 = (self.res>>15) & 0b1
-
-                if R15 == 1:
-                    self.SREG |= (1<<0)
-                else:
-                    self.SREG &= ~(1<<0) 
-
-                self.res = (self.res <<1) &0xFFFF
-
-                if self.res == 0:
-                    self.SREG |= (1<<1)
-                else:
-                    self.SREG &= ~(1<<1)
-
-                self.reg[1]= (self.res>>8) & 0xFF
-                self.reg[0]= self.res & 0xFF
-
-                self.pc += 1
-            case 'FMULSU':
-                raise Exception('FMULSU not reviewed')
-                self.Rr = (self.ins & 0b111) + 16 
-                self.Rd = ((self.ins>>4) & 0b111) + 16
-
-                val_Rd = self.reg[self.Rd] & 0xFF
-                val_Rr = self.reg[self.Rr] & 0xFF
-
-                if val_Rd >= 128:
-                    val_Rd -=256
-                if val_Rr >= 128:
-                    val_Rr -=256
-
-                self.res =  (val_Rd * val_Rr) & 0xFFFF
-
-                R15 = (self.res>>15) & 0b1
-
-                if R15 == 1:
-                    self.SREG |= (1<<0)
-                else:
-                    self.SREG &= ~(1<<0) 
-
-                self.res = (self.res <<1) &0xFFFF
-
-                if self.res == 0:
-                    self.SREG |= (1<<1)
-                else:
-                    self.SREG &= ~(1<<1)
-
-                self.reg[1]= (self.res>>8) & 0xFF
-                self.reg[0]= self.res & 0xFF
-
-                self.pc += 1
+                # MULSU Rd, Rr -> 0000 0011 0ddd 0rrr
+                Rr , Rd = Rr3 + 16, Rd3 + 16
+                vRr = yield from self.readByte(Rr)
+                vRd = yield from self.readByte(Rd)
+                vRd = py4hw.IntegerHelper.c2_to_signed(vRd, 8)
+                res =  vRd * vRr
+                self.C = (res >> 15) & 1
+                self.updateFlags(res, is16=True)
+                yield from self.writeByte(1, (res >> 8) & 0xFF)
+                yield from self.writeByte(0, res & 0xFF)
+                
+            
+                
             case 'RJMP':
                 # RJMP k → 1100 kkkk kkkk kkkk
                 off = self.ins & 0xFFF
