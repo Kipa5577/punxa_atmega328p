@@ -2,14 +2,11 @@ import py4hw
 
 
 class HandleI(py4hw.Logic):
-    def __init__(self, parent, name:str,
-                 Mode,
-                 Iout):
-        super().__init__(parent, name:str)
+    def __init__(self, parent, name:str, Mode, Iout):
+        super().__init__(parent, name)
 
         self.Mode =  self.addIn('Mode',Mode)
-
-        self.Iout = self.addIn('Iout',Iout)
+        self.Iout = self.addOut('Iout',Iout)
 
 
     def propagate(self):
@@ -26,6 +23,6 @@ class HandleI(py4hw.Logic):
             I_out = 1 
         
 
-        self.Iout.put()
+        self.Iout.put(I_out)
 
 

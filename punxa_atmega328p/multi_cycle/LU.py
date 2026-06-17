@@ -25,33 +25,36 @@ class BranchUnit(py4hw.Logic):
         bit_idx = self.Bit.get()
         op = self.Operation.get()
 
-        # Extract individual bits from the Operation code (0-5)
-        # Op[0]: 0=Clear check, 1=Set check
-        # Op[1]: 0=RegisterToTest, 1=IORegisterToTest
-        # Op[2]: 0=Skip instruction, 1=Branch instruction
-        op_bit0 = op & 1
-        op_bit1 = (op >> 1) & 1
-        op_bit2 = (op >> 2) & 1
+        skip_out = 0
+        branch_out = 0
 
-        # 2. First Stage: Register vs I/O Register Multiplexer
-        selected_reg = io_reg if op_bit1 else reg
+        sreg_bit = (sreg >> bit_idx) & 1
+        reg_bit = (reg >> bit_idx) & 1
+        io_bit = (io_reg >> bit_idx) & 1
+        
+        # BRBS - Branch if bit in SREG is set
+        if op == 1:
+            branch_out = sreg_bit
 
-        # 3. Bit Extractors (Simulates the 'Sel' blocks)
-        # Extracts the single bit at index 'bit_idx' from the 8-bit buses
-        sreg_bit_val = (sreg >> bit_idx) & 1
-        reg_bit_val = (selected_reg >> bit_idx) & 1
+        # BRBC - Branch if bit in SREG is clear
+        elif op == 2:
+            branch_out = 1 - sreg_bit
 
-        # 4. Set or Clear Select Multiplexers
-        # If op_bit0 is 0 (Clear check), invert the bit (1 - bit_val)
-        # If op_bit0 is 1 (Set check), pass the bit as is
-        branch_cond = sreg_bit_val if op_bit0 else (1 - sreg_bit_val)
-        skip_cond = reg_bit_val if op_bit0 else (1 - reg_bit_val)
+        # SBRC - Skip if bit in register is clear
+        elif op == 3:
+            skip_out = 1 - reg_bit
 
-        # 5. Output Routing (Final AND gates mapping to Skip or Branch)
-        # Op[2] routes the signal to Branch; inverted Op[2] routes to Skip
-        skip_out = skip_cond if (not op_bit2) else 0
-        branch_out = branch_cond if op_bit2 else 0
+        # SBRS - Skip if bit in register is set
+        elif op == 4:
+            skip_out = reg_bit
 
-        # Output the final evaluated signals
+        # SBIC - Skip if bit in I/O register is clear
+        elif op == 5:
+            skip_out = 1 - io_bit
+
+        # SBIS - Skip if bit in I/O register is set
+        elif op == 6:
+            skip_out = io_bit
+
         self.Skip.put(skip_out)
         self.Branch.put(branch_out)

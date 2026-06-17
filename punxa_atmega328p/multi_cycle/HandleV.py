@@ -68,9 +68,11 @@ class HandleV(py4hw.Logic):
             # Mode 13: 16-bit Subtraction (SBIW)
             v_out = rd15 & not_r15
 
-        elif mode == 6 or mode == 7:
-            # Mode 5/6: Two's Complement Negation (NEG) and Increment (INC)
+        elif mode == 6: # INC / DEC
             v_out = 1 if (res & 0xFF) == 0x80 else 0
+
+        elif mode == 7: # DEC
+            v_out = 1 if (res & 0xFF) == 0x7F else 0
 
         elif mode == 9:
             # Mode 7: Decrement (DEC)

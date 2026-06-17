@@ -1,163 +1,141 @@
 import py4hw
+from ..instruction_decode import *
 
 class Instruction_decoder(py4hw.Logic):
     def __init__(self, parent, name: str,
-                 # Inputs
-                 Instruction, SKIP,
-                 # Outputs
-                 Address_XYZ, Read_Write, ALU_Instr, ExtraAddr, 
-                 K, PC_Jump_val, Sval, ValueToLoad, Q, 
-                 LoadingMux, WritingMux, ImputSelect, WE):
+                 # --- Inputs ---
+                 Instruction,
+                 # --- Parameter Outputs (Extracted from instruction) ---
+                 InstructionCode, Rd, Rr, K, k_addr, b, A, q
+                 ):
         super().__init__(parent, name)
 
         # --- Inputs ---
         self.Instruction = self.addIn('Instruction', Instruction)
-        self.SKIP = self.addIn('SKIP', SKIP)
 
-        # --- Outputs ---
-        # Memory Interface Controls
-        self.Address_XYZ = self.addOut('Address_XYZ', Address_XYZ) # Connects to Mem_instruction
-        self.Read_Write = self.addOut('Read_Write', Read_Write)
-        self.WE = self.addOut('WE', WE)
-        self.LoadingMux = self.addOut('LoadingMux', LoadingMux)
-        self.WritingMux = self.addOut('WritingMux', WritingMux)    # Connects to LoadSelectMux
-        self.ImputSelect = self.addOut('ImputSelect', ImputSelect)
+        # --- Parameter Outputs ---
+        self.InstructionCode = self.addOut('InstructionCode', InstructionCode)
+        self.Rd = self.addOut('Rd', Rd)
+        self.Rr = self.addOut('Rr', Rr)
+        self.K = self.addOut('K', K)              # Immediate value
+        self.k_addr = self.addOut('k_addr', k_addr) # Address/Jump offset
+        self.b = self.addOut('b', b)              # Bit position
+        self.A = self.addOut('A', A)              # I/O Register Address (SBI/CBI)
+        self.q = self.addOut('q', q)              # Memory displacement
 
-        # ALU & Execution Controls
-        self.ALU_Instr = self.addOut('ALU_Instr', ALU_Instr)
-        self.ExtraAddr = self.addOut('ExtraAddr', ExtraAddr)       # E.g., Rd/Rr direct addresses
-        self.K = self.addOut('K', K)                               # Immediate value
-        self.Q = self.addOut('Q', Q)                               # Displacement value
-        self.PC_Jump_val = self.addOut('PC_Jump_val', PC_Jump_val) # For Branch/Jump
-        self.Sval = self.addOut('Sval', Sval)                      # Bit/Status flag tests
-        self.ValueToLoad = self.addOut('ValueToLoad', ValueToLoad) # Direct Data
+    def propagate(self):
+        ins = self.Instruction.get()
 
-        # --- Internal State Machine ---
-        # 0 = Fetch Instruction (handled by PC, decoder idle/reset)
-        # 1 = Fetch Rr from Memory
-        # 2 = Fetch Rd from Memory / Execute ALU
-        # 3 = Write Result back to Memory
-        self.state = 0
-
-    def Clock(self):
-        # 1. Read Current Instruction
-        inst = self.Instruction.get()
-        skip = self.SKIP.get()
-
-        if skip:
-            # If the ALU SKIP flag is high, we bypass execution and reset state
-            self.reset_control_lines()
-            self.state = 0
-            return
-
-        # 2. Decode Instruction Fields (Standard AVR 16-bit mapping)
-        # You will need to expand these masks based on your specific ISA implementation
-        opcode = (inst >> 12) & 0xF
         
-        # Extract Rd (Destination Register 0-31) - Usually bits 4-8
-        Rd_addr = (inst >> 4) & 0x1F
+        # 1. Decode Instruction via the external module
+        inst_str = ins_to_str(ins)
+        code = str_to_code(inst_str)
         
-        # Extract Rr (Source Register 0-31) - Usually bits 0-3 and bit 9
-        Rr_addr = (inst & 0x0F) | ((inst >> 5) & 0x10)
         
-        # Extract K (8-bit immediate) - Usually split across bits 8-11 and 0-3
-        k_val = ((inst >> 4) & 0xF0) | (inst & 0x0F)
+        # 2. Perform optimistic parameter extractions across all formats
+        rd_default = (ins >> 4) & 0x1F
+        rr_default = ((ins >> 5) & 0x10) | (ins & 0x0F)
         
-        # Extract q (6-bit displacement for Y+q, Z+q)
-        q_val = ((inst >> 8) & 0x20) | ((inst >> 7) & 0x18) | (inst & 0x07)
+        rd_imm = 16 + ((ins >> 4) & 0x0F)
+        k_8bit = ((ins >> 4) & 0xF0) | (ins & 0x0F)
+        
+        rd_word = 24 + (((ins >> 4) & 0x03) << 2)
+        k_6bit = ((ins >> 2) & 0x30) | (ins & 0x0F)
+        
+        k_12bit = ins & 0x0FFF
+        if k_12bit & 0x0800: k_12bit -= 4096 # Sign extend 12-bit
+        
+        k_7bit = (ins >> 3) & 0x7F
+        if k_7bit & 0x40: k_7bit -= 128      # Sign extend 7-bit Branch extraction
+        
+        b_reg = ins & 0x07 # Bit 
+        b_sreg = (ins >> 4) & 0x07
+        
+        p_io = ((ins >> 5) & 0x30) | (ins & 0x0F)
+        p_bitio = (ins >> 3) & 0x1F
+        
+        q_disp = ((ins >> 8) & 0x20) | ((ins >> 7) & 0x18) | (ins & 0x07) # Memory instrucion
+        
+        # 3. Defaults for Output Generation 
+        out_rd, out_rr, out_K, out_k_addr, out_b, out_A, out_q = 0, 0, 0, 0, 0, 0, 0
 
-        # Push immediate/displacement values to the bus
-        self.K.put(k_val)
-        self.Q.put(q_val)
-
-        # =========================================================
-        # EXECUTION STATE MACHINE
-        # =========================================================
+        # 4. Filter and map parameters based on Instruction Code groupings
         
-        # --- Example 1: ALU Operations (ADD, SUB, AND, etc.) ---
-        # Let's assume Opcode 0x0 or 0x1 are register-to-register ALU ops
-        if opcode in (0x0, 0x1):
+        # Format 1: Arithmetic & Logic with Two Registers (Rd, Rr)
+        if code in [1, 2, 4, 6, 9, 11, 13, 20, 23, 24, 25, 26, 27, 28, 37, 38, 39, 93]:
+            out_rd = rd_default
+            out_rr = rr_default
             
-            if self.state == 0:
-                # Cycle 1: Fetch Rr from memory
-                self.Address_XYZ.put(8)          # MEM_RAM_ADDR_REG (Direct Addressing mode)
-                self.ExtraAddr.put(Rr_addr)      # Route Rr address to Memory's RomAddress
-                self.Read_Write.put(0)           # READ mode
-                self.WE.put(0)
-                
-                # Advance state
-                self.state = 1
+        # Format 1b: MOVW (Word copy)
+        elif code == 94:
+            out_rd = ((ins >> 4) & 0x0F) * 2
+            out_rr = (ins & 0x0F) * 2
+            
+        # Format 2: Immediate Ops (Rd[16-31], K[8-bit])
+        elif code in [5, 7, 10, 12, 16, 17, 40, 95]:
+            out_rd = rd_imm
+            out_K = k_8bit
 
-            elif self.state == 1:
-                # Cycle 2: Rr is now on the memory bus. We assume it latches into ALU ImputRegB0.
-                # Now, set up the fetch for Rd.
-                self.Address_XYZ.put(8)          # MEM_RAM_ADDR_REG
-                self.ExtraAddr.put(Rd_addr)      # Route Rd address to Memory
-                self.Read_Write.put(0)           # READ mode
-                self.WE.put(0)
-                
-                self.state = 2
+        # Format 3: Immediate Word Ops (Rd[24,26,28,30], K[6-bit])
+        elif code in [3, 8]:
+            out_rd = rd_word
+            out_K = k_6bit
 
-            elif self.state == 2:
-                # Cycle 3: Rd is now on the bus. ALU executes the math.
-                # Prepare to write the result back to Rd memory address.
-                self.ALU_Instr.put(inst & 0x03FF) # Send specific ALU operation code
-                
-                # Wait for ALU combinational logic to settle...
-                self.state = 3
+        # Format 4: Single Register Ops (Rd)
+        elif code in [14, 15, 18, 19, 21, 22, 67, 68, 69, 70, 71, 72, 126, 127]:
+            out_rd = rd_default
 
-            elif self.state == 3:
-                # Cycle 4: Write ALU result back to Memory
-                self.Address_XYZ.put(8)          # MEM_RAM_ADDR_REG (Still pointing to Rd)
-                self.ExtraAddr.put(Rd_addr)
-                self.Read_Write.put(1)           # WRITE mode
-                
-                # Configure Memory Handler Multiplexers
-                self.ImputSelect.put(0)          # INPUT_DATABUS (to take ALU output)
-                self.WE.put(1)                   # Trigger Memory Write
-                
-                # Instruction complete, reset to fetch next instruction
-                self.state = 0
+        # Format 5: Relative Branch/Call (k[12-bit])
+        elif code in [29, 32]:
+            out_k_addr = k_12bit
+            
+        # Format 6: Conditional Branching (k[7-bit])
+        elif 45 <= code <= 64:
+            out_k_addr = k_7bit
 
-        # --- Example 2: Load/Store with X/Y/Z Pointers ---
-        # Assume Opcode 0x8 is LD/ST via pointer (e.g., LD Rd, X+)
-        elif opcode == 0x8:
-            if self.state == 0:
-                # Execute Memory Pointer Operation
-                # Instruction bits define if we use X, Y, or Z and if it's Post-Inc/Pre-Dec
-                ptr_mode = (inst >> 2) & 0xF     # Extract MEM_X, MEM_X_PLUS, etc.
-                self.Address_XYZ.put(ptr_mode)
-                
-                # Example: If bit 9 is 1, it's a STORE (Write to memory), if 0, LOAD (Read from memory)
-                is_store = (inst >> 9) & 1
-                self.Read_Write.put(is_store)
-                self.WE.put(is_store)            # Write if STORE
-                
-                self.state = 1
+        # Format 7: Long Jumps (k[22-bit... extracting upper 6 bits from Word 1])
+        elif code in [31, 34]:
+            out_k_addr = ((ins >> 3) & 0x3E) | (ins & 0x01)
+            
+        # Format 8: Bit operations in Register (Rr/Rd, b[3-bit])
+        elif code in [41, 42, 75]: # SBRC, SBRS, BST 
+            out_rr = rd_default 
+            out_b = b_reg
+        elif code == 76:           # BLD
+            out_rd = rd_default
+            out_b = b_reg
 
-            elif self.state == 1:
-                # For a LOAD, data is now on the bus. Write it to register file (Rd).
-                is_store = (inst >> 9) & 1
-                if not is_store:
-                    self.Address_XYZ.put(8)      # MEM_RAM_ADDR_REG
-                    self.ExtraAddr.put(Rd_addr)  # Point to Rd
-                    self.Read_Write.put(1)       # WRITE to register file in memory
-                    self.ImputSelect.put(0)      # Take from Databus
-                    self.WE.put(1)
-                
-                self.state = 0
+        # Format 9: Bit Operations in I/O Port (A[5-bit], b[3-bit])
+        elif code in [43, 44, 65, 66]:
+            out_A = p_bitio
+            out_b = b_reg
+            
+        # Format 10: Status Flag Set/Clear (s/b[3-bit])
+        elif code in [73, 74] or (77 <= code <= 92):
+            out_b = b_sreg
+            
+        # Format 11: General I/O (Rd, A[6-bit])
+        elif code in [124, 125]:
+            out_rd = rd_default
+            out_A = p_io
 
-        # --- Default / Unimplemented ---
-        else:
-            self.reset_control_lines()
-            self.state = 0
+        # Format 12: Memory Load/Store with Displacement (Rd, q[6-bit])
+        elif code in [102, 106, 114, 118]:
+            out_rd = rd_default
+            out_q = q_disp
 
-    def reset_control_lines(self):
-        """Helper to safely zero-out control lines when idle."""
-        self.Address_XYZ.put(0)
-        self.Read_Write.put(0)
-        self.WE.put(0)
-        self.ALU_Instr.put(0)
-        self.LoadingMux.put(0)
-        self.WritingMux.put(0)
-        self.ImputSelect.put(0)
+        # Format 13: Direct/Indirect Memory Load/Store (Rd)
+        elif 96 <= code <= 101 or 103 <= code <= 105 or 108 <= code <= 113 or 115 <= code <= 117 or code in [107, 119, 121, 122]:
+            out_rd = rd_default
+
+
+        # 5. Push exact mapped parameters onto the hardware wires
+        self.InstructionCode.prepare(code)
+        self.Rd.prepare(out_rd)
+        self.Rr.prepare(out_rr)
+        self.K.prepare(out_K)
+        self.k_addr.prepare(out_k_addr) # this is a 22 bit output always
+        self.b.prepare(out_b)
+        self.A.prepare(out_A)
+        self.q.prepare(out_q)
+        

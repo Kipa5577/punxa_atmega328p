@@ -1,18 +1,4 @@
-This is a classic pointer register file and memory interface, very similar to the architecture used in AVR microcontrollers (with the X, Y, Z, and SP registers).
 
-Comparing your `py4hw` code to the schematic, you have a solid structural foundation, but there are a few behavioral discrepancies that prevent it from functioning exactly like the hardware—specifically around the pre-decrement timing, the +1 address multiplexer, and how the `BusData` register handles reads vs. writes.
-
-Here are the key fixes applied to make your code match the schematic:
-
-* **Pre-Decrement vs. Post-Increment Timing:** In your original code, the address was sent to memory *before* being decremented during a Pre-Decrement operation. Hardware logic (like the `+` and `-` adders in the schematic) computes the decremented address on the fly. The corrected code applies the `-1` to the `base_address` before asserting it on the bus.
-* **The Address `+1` Multiplexer:** In the schematic, there is an adder right before `DataBusADDRESS` controlled by the LSB of `Mem_instruction` (labeled `0001` branching from the select line). This means odd instructions (like `MEM_X_PLUS`) push `Pointer + 1` to the address bus without modifying the underlying register. Your original `selectAddress` function ignored the `_PLUS` instructions entirely.
-* **Data Bus Muxing Bug:** In `selectWriteData`, your original code returned `self.BusData` when selecting `INPUT_DATABUS`. However, the MUX on the far right of the schematic selects the *input pin* `DataBusInput`. Returning the internal register caused an infinite loop of old data.
-* **Clock Evaluation Order:** Hardware executes in parallel, but your behavioral model is evaluated sequentially. To simulate the hardware correctly, the address must be generated and asserted *first*, followed by the memory read/write phase, followed by latching the data into the registers, and finally auto-updating the pointers.
-* **`MEM_ROM` Typo:** The constant `MEM_RAM_ADDR_REG` was defined as `8`, but your address logic checked for `self.MEM_ROM`, which threw an attribute error.
-
-Here is the fully corrected and operational `py4hw` component:
-
-```python
 import py4hw
 # import Memory # Assuming this is provided in your environment
 
@@ -73,7 +59,7 @@ class MemoryInterfaceHandler(py4hw.Logic):
             # control inputs
             reset, WE, LoadSelectMux, LoadingMux, IncDec, ReadWrite, InputSelect, Mem_instruction, RomAddress,
             # data inputs
-            DataBusInput, ResL, ResH, GeneralInput,
+            ResL, ResH, GeneralInput,
             # memory interface
             memory, # type: MemoryInterface
             # output
@@ -96,7 +82,7 @@ class MemoryInterfaceHandler(py4hw.Logic):
         self.RomAddress = self.addIn('RomAddress', RomAddress)
 
         # Data inputs
-        self.DataBusInput = self.addIn('DataBusInput', DataBusInput)
+
         self.ResL = self.addIn('ResL', ResL)
         self.ResH = self.addIn('ResH', ResH)
         self.GeneralInput = self.addIn('GeneralInput', GeneralInput)
@@ -220,6 +206,7 @@ class MemoryInterfaceHandler(py4hw.Logic):
             val = self.getSP()
             self.setSP(val - 1 if mode == self.INC_PRE_DEC else val + 1)
 
+
     # ==========================================================
     # Data source selection
     # ==========================================================
@@ -228,7 +215,7 @@ class MemoryInterfaceHandler(py4hw.Logic):
         sel = self.InputSelect.get()
 
         if sel == self.INPUT_DATABUS:
-            return self.mem.read_data.get() # Fixed: Was self.BusData
+            return self.mem.read_data.get() 
         elif sel == self.INPUT_RESL:
             return self.ResL.get()
         elif sel == self.INPUT_RESH:

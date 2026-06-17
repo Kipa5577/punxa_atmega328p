@@ -2,7 +2,7 @@ import py4hw
 
 class HandleZ(py4hw.Logic):
     def __init__(self, parent, name: str,
-                 Res, SetClear, Mode, Zprev, Zout):
+                 Res, Mode, Zprev, Zout):
         super().__init__(parent, name)
         
         # Inputs
@@ -29,7 +29,7 @@ class HandleZ(py4hw.Logic):
             # Mode 0: Explicit Clear (CLZ)
             z_out = 0
 
-        elif mode == 4:
+        elif mode == 1:
             # Mode 0: Explicit Set (SEZ)
             z_out = 1
 
@@ -50,6 +50,9 @@ class HandleZ(py4hw.Logic):
             current_z = 1 if (res & 0xFF) == 0 else 0
             z_out = (z_prev & 1) & current_z
 
+        elif mode == 5:
+            current_z = 1 if (res & 0xFF) == 0 else 0
+            z_out =  (z_prev & 1) & current_z
 
 
         # 3. Put calculated bit on the output wire

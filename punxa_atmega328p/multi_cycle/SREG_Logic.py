@@ -1,5 +1,4 @@
 import py4hw 
-import Memory
 
 
 class SREG_Logic(py4hw.Logic):
@@ -16,14 +15,13 @@ class SREG_Logic(py4hw.Logic):
 
         self.SREG_OUT = self.addOut('SREG_Out',SREG_Out)
 
-    def propagate(self):
-        if self.Reset:
+    def Clock(self):
+        if self.Reset.get():
             self.SREG = 0
 
-        if self.eSREG > 0:
-            self.SREG = (self.SREG & ~self.eSREG) | (self.SREG_IN & self.eSREG)
-
-        self.SREG_OUT = self.SREG
+        if self.eSREG.get() > 0:
+            self.SREG = (self.SREG & ~self.eSREG.get()) | (self.SREG_IN.get() & self.eSREG.get())
+        self.SREG_OUT.prepare(self.SREG)
             
         
         

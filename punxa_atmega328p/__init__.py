@@ -8,6 +8,7 @@ from .Bus import *
 from .USART import *
 from .GPIO import *
 from .single_cycle.singlecycle_processor import *
+from .multi_cycle.MulticycleProcessor import *
 
 
 #from punxa_atmega328p import ADC

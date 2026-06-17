@@ -1,12 +1,14 @@
 import py4hw
 
+# ADD register to store the ALU value
 class ALU_ConfCodeCalc(py4hw.Logic):
     def __init__(self, parent, name: str,
-                 ALUInstruction,
-                 ArithmeticControl, Copp, Zopp, Nopp, Vopp, Sopp, Hopp, Topp, Iopp, eSREG):
+                 ALUInstruction, BitPos,
+                 ArithmeticControl, Copp, Zopp, Nopp, Vopp, Sopp, Hopp, Topp, Iopp, eSREG, BranchOpp):
         super().__init__(parent, name)
 
         self.ins = self.addIn('ALUInstruction', ALUInstruction)
+        self.bit_pos = self.addIn('BitPos',BitPos)
         
         self.ArithmCode = self.addOut('ArithmeticControl', ArithmeticControl)
         self.Copp = self.addOut('Copp', Copp)
@@ -19,11 +21,13 @@ class ALU_ConfCodeCalc(py4hw.Logic):
         self.Iopp = self.addOut('Iopp', Iopp)
         
         self.eSREG = self.addOut('eSREG', eSREG)
+        self.BranchOpp = self.addOut('BranchOpp', BranchOpp)
 
     def propagate(self):
         inst = self.ins.get()
+        bit_pos = self.bit_pos.get()
         
-        # 1. Directly command the AU component (Operations 0 to 20)
+        # 1. Directly command the AU component 
         arith_ctrl = inst 
         
         # 2. Initialize Default SREG Enables (0 = Do not write)
@@ -43,83 +47,132 @@ class ALU_ConfCodeCalc(py4hw.Logic):
         S_MODE_XOR   = 2 # HandleS: N XOR V (Update your HandleS.py to use Mode 2 for this)
 
         # 4. Decode the AU Operations and Assign SREG Behaviors
-        if inst in (0, 1): # 0: ADD | 1: ADC
+        if inst in (1, 2): # 1: ADD | 2: ADC
             hen, sen, ven, nen, zen, cen = 1, 1, 1, 1, 1, 1
             hopp = 2 # HandleH Mode 2: 8-bit Addition
             vopp = 2 # HandleV Mode 2: 8-bit Addition
-            copp = 1 # HandleC Mode 1: 8-bit Addition
+            copp = 2 # HandleC Mode 1: 8-bit Addition
             sopp, zopp, nopp = S_MODE_XOR, Z_MODE_8BIT, N_MODE_8BIT
 
-        elif inst in (2, 3): # 2: SUB/SUBI | 3: SBC/SBCI
+        elif inst in (4, 5, 6, 7, 38, 39, 40): # 4: SUB | 5: SUBI | 6: SBC | 7: SBCI | 38: CP | 39: CPC | 40: CPI
             hen, sen, ven, nen, zen, cen = 1, 1, 1, 1, 1, 1
             hopp = 3 # HandleH Mode 3: 8-bit Subtraction
             vopp = 3 # HandleV Mode 3: 8-bit Subtraction
-            copp = 2 # HandleC Mode 2: 8-bit Subtraction
+            copp = 3 # HandleC Mode 2: 8-bit Subtraction
             sopp, nopp = S_MODE_XOR, N_MODE_8BIT
             
-            # SBC uses chained Z-flag comparison to support multi-byte subtraction
-            if inst == 3:
+            # SBC, SBCI, and CPC use chained Z-flag comparison to support multi-byte operations
+            if inst in (6, 7, 39):
                 zopp = Z_MODE_CHAIN 
             else:
                 zopp = Z_MODE_8BIT
 
-        elif inst == 4: # 4: ADIW 
+        elif inst == 3: # 3: ADIW 
             sen, ven, nen, zen, cen = 1, 1, 1, 1, 1
             hen = 0 # Word operations do NOT affect Half Carry
             hopp = 0
             vopp = 4 # HandleV Mode 4: 16-bit Addition
-            copp = 3 # HandleC Mode 3: 16-bit Addition
+            copp = 4 # HandleC Mode 3: 16-bit Addition
             sopp, zopp, nopp = S_MODE_XOR, Z_MODE_16BIT, N_MODE_16BIT
 
-        elif inst == 5: # 5: SBIW
+        elif inst == 8: # 8: SBIW
             sen, ven, nen, zen, cen = 1, 1, 1, 1, 1
             hen = 0 
             hopp = 0
-            vopp = 13 # HandleV Mode 13: 16-bit Subtraction
-            copp = 13 # HandleC Mode 13: 16-bit Subtraction
+            vopp = 5 # HandleV Mode 13: 16-bit Subtraction
+            copp = 5 # HandleC Mode 13: 16-bit Subtraction
             sopp, zopp, nopp = S_MODE_XOR, Z_MODE_16BIT, N_MODE_16BIT
 
-        elif inst in (6, 7, 8, 11): # 6: AND/TST | 7: OR/SBR | 8: EOR/CLR | 11: CBR
+        elif inst in (9, 10, 11, 12, 13, 16, 17, 20, 21): # 9: AND | 10: ANDI | 11: OR | 12: ORI | 13: EOR | 16: SBR | 17: CBR | 20: TST | 21: CLR
             sen, ven, nen, zen = 1, 1, 1, 1
             cen, hen = 0, 0 
             vopp = 0 # HandleV Mode 0: Force Clear
             sopp, zopp, nopp = S_MODE_XOR, Z_MODE_8BIT, N_MODE_8BIT
 
-        elif inst == 9: # 9: COM
+        elif inst == 14: # 14: COM
             sen, ven, nen, zen, cen = 1, 1, 1, 1, 1
             hen = 0
             vopp = 0 # HandleV Mode 0: Force Clear
             copp = 4 # HandleC Mode 4: Force Carry to 1
             sopp, zopp, nopp = S_MODE_XOR, Z_MODE_8BIT, N_MODE_8BIT
 
-        elif inst == 10: # 10: NEG
+        elif inst == 15: # 15: NEG
             hen, sen, ven, nen, zen, cen = 1, 1, 1, 1, 1, 1
             hopp = 3 # HandleH Mode 3: Subtraction logic 
             vopp = 5 # HandleV Mode 5: Two's Complement Negation
             copp = 5 # HandleC Mode 5: Two's Complement Negation
             sopp, zopp, nopp = S_MODE_XOR, Z_MODE_8BIT, N_MODE_8BIT
 
-        elif inst == 12: # 12: INC
+        elif inst == 18: # 18: INC
             sen, ven, nen, zen = 1, 1, 1, 1
             cen, hen = 0, 0 # INC strictly leaves Carry unaffected
             vopp = 6 # HandleV Mode 6: Increment overflow
             sopp, zopp, nopp = S_MODE_XOR, Z_MODE_8BIT, N_MODE_8BIT
 
-        elif inst == 13: # 13: DEC
+        elif inst == 19: # 19: DEC
             sen, ven, nen, zen = 1, 1, 1, 1
             cen, hen = 0, 0 # DEC strictly leaves Carry unaffected
             vopp = 7 # HandleV Mode 7: Decrement overflow
             sopp, zopp, nopp = S_MODE_XOR, Z_MODE_8BIT, N_MODE_8BIT
 
-        elif inst == 14: # 14: SER
+        elif inst == 22: # 22: SER
             # No flags are updated by SER (Equivalent to LDI)
             pass
 
-        elif inst in (15, 16, 17, 18, 19, 20): # MUL Family
+        elif inst in (23, 24, 25, 26, 27, 28): # 23-28: MUL Family (MUL, MULS, MULSU, FMUL, FMULS, FMULSU)
             zen, cen = 1, 1
             nen, ven, sen, hen = 0, 0, 0, 0
             copp = 8 # HandleC Mode 8: Multiplication carry takes bit 15
-            zopp = Z_MODE_16BIT
+            zopp = Z_MODE_16BIT 
+
+        elif inst == 73: # 73: BSET Instruction 
+            # 1. Masking: Enable ONLY the specific SREG bit matching bit_pos
+            cen = 1 if bit_pos == 0 else 0
+            zen = 1 if bit_pos == 1 else 0
+            nen = 1 if bit_pos == 2 else 0
+            ven = 1 if bit_pos == 3 else 0
+            sen = 1 if bit_pos == 4 else 0
+            hen = 1 if bit_pos == 5 else 0
+            ten = 1 if bit_pos == 6 else 0
+            ien = 1 if bit_pos == 7 else 0
+            
+            # 2. Output SET modes to the handlers.
+            # ALL handlers use Mode 1 for Set
+            iopp, topp, hopp, sopp, vopp, nopp, zopp, copp = 1, 1, 1, 1, 1, 1, 1, 1
+
+        elif inst == 74: # 74: BCLR Instruction
+            # 1. Masking: Enable ONLY the specific SREG bit matching bit_pos
+            cen = 1 if bit_pos == 0 else 0
+            zen = 1 if bit_pos == 1 else 0
+            nen = 1 if bit_pos == 2 else 0
+            ven = 1 if bit_pos == 3 else 0
+            sen = 1 if bit_pos == 4 else 0
+            hen = 1 if bit_pos == 5 else 0
+            ten = 1 if bit_pos == 6 else 0
+            ien = 1 if bit_pos == 7 else 0
+                    
+            # 2. Output CLEAR mode (0) to all handlers
+            iopp, topp, hopp, sopp, vopp, nopp, zopp, copp = 0, 0, 0, 0, 0, 0, 0, 0
+
+        elif inst in (45,49,47,53,61,55,57,59,63): # BRBS 
+            # Test one specific bit of SREG, bit index is carried in BitPos,
+            branch_opp = 1
+
+        elif inst in (46,50,51,52,48,54,62,56,58,60,64): # BRBC
+            branch_opp = 2
+
+        elif inst == 41: # SBRC 
+            branch_opp = 3
+
+        elif inst == 42: # SBRS
+            branch_opp = 4
+
+        elif inst == 43: # SBIC
+            branch_opp = 5
+
+        elif inst == 44: # SBIS
+            branch_opp = 6
+        
 
         # 5. Pack Write Enables into the 8-bit eSREG signal
         # AVR Standard Register Order: I(7), T(6), H(5), S(4), V(3), N(2), Z(1), C(0)

@@ -39,6 +39,69 @@ MEMORY_INSTRUCTIONS = ['POP','PUSH','LDX','LDX+','LD-X','LDY','LDY+','LD-Y','LDZ
 TWO_CYCLE_INSRUCTIONS = ['CALL','JMP','LDS','STS']
  # I need to investigate the spm instruction
 
+
+ARITHMETIC_LOGIC_INSTRUCTIONS = [
+    'ADD', 'ADC', 'ADIW', 'SUB', 'SUBI', 'SBC', 'SBCI', 'SBIW',
+    'AND', 'ANDI', 'OR', 'ORI', 'EOR', 'COM', 'NEG', 'INC', 'DEC',
+    'MUL', 'MULS', 'MULSU', 'FMUL', 'FMULS', 'FMULSU', 'DES'
+]
+
+SHIFT_ROTATE_INSTRUCTIONS = [
+    'LSR', 'ROR', 'ASR', 'SWAP'
+]
+
+DATA_TRANSFER_INSTRUCTIONS = [
+    'MOV', 'MOVW', 'LDI', 'LDS', 
+    'LDX', 'LDX+', 'LD-X', 
+    'LDY', 'LDY+', 'LD-Y', 'LDDZ', 'LDDY',
+    'LDZ', 'LDZ+', 'LD-Z', 'STDZ', 'STDY',
+    'STS', 'STX', 'STX+', 'ST-X', 
+    'STY', 'STY+', 'ST-Y', 'STZ', 'STZ+', 'ST-Z',
+    'IN', 'OUT', 'PUSH', 'POP', 
+    'LPM', 'LPMZ', 'LPMZ+', 
+    'ELPM', 'ELPMZ', 'ELPMZ+', 
+    'SPM', 'SPMX+'
+]
+
+BIT_BIT_TEST_INSTRUCTIONS = [
+    'SBI', 'CBI', 'SBIC', 'SBIS', 'SBRC', 'SBRS', 'BST', 'BLD', 'BSET', 'BCLR'
+]
+
+# The 16 explicit Status Register (SREG) instructions mapped to hardware
+SREG_INSTRUCTIONS = [
+    'SEC', 'CLC', 'SEN', 'CLN', 'SEZ', 'CLZ', 'SEI', 'CLI',
+    'SES', 'CLS', 'SEV', 'CLV', 'SET', 'CLT', 'SEH', 'CLH'
+]
+
+BRANCH_INSTRUCTIONS = [
+    'RJMP', 'IJMP', 'EIJMP', 'JMP', 'RCALL', 'ICALL', 'EICALL', 'CALL', 
+    'RET', 'RETI', 'CPSE', 'CP', 'CPC', 'CPI', 'BRBS', 'BRBC'
+]
+
+# The 16 conditional relative branch variants mapped to hardware
+CONDITIONAL_BRANCH_INSTRUCTIONS = [
+    'BREQ', 'BRNE', 'BRCS', 'BRCC', 'BRSH', 'BRLO', 'BRMI', 'BRPL',
+    'BRGE', 'BRLT', 'BRHS', 'BRHC', 'BRTS', 'BRTC', 'BRVS', 'BRVC',
+    'BRIE', 'BRID'
+]
+
+MCU_CONTROL_INSTRUCTIONS = [
+    'NOP', 'SLEEP', 'WDR', 'BREAK', 'HALT'
+]
+
+
+ALL_AVR_INSTRUCTIONS = (
+    ARITHMETIC_LOGIC_INSTRUCTIONS +
+    SHIFT_ROTATE_INSTRUCTIONS +
+    DATA_TRANSFER_INSTRUCTIONS +
+    BIT_BIT_TEST_INSTRUCTIONS +
+    SREG_INSTRUCTIONS +
+    BRANCH_INSTRUCTIONS +
+    CONDITIONAL_BRANCH_INSTRUCTIONS +
+    MCU_CONTROL_INSTRUCTIONS
+)
+
+
 def ins_to_str(ins): # I am packing all the OP bits, keeping the order 
 
     mask_4  = 0b1111_0000_0000_0000 # used by LDI, RJMP
@@ -269,7 +332,61 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
     return 'invalid'
 
 
-
+def str_to_code(instruction_str):
+    """
+    Takes an instruction string (e.g., returned from ins_to_str) 
+    and returns its uniquely assigned decimal code.
+    Returns 0 if the instruction is invalid or not found.
+    """
+    op_codes = {
+        # Arithmetic and Logic
+        'ADD': 1, 'ADC': 2, 'ADIW': 3, 'SUB': 4, 'SUBI': 5, 'SBC': 6, 'SBCI': 7, 'SBIW': 8,
+        'AND': 9, 'ANDI': 10, 'OR': 11, 'ORI': 12, 'EOR': 13, 'COM': 14, 'NEG': 15,
+        'SBR': 16, 'CBR': 17, 'INC': 18, 'DEC': 19, 'TST': 20, 'CLR': 21, 'SER': 22,
+        
+        # Multipliers
+        'MUL': 23, 'MULS': 24, 'MULSU': 25, 'FMUL': 26, 'FMULS': 27, 'FMULSU': 28,
+        
+        # Branch Instructions
+        'RJMP': 29, 'IJMP': 30, 'JMP': 31, 'RCALL': 32, 'ICALL': 33, 'CALL': 34,
+        'RET': 35, 'RETI': 36, 'CPSE': 37, 'CP': 38, 'CPC': 39, 'CPI': 40,
+        'SBRC': 41, 'SBRS': 42, 'SBIC': 43, 'SBIS': 44, 
+        'BRBS': 45, 'BRBC': 46, 'BREQ': 47, 'BRNE': 48, 'BRCS': 49, 'BRCC': 50, 
+        'BRSH': 51, 'BRLO': 52, 'BRMI': 53, 'BRPL': 54, 'BRGE': 55, 'BRLT': 56, 
+        'BRHS': 57, 'BRHC': 58, 'BRTS': 59, 'BRTC': 60, 'BRVS': 61, 'BRVC': 62, 
+        'BRIE': 63, 'BRID': 64,
+        
+        # Bit and Bit-Test Instructions
+        'SBI': 65, 'CBI': 66, 'LSL': 67, 'LSR': 68, 'ROL': 69, 'ROR': 70, 'ASR': 71,
+        'SWAP': 72, 'BSET': 73, 'BCLR': 74, 'BST': 75, 'BLD': 76,
+        'SEC': 77, 'CLC': 78, 'SEN': 79, 'CLN': 80, 'SEZ': 81, 'CLZ': 82, 
+        'SEI': 83, 'CLI': 84, 'SES': 85, 'CLS': 86, 'SEV': 87, 'CLV': 88, 
+        'SET': 89, 'CLT': 90, 'SEH': 91, 'CLH': 92,
+        
+        # Data Transfer Instructions
+        'MOV': 93, 'MOVW': 94, 'LDI': 95,
+        
+        # Memory Transfers (Mapped exactly to your ins_to_str string outputs)
+        'LDX': 96,  'LDX+': 97,  'LD-X': 98, 
+        'LDY': 99,  'LDY+': 100, 'LD-Y': 101, 'LDDY': 102,
+        'LDZ': 103, 'LDZ+': 104, 'LD-Z': 105, 'LDDZ': 106, 
+        'LDS': 107,
+        
+        'STX': 108, 'STX+': 109, 'ST-X': 110, 
+        'STY': 111, 'STY+': 112, 'ST-Y': 113, 'STDY': 114,
+        'STZ': 115, 'STZ+': 116, 'ST-Z': 117, 'STDZ': 118, 
+        'STS': 119,
+        
+        'LPM': 120, 'LPMZ': 121, 'LPMZ+': 122, 'SPM': 123,
+        
+        # I/O and Stack
+        'IN': 124, 'OUT': 125, 'PUSH': 126, 'POP': 127,
+        
+        # MCU Control
+        'NOP': 128, 'SLEEP': 129, 'WDR': 130, 'BREAK': 131
+    }
+    
+    return op_codes.get(instruction_str, 0) # 0 maps to Idle/Invalid instruction
 
 
 

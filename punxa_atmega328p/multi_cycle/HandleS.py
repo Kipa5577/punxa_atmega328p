@@ -32,7 +32,7 @@ class HandleS(py4hw.Logic):
             # Mode 1: Force Set (SES instruction)
             s_out = 1
             
-        elif mode == 1:
+        elif mode == 2:
             # Mode 1: Standard Sign Logic (ADD, SUB, AND, OR, INC, DEC, NEG, etc.)
             # The S flag is the logical XOR of the N and V flags
             s_out = (n_flag & 1) ^ (v_flag & 1)
