@@ -26,7 +26,7 @@ class Instruction_decoder(py4hw.Logic):
     def propagate(self):
         ins = self.Instruction.get()
 
-        
+    
         # 1. Decode Instruction via the external module
         inst_str = ins_to_str(ins)
         code = str_to_code(inst_str)
@@ -39,7 +39,7 @@ class Instruction_decoder(py4hw.Logic):
         rd_imm = 16 + ((ins >> 4) & 0x0F)
         k_8bit = ((ins >> 4) & 0xF0) | (ins & 0x0F)
         
-        rd_word = 24 + (((ins >> 4) & 0x03) << 2)
+        rd_word = 24 + (((ins >> 4) & 0x03) << 1)
         k_6bit = ((ins >> 2) & 0x30) | (ins & 0x0F)
         
         k_12bit = ins & 0x0FFF

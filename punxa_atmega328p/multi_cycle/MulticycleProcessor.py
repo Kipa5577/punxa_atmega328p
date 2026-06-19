@@ -14,9 +14,6 @@ from . import ControlBox as cb
 
 
 class multicycleProcessor(py4hw.Logic):
-    """
-    Structural assembly for your ATmega328P-like CPU.
-    """
 
     def __init__(self, parent, name, Interrupt, ins_mem, memory, reset, reset_address=0):
         super().__init__(parent, name)
@@ -41,7 +38,7 @@ class multicycleProcessor(py4hw.Logic):
         #self.w_interrupt = py4hw.Wire(self, 'w_interrupt', 1)
 
         # Decoder outputs
-        self.W_CODE = py4hw.Wire(self, 'w_code', 8)
+        self.W_CODE = py4hw.Wire(self, 'w_code', 16)
         self.W_Rd = py4hw.Wire(self, 'w_rd', 5)
         self.W_Rr = py4hw.Wire(self, 'w_rr', 5)
         self.W_K = py4hw.Wire(self, 'w_k', 8)
@@ -66,6 +63,8 @@ class multicycleProcessor(py4hw.Logic):
         self.w_operand_data = py4hw.Wire(self, 'w_operand_data', 8)
         self.w_operand_we = py4hw.Wire(self, 'w_operand_we', 3)  # 1=A0, 2=A1, 3=B0, 4=B1
         self.W_ALU_IO = py4hw.Wire(self, 'W_ALU_IO',8)
+        self.w_input_select =  py4hw.Wire(self,'w_input_select',1)
+        self.w_write_enbale = py4hw.Wire(self,'w_write_enbale',3)
 
         # ControlBox wires
         self.W_NotExecute = py4hw.Wire(self, 'NotExecute', 1)
@@ -74,18 +73,21 @@ class multicycleProcessor(py4hw.Logic):
         self.W_Input_Select = py4hw.Wire(self, 'W_Input_Select', 3)
         self.W_WE = py4hw.Wire(self, 'W_WE', 6)
         self.W_read_write = py4hw.Wire(self, 'W_read_write', 2)
-        self.W_Mem_instruction = py4hw.Wire(self, 'W_Mem_instruction', 3)
+        #self.W_Mem_instruction = py4hw.Wire(self, 'W_Mem_instruction', 3)
         self.W_LOAD_Z = py4hw.Wire(self, 'W_LOAD_Z', 1)
         self.W_LOAD_K = py4hw.Wire(self, 'W_LOAD_K', 1)
         self.W_LOAD_JUMP = py4hw.Wire(self, 'W_LOAD_JUMP', 1)
         self.W_Relative_Absolute = py4hw.Wire(self, 'W_Relative_Absolute', 1)
         self.W_Load_byte = py4hw.Wire(self, 'w_load_byte', 1)
+        self.w_EnableRead = py4hw.Wire(self,'w_EnableRead',1)
 
         # MemoryInterfaceHandler wires
-        self.w_mem_register_out = py4hw.Wire(self, 'w_mem_register_out', 8)
+        #self.w_mem_register_out = py4hw.Wire(self, 'w_mem_register_out', 8)
         self.w_mem_incdec = py4hw.Wire(self, 'w_mem_incdec', 2)
         self.w_mem_instr = py4hw.Wire(self, 'w_mem_instr', 4)
-        self.w_general_input = py4hw.Wire(self, 'w_general_input', 8)
+        #self.w_general_input = py4hw.Wire(self, 'w_general_input', 8)
+        self.w_address_ZL = py4hw.Wire(self,'w_address_ZL',8)
+        self.w_address_ZH = py4hw.Wire(self,'w_address_ZH',8)
 
         # ROM handler wires
         self.w_rom_address = py4hw.Wire(self, 'w_rom_address', 4)
@@ -99,15 +101,16 @@ class multicycleProcessor(py4hw.Logic):
             instructionOut=self.w_instruction,
             Address_Out=self.w_rom_address,
             Load_Z=self.W_LOAD_Z,
-            address_ZL=self.W_OUTPUTByte0,
-            address_ZH=self.W_OUTPUTByte1,
+            address_ZL=self.w_address_ZL,
+            address_ZH=self.w_address_ZH,
             Load_K=self.W_LOAD_K,
             K=self.W_K_ADDR,
             Load_Jump=self.W_LOAD_JUMP,
             relative_Absolute=self.W_Relative_Absolute,
             Load_Byte=self.W_Load_byte,
-            WriteVal=self.W_OUTPUTByte0,
+            WriteVal=self.W_K,
             reset_address=reset_address,
+            Enable=self.w_EnableRead,
         )
 
         self.decoder = Instruction_decoder(
@@ -125,7 +128,7 @@ class multicycleProcessor(py4hw.Logic):
 
         self.control = control_Box(
             self, 'ControlBox',
-            Instruction=self.w_instruction,
+            Instruction=self.W_CODE,
             Resp=self.w_resp,
             Branch=self.w_branch,
             Skip=self.w_skip,
@@ -144,6 +147,9 @@ class multicycleProcessor(py4hw.Logic):
             relative_Absolute=self.W_Relative_Absolute,
             Load_Byte=self.W_Load_byte,
             IncDec = self.w_mem_incdec,
+            InputSelect= self.w_input_select,
+            Write_Enable= self.w_write_enbale,
+            Enable=self.w_EnableRead,
         )
 
         self.sreg = SREG_Logic(
@@ -165,6 +171,7 @@ class multicycleProcessor(py4hw.Logic):
             B0=self.W_ALU_ImputRegB0,
             B1=self.W_ALU_ImputRegB1,
             IOout=self.W_ALU_IO,
+            InputSelect=self.w_input_select,
         )
 
         self.alu = ALU(
@@ -198,7 +205,13 @@ class multicycleProcessor(py4hw.Logic):
             RomAddress=self.w_rom_address,
             ResL=self.W_OUTPUTByte0,
             ResH=self.W_OUTPUTByte1,
+            Param_Rd=self.W_Rd,
+            Param_Rr=self.W_Rr,
             GeneralInput=self.W_K,
             memory=self.memory,
             RegisterOut=self.w_operand_data,
+            Resp=self.w_resp,
+            address_ZL=self.w_address_ZL,
+            address_ZH=self.w_address_ZH,
+            Q=self.W_q,
         )

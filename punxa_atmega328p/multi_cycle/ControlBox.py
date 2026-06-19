@@ -2,6 +2,25 @@ import py4hw
 
 
 # ---------------------------------------------------------------------------
+# Address_XYZ values (must match MemoryInterfaceHandler.Mem_instruction)
+# ---------------------------------------------------------------------------
+MEM_X          = 1   # X pointer
+MEM_X_PLUS     = 2   # X pointer (post-increment variant flag)
+MEM_Y          = 3   # Y pointer
+MEM_Y_PLUS     = 4
+MEM_Z          = 5   # Z pointer
+MEM_Z_PLUS     = 6
+MEM_SP         = 7   # Stack pointer
+MEM_SP_PLUS    = 8
+MEM_RAM_ADDR   = 9   # Direct address from RomAddress input
+MEM_Y_Q        = 10  # Y + q displacement  (LDD/STD Y+q)
+MEM_Z_Q        = 11  # Z + q displacement  (LDD/STD Z+q)
+MEM_RD         = 12  # Register file: address == Rd (0-31 in SRAM)
+MEM_RR         = 13  # Register file: address == Rr (0-31 in SRAM)
+MEM_WB_ADDR    = 14  # Register file: address comes from the WB_Addr port (for Rd+1, R0, R1 etc.)
+
+
+# ---------------------------------------------------------------------------
 # State list
 # ---------------------------------------------------------------------------
 STATES = [
@@ -231,7 +250,7 @@ _NOP_MISC = {128, 129, 130, 131}   # NOP / SLEEP / WDR / BREAK
 
 
 # ---------------------------------------------------------------------------
-# Helper sets  (for quick membership tests inside Clock())
+# Helper sets  (for quick membership tests inside clock())
 # ---------------------------------------------------------------------------
 _ALL_TWO_REG      = _RD_RR_ALU_WRITE | _RD_RR_NO_WRITE
 _ALL_ONE_REG      = _RD_ONLY_WRITE   | _RD_ONLY_NO_WRITE
@@ -252,30 +271,40 @@ _ALL_RETS   = _RETURN | _RETURN_INT
 # ---------------------------------------------------------------------------
 class control_Box(py4hw.Logic):
     """
-    Central FSM (orchestrator) for an ATmega328P-like CPU.
-
     All 131 opcodes are handled. The FSM coordinates four subsystems:
       • MemoryInterfaceHandler  — register file + data memory reads/writes
       • ALU                     — arithmetic/logic + flag updates
-      • RomHandler              — program counter + instruction fetch
-      • InterruptFSM            — interrupt detection and vector jump
+      • RomHandler              — program counter + instruction fetch + jump handeling
 
     Signal conventions
     ------------------
-    LoadSelectMux   : selects which register address goes to the memory bus
-                        0 = none, 1 = Rd address, 2 = Rr address
+    LoadingMux   : selects which register address is written to 
+                        0 = none, 1 = LOAD_XL , 2 = LOAD_XH , 3 = LOAD_YL , 4 = LOAD_YH , 5 = LOAD_ZL , 6 = LOAD_ZH , 7 = LOAD_SPL, 8 = LOAD_SPH
+  
     Input_Select    : selects what data is written back via MemoryInterface
-                        0 = databus (pass-through), 1 = ALU ResL, 2 = ALU ResH,
-                        3 = General (K immediate)
+                        0 = none, 1 = databus, 2 = ALU_ResL, 3 = ALU_ResH,4 = General (K immediate)
+
     NotExecute      : 1 = stall/NOP this cycle (used during skip)
     WE              : write-enable for pointer register loading in MemInterface
+
+    Increment/Decrement Control : Select wether to decrement/increment the values stored in registers X/Y/Z/SP or NOT
+                    0 = INC_NONE, 1 = INC_POST_INC , 2 = INC_PRE_DEC,
+    
+    LoadSelectMux : Selects the imput for the loadingMux
+                    0 = NONE, 1 = LOAD_BUS_DATA, 2 = LOAD_XL_MINUS, 3 = LOAD_XH_MINUS, 4 = LOAD_XL_PLUS, 5 = LOAD_XH_PLUS, 6 = LOAD_YL_MINUS, 7 = LOAD_YH_MINUS, 8 = LOAD_YL_PLUS, 9 = LOAD_YH_PLUS, 10 = LOAD_ZL_MINUS, 11 =  LOAD_ZH_MINUS, 12 = LOAD_ZL_PLUS, 13 = LOAD_ZH_PLUS
+
+    Mem_instruction: Selects the address source (X/Y/Z/SP) to put on the address bus
+                    0 = none, 1 = MEM_X , 2 = MEM_X_PLUS, 3 = MEM_Y , 4 = MEM_Y_PLUS, 5 = MEM_Z, 6 = MEM_Z_PLUS, 7 = MEM_SP, 8 = MEM_SP_PLUS, 9 = MEM_RAM_ADDR_REG 
+
+
+    
     Load_Z/K/Jump   : ROM handler controls
     """
 
     def __init__(self, parent, name,
                  # ── Inputs ──────────────────────────────────────────────
                  Instruction,        # 8-bit opcode from instruction decoder
-                 Resp,               # 1-bit: memory operation acknowledged
+                 Resp,               # 1-bit: memory operation Finished 
                  Branch,             # 1-bit: ALU branch condition met
                  Skip,               # 1-bit: ALU skip condition met
                  Interrupt,          # 1-bit: interrupt pending
@@ -291,14 +320,17 @@ class control_Box(py4hw.Logic):
                  IncDec,             # This icrement or Decrements address
 
                  # ── ALU Buffer Outputs ───────────────────────────────────
-                 write_Opperand_Buffer, # 1=A0, 2=A1, 3=B0, 4=B1
+                 write_Opperand_Buffer, # 1=A0, 2=A1, 3=B0, 4=B1, 5=IOBuffer 
+                 InputSelect, # 1 = Load Data in to Rr0 , 0 = Load K in to Rr0
+                 Write_Enable, # 1 = Rd0, 2 = Rd1, 3 = Rr0, 4 = Rr1, 5 = IOBuffer 
 
                  # ── ROM Handler Outputs ──────────────────────────────────
                  Load_Z,             # load Z pointer from program memory
-                 Load_K,             # load immediate K into ALU
+                 Load_K,             # load immediate K to rom loader for relative or absolute jump
                  Load_Jump,          # trigger PC jump
                  relative_Absolute,  # 0=relative, 1=absolute jump
-                 Load_Byte,          # load single byte from ROM
+                 Load_Byte,          # 0 = fetches form rom  1 = writes to rom 
+                 Enable,             # If set to 1 fetches the next instruction it has to be set back to 0 and then to one for the next instruction to be fetched
                  ):
         super().__init__(parent, name)
 
@@ -320,20 +352,24 @@ class control_Box(py4hw.Logic):
         self.IncDec           = self.addOut('IncDec',           IncDec)
 
         self.write_Opperand_Buffer = self.addOut('write_Opperand_Buffer',write_Opperand_Buffer)
+        self.InputSelect =  self.addOut('InputSelect', InputSelect)
+        self.Write_Enable = self.addOut('Write_Enable',Write_Enable)
 
         self.Load_Z           = self.addOut('Load_Z',           Load_Z)
         self.Load_K           = self.addOut('Load_K',           Load_K)
         self.Load_Jump        = self.addOut('Load_Jump',        Load_Jump)
         self.relative_Absolute= self.addOut('relative_Absolute',relative_Absolute)
         self.Load_Byte        = self.addOut('Load_Byte',        Load_Byte)
+        self.Enable           = self.addOut('Enable',           Enable)
 
         # ── FSM state ────────────────────────────────────────────────────
         self.current_state = 'DECODE_INSTRUCTION'
         # Remember the instruction across multi-cycle sequences
         self._latched_inst = 0
+        # Explicit write-back address used when Address_XYZ == MEM_WB_ADDR
 
     # ====================================================================
-    def Clock(self):
+    def clock(self):
         inst   = self.Instruction.get()
         resp   = self.Resp.get()
         branch = self.Branch.get()
@@ -373,6 +409,8 @@ class control_Box(py4hw.Logic):
             # Latch the incoming instruction for use across all subsequent states
             i = inst
             self._latched_inst = i
+
+
 
             # Check for pending interrupt (only when we are at instruction boundary)
             if irq:
@@ -462,13 +500,13 @@ class control_Box(py4hw.Logic):
         # FETCH Rd — low byte
         # ================================================================
         elif state == 'FETCH_RD_INIT':
-            out['LoadSelectMux'] = 1    # present Rd address to memory bus
-            out['Read_Write']    = 0    # read
+            out['Address_XYZ'] = MEM_RD   # drive Rd (0-31) onto address bus
+            out['Read_Write']   = 0        # read
             next_state = 'FETCH_RD_WAIT'
 
         elif state == 'FETCH_RD_WAIT':
-            out['LoadSelectMux'] = 1
-            out['Read_Write']    = 0
+            out['Address_XYZ'] = MEM_RD
+            out['Read_Write']   = 0
             if resp:
                 next_state = 'FETCH_RD_LOADBUFFER'
 
@@ -479,6 +517,16 @@ class control_Box(py4hw.Logic):
             if i in (_ALL_TWO_REG | _WORD_ALU):
                 # Need Rr or second byte
                 if i in _WORD_ALU:
+                    # Pre-compute Rd+1 so B2 fetch/write states can use MEM_WB_ADDR.
+                    # Reconstruct Rd the same way the decoder does for each format.
+                    ins_word = self._latched_inst
+                    if i in {3, 8}:     # ADIW, SBIW: Rd = 24 + 2*(bits[5:4])
+                        rd_base = 24 + (((ins_word >> 4) & 0x03) << 1)
+                    elif i == 94:       # MOVW: Rd = bits[7:4] * 2
+                        rd_base = ((ins_word >> 4) & 0x0F) * 2
+                    else:
+                        rd_base = (ins_word >> 4) & 0x1F
+
                     next_state = 'FETCH_RD_INIT_B2'   # grab RdH first
                 else:
                     next_state = 'FETCH_RR_INIT'
@@ -516,14 +564,19 @@ class control_Box(py4hw.Logic):
         # ================================================================
         # FETCH Rd — high byte  (ADIW / SBIW / MOVW)
         # ================================================================
+        # FETCH Rd — high byte  (ADIW / SBIW / MOVW — need Rd+1)
+        # The ControlBox sets WB_Addr = Rd+1 so MemoryInterfaceHandler can
+        # address it via MEM_WB_ADDR mode.
+        # ================================================================
         elif state == 'FETCH_RD_INIT_B2':
-            out['LoadSelectMux'] = 1    # address Rd+1
-            out['Read_Write']    = 0
+            out['Address_XYZ'] = MEM_WB_ADDR  # address comes from WB_Addr port
+
+            out['Read_Write']  = 0
             next_state = 'FETCH_RD_WAIT_B2'
 
         elif state == 'FETCH_RD_WAIT_B2':
-            out['LoadSelectMux'] = 1
-            out['Read_Write']    = 0
+            out['Address_XYZ'] = MEM_WB_ADDR
+            out['Read_Write']  = 0
             if resp:
                 next_state = 'FETCH_RD_LOADBUFFER_B2'
 
@@ -540,13 +593,13 @@ class control_Box(py4hw.Logic):
         # FETCH Rr — low byte
         # ================================================================
         elif state == 'FETCH_RR_INIT':
-            out['LoadSelectMux'] = 2    # present Rr address to memory bus
-            out['Read_Write']    = 0
+            out['Address_XYZ'] = MEM_RR   # drive Rr (0-31) onto address bus
+            out['Read_Write']   = 0
             next_state = 'FETCH_RR_WAIT'
 
         elif state == 'FETCH_RR_WAIT':
-            out['LoadSelectMux'] = 2
-            out['Read_Write']    = 0
+            out['Address_XYZ'] = MEM_RR
+            out['Read_Write']   = 0
             if resp:
                 next_state = 'FETCH_RR_LOADBUFFER'
 
@@ -554,6 +607,11 @@ class control_Box(py4hw.Logic):
             out['write_RrL_Buffer'] = 1
 
             if i in _WORD_ALU:      # MOVW still needs RrH
+                # Pre-compute Rr+1 for the B2 fetch (MOVW only).
+                # MOVW: Rr = (ins & 0x0F) * 2
+                ins_word = self._latched_inst
+                rr_base = (ins_word & 0x0F) * 2
+
                 next_state = 'FETCH_RR_INIT_B2'
             elif i in _SKIP:
                 next_state = 'EXECUTE_SKIP'
@@ -561,16 +619,16 @@ class control_Box(py4hw.Logic):
                 next_state = 'EXECUTE_ALU_OPP'
 
         # ================================================================
-        # FETCH Rr — high byte  (MOVW only)
+        # FETCH Rr — high byte  (MOVW only — need Rr+1)
         # ================================================================
         elif state == 'FETCH_RR_INIT_B2':
-            out['LoadSelectMux'] = 2
-            out['Read_Write']    = 0
+            out['Address_XYZ'] = MEM_WB_ADDR  # WB_Addr holds Rr+1
+            out['Read_Write']  = 0
             next_state = 'FETCH_RR_WAIT_B2'
 
         elif state == 'FETCH_RR_WAIT_B2':
-            out['LoadSelectMux'] = 2
-            out['Read_Write']    = 0
+            out['Address_XYZ'] = MEM_WB_ADDR
+            out['Read_Write']  = 0
             if resp:
                 next_state = 'FETCH_RR_LOADBUFFER_B2'
 
@@ -656,24 +714,53 @@ class control_Box(py4hw.Logic):
                 next_state = 'DECODE_INSTRUCTION'
 
         # ================================================================
-        # WRITE result to register file — low byte
+        # WRITE result to register file — low byte  (Rd ← ResL)
+        # For MUL family: result → R0 (address 0), driven via MEM_WB_ADDR.
+        # For all other ops: result → Rd, driven via MEM_RD.
         # ================================================================
         elif state == 'WRITE_RES_INIT':
-            out['Input_Select'] = 1   # ALU ResL → memory data bus
-            out['Read_Write']   = 1   # write
-            out['LoadSelectMux']= 1   # address = Rd
+            out['Input_Select']  = 2          # ALU ResL → write data
+            out['Read_Write']    = 1           # write
+            if i in _MUL_FAMILY:
+                out['Address_XYZ'] = MEM_WB_ADDR  # WB_Addr = 0 (R0), set at DECODE
+
+            else:
+                out['Address_XYZ'] = MEM_RD       # address = Rd
             next_state = 'WRITE_RES_WAIT'
 
         elif state == 'WRITE_RES_WAIT':
-            out['Input_Select'] = 1
-            out['Read_Write']   = 1
-            out['LoadSelectMux']= 1
+            out['Input_Select']  = 2
+            out['Read_Write']    = 1
+            if i in _MUL_FAMILY:
+                out['Address_XYZ'] = MEM_WB_ADDR
+
+            else:
+                out['Address_XYZ'] = MEM_RD
             if resp:
                 next_state = 'WRITE_RES_FINISHED'
 
         elif state == 'WRITE_RES_FINISHED':
-            # For 16-bit results, we need to write the high byte too
+            # For 16-bit results, we need to write the high byte too.
+            # Pre-compute the B2 write address and store it for the B2 states.
             if i in (_MUL_FAMILY | _WORD_ALU | {94}):
+                if i in _MUL_FAMILY:
+                    # MUL family: result always goes to R1:R0
+                    pass
+                else:
+                    # ADIW / SBIW / MOVW: high byte → Rd+1
+                    rd_addr = self.Instruction.get()   # Instruction still holds decoded Rd via wire
+                    # Use the latched instruction — Rd was decoded from _latched_inst
+                    # We reconstruct Rd from the latched opcode the same way the decoder did.
+                    # For ADIW/SBIW (code 3,8): Rd = 24 + (((ins>>4)&0x03)<<1)
+                    # For MOVW (code 94):        Rd = ((ins>>4)&0x0F)*2
+                    ins_word = self._latched_inst
+                    if i in {3, 8}:     # ADIW, SBIW
+                        rd_base = 24 + (((ins_word >> 4) & 0x03) << 1)
+                    elif i == 94:       # MOVW
+                        rd_base = ((ins_word >> 4) & 0x0F) * 2
+                    else:
+                        rd_base = (ins_word >> 4) & 0x1F
+
                 next_state = 'WRITE_RES_INIT_B2'
             else:
                 next_state = 'DECODE_INSTRUCTION'
@@ -682,15 +769,17 @@ class control_Box(py4hw.Logic):
         # WRITE result — high byte (R1 for MUL; Rd+1 for ADIW/SBIW/MOVW)
         # ================================================================
         elif state == 'WRITE_RES_INIT_B2':
-            out['Input_Select'] = 2   # ALU ResH
-            out['Read_Write']   = 1
-            out['LoadSelectMux']= 1   # address decoder adds +1 for B2 writes
+            # WB_Addr was set in WRITE_RES_FINISHED (R1 for MUL, Rd+1 for ADIW/SBIW/MOVW)
+            out['Input_Select']  = 3          # ALU ResH → write data
+            out['Read_Write']    = 1
+            out['Address_XYZ']   = MEM_WB_ADDR
+
             next_state = 'WRITE_RES_WAIT_B2'
 
         elif state == 'WRITE_RES_WAIT_B2':
-            out['Input_Select'] = 2
-            out['Read_Write']   = 1
-            out['LoadSelectMux']= 1
+            out['Input_Select']  = 3
+            out['Read_Write']    = 1
+            out['Address_XYZ']   = MEM_WB_ADDR
             if resp:
                 next_state = 'WRITE_RES_FINISHED_B2'
 
@@ -910,6 +999,7 @@ class control_Box(py4hw.Logic):
         self.Load_Jump.put(out['Load_Jump'])
         self.relative_Absolute.put(out['relative_Absolute'])
         self.Load_Byte.put(out['Load_Byte'])
+
 
         # Advance state
         self.current_state = next_state

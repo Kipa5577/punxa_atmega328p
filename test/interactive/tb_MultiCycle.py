@@ -136,7 +136,9 @@ STS 0xC6, R17
 RJMP -1              ; Infinite self-loop
 '''
 
-words = assemble_program(program)
+words, symbols = assemble_program(program)
+print(f"Assembled {len(words)} instructions")
+print(f"Symbols: {symbols}")
 dw = 8 
 aw = 16
 

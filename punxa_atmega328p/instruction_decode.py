@@ -372,7 +372,7 @@ def str_to_code(instruction_str):
         # Data Transfer Instructions
         'MOV': 93, 'MOVW': 94, 'LDI': 95,
         
-        # Memory Transfers (Mapped exactly to your ins_to_str string outputs)
+        # Memory Transfers 
         'LDX': 96,  'LDX+': 97,  'LD-X': 98, 
         'LDY': 99,  'LDY+': 100, 'LD-Y': 101, 'LDDY': 102,
         'LDZ': 103, 'LDZ+': 104, 'LD-Z': 105, 'LDDZ': 106, 
@@ -385,7 +385,7 @@ def str_to_code(instruction_str):
         
         'LPM': 120, 'LPMZ': 121, 'LPMZ+': 122, 'SPM': 123,
         
-        # I/O and Stack
+        # I/O and Stacks
         'IN': 124, 'OUT': 125, 'PUSH': 126, 'POP': 127,
         
         # MCU Control

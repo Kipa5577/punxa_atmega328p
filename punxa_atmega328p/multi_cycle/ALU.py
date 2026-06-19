@@ -16,11 +16,36 @@ from .HandleZ import *
 from .WireCombiner16 import *
 
 
-# =====================================================================
-# Helper Behavioral Blocks
-# In py4hw, it's best to isolate behavioral logic into leaf components 
-# to ensure the simulator schedules them correctly in the event queue.
-# =====================================================================
+"""
+=============================================================================
+AI Agent Component Reference: Top-Level ALU (Arithmetic Logic Unit)
+=============================================================================
+
+Description:
+This class is the top-level orchestrator for the ALU. Designed for the py4hw 
+event-driven simulator, it acts as a wiring harness that connects several 
+behavioral leaf components: the Arithmetic Unit (AU), the Branch/Skip Unit (LU), 
+the Instruction Decoder (ALU_ConfCodeCalc), and eight independent Flag Handlers.
+
+Inputs:
+- ImputRegA0 (8-bit): The lower byte of the primary operand / Destination Register (Rd).
+- ImputRegA1 (8-bit): The upper byte of the primary operand (for 16-bit operations).
+- ImputRegB0 (8-bit): The lower byte of the secondary operand / Source Register (Rr).
+- ImputRegB1 (8-bit): The upper byte of the secondary operand.
+- ALUInstruction (int): The opcode or decoded control signal defining the arithmetic/logic operation to perform.
+- SREG_STATE (8-bit): The incoming state of the Status Register, packed in standard AVR order (I-T-H-S-V-N-Z-C).
+- BitPos (int): A 3-bit index (0-7) targeting a specific bit for bitwise operations, branch conditions, or skips.
+- IOreg (8-bit): The current value of a specified I/O register, utilized exclusively for Skip instructions (SBIC/SBIS).
+
+Outputs:
+- ALUOUTPUTByte0 (8-bit): The lower byte of the computation's numerical result.
+- ALUOUTPUTByte1 (8-bit): The upper byte of the computation's numerical result (active during 16-bit operations).
+- SREG_VAL (8-bit): The newly calculated Status Register values, merged back into a single 8-bit bus.
+- eSREG_VAL (8-bit): The write-enable mask for the SREG. A '1' indicates the flag should be updated by the current instruction; a '0' indicates it must be held.
+- BRANCH (1-bit boolean): Signals HIGH (1) if a conditional branch requirement (e.g., BRBS, BRBC) evaluates to True.
+- SKIP (1-bit boolean): Signals HIGH (1) if an instruction skip requirement (e.g., SBRS, SBIC) evaluates to True.
+=============================================================================
+"""
 class SREG_Splitter(py4hw.Logic):
     """Splits the 8-bit SREG bus into individual flag wires."""
     def __init__(self, parent, name, sreg_state, w_cin, w_zin, w_nin, w_vin):

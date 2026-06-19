@@ -8,6 +8,8 @@ import mmap
 #2048 bytes of ram
 #32256 of rom 
 
+
+
 class MemoryInterface(Interface):
 
     def __init__(self, parent:Logic, name:str, data_width:int, address_width:int):
@@ -47,6 +49,7 @@ class Ram_Memory(Logic):
         
         if (self.port.write.get() == 1):
             self.data[add] = self.port.write_data.get()
+            assert isinstance (add.int)
             self.port.resp.prepare(1)
         elif (self.port.read.get() == 1):
             self.port.read_data.prepare(self.data[add])

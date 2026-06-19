@@ -3,7 +3,7 @@ import py4hw
 class OperandBuffer(py4hw.Logic):
 
     def __init__(self, parent, name,
-                 DATAInterface,K,WE,Reset,
+                 DATAInterface,K,WE,Reset,InputSelect,
                  A0,A1,B0,B1,IOout):
         super().__init__(parent, name)
 
@@ -12,6 +12,7 @@ class OperandBuffer(py4hw.Logic):
         self.K = self.addIn('K',K)
         self.Reset = self.addIn('Reset',Reset)
         self.WE = self.addIn('WE',WE)
+        self.InputSelect = self.addIn('InputSelect',InputSelect)
 
 
         self.A0 = self.addOut('A0',A0)
@@ -45,13 +46,14 @@ class OperandBuffer(py4hw.Logic):
                 self.valueRd1 = self.DATA.get() & 0xFF
 
             if self.WE.get() == 3:
-                self.valueRr0 = self.DATA.get() & 0xFF
+                self.valueRr0 = self.DATA.get() & 0xFF if self.InputSelect == 1 else self.K.get()
 
             if self.WE.get() == 4:
                 self.valueRr1 = self.DATA.get() & 0xFF
 
             if self.WE.get() == 5:
                 self.IOBuffer = self.IOBuffer.get() & 0xFF
+
 
         self.A0.put(self.valueRd0)
         self.A1.put(self.valueRd1)

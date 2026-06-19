@@ -15,13 +15,10 @@ class SREG_Logic(py4hw.Logic):
 
         self.SREG_OUT = self.addOut('SREG_Out',SREG_Out)
 
-    def Clock(self):
+    def clock(self):
         if self.Reset.get():
             self.SREG = 0
 
         if self.eSREG.get() > 0:
             self.SREG = (self.SREG & ~self.eSREG.get()) | (self.SREG_IN.get() & self.eSREG.get())
         self.SREG_OUT.prepare(self.SREG)
-            
-        
-        
