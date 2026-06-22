@@ -4,14 +4,34 @@ from ..instruction_decode import *
 class Instruction_decoder(py4hw.Logic):
     def __init__(self, parent, name: str,
                  # --- Inputs ---
-                 Instruction,
+                 Instruction,Instruction_fetched,
                  # --- Parameter Outputs (Extracted from instruction) ---
-                 InstructionCode, Rd, Rr, K, k_addr, b, A, q
+                 InstructionCode, Rd, Rr, K, k_addr, b, A, q,
+                 # --- Control Outpus ---
+                 Instruction_decoded
                  ):
         super().__init__(parent, name)
 
+        """
+            STATE MACHINE 
+
+            +-------------------+
+            | DECODE_INSTRUCTION|<------------|
+            +-------------------+             |
+                        |                     |
+                    One CLOCK       Instruction_fetched == 1
+                        |                     |
+            +-------------------------+       |
+            | WAIT_FOR_NEW_INSTRUCITON| ------|
+            +-------------------------+
+
+        In DECODE_INSTRUCTION: Read the instruction and update the outputs and put the instruction decoder output to 1
+        In WAIT_FOR_NEW_INSTRUCITON: Keep the outputs as they were 
+        """
+
         # --- Inputs ---
         self.Instruction = self.addIn('Instruction', Instruction)
+        self.Instruction_fetched = self.addIn('Instruction_fetched',Instruction_fetched) # This is a signal form the RomHandler that tells the instruction decoder that it has a new instruction to decode
 
         # --- Parameter Outputs ---
         self.InstructionCode = self.addOut('InstructionCode', InstructionCode)
@@ -22,6 +42,7 @@ class Instruction_decoder(py4hw.Logic):
         self.b = self.addOut('b', b)              # Bit position
         self.A = self.addOut('A', A)              # I/O Register Address (SBI/CBI)
         self.q = self.addOut('q', q)              # Memory displacement
+        self.Instruction_decoded = self.addOut('Instruction_decoded',Instruction_decoded) # This signal is put to 1 in DECODE_INSTRUCTION state and set to 0 in the WAIT_FOR_NEW_INSTRUCITON state
 
     def propagate(self):
         ins = self.Instruction.get()

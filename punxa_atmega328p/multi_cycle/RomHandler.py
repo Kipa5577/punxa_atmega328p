@@ -43,14 +43,48 @@ FSM States:
 =============================================================================
 """
 
-class RomHandler(py4hw.Logic):
+"""
+    STATE MACHINE 
 
+    +------+
+    | STOP |<--------------------------------|
+    +------+                                 |
+        |                                    |
+    Fetch_next_instruction == 1              |
+        |                                    |
+    +----------+                             |
+    | FETCH_REQ|                             |
+    +----------+                             |
+        |                                    |
+    ONE CLOCK                       Fetch_next_instruction == 0
+        |                                    |
+    +----------+                             |
+    |WRITE_WAIT|                             |
+    +----------+                             |
+        |                                    |
+    ONE CLOCK                                |
+        |                                    |
+    +-------------------------------+        |
+    |WAIT_Fetch_next_instruction_LOW|--------|
+    +-------------------------------+
+
+
+In DECODE_INSTRUCTION: Read the instruction and update the outputs and put the instruction decoder output to 1
+In WAIT_FOR_NEW_INSTRUCITON: Keep the outputs as they were 
+"""
+
+
+
+
+class RomHandler(py4hw.Logic):
     def __init__(self, parent, name,
                  # --- Memory Interface ---
                  mem,  # Type: MemoryInterface
                  
                  # --- Outputs ---
-                 instructionOut, Address_Out,
+                 instructionOut, Address_Out,Instruction_fetched,Executed_Jump,
+                 Pc_valL, # This is to load pc in memory for the POP and PUSH instruction
+                 Pc_valH,
                  
                  # --- Indirect Jumps (IJMP, ICALL) via Z register ---
                  Load_Z, address_ZL, address_ZH,
@@ -62,9 +96,15 @@ class RomHandler(py4hw.Logic):
                  # --- ROM Writing (SPM instruction) ---
                  Load_Byte, WriteVal,
 
-                 # --- Enable --- 
-                 Enable,
-                 
+                 PCL_LOAD_VAL,# This is connected to the MemoryInterfaceHandler to load the pc valeu form the ret instructions
+                 PCH_LOAD_VAL,# 
+
+                 # --- CommandInputs --- 
+                 Fetch_next_instruction,
+                 JumpWidth, # tells the component by how much it has to increment the pc to go to the next instructin 0 = pc +1 | 1 = pc +2 it is connected to the control Box
+                 Load_PCL,# This is to control the loading of the pc register
+                 Load_PCH,
+
                  reset_address=0):
         
         super().__init__(parent, name)
@@ -79,6 +119,9 @@ class RomHandler(py4hw.Logic):
         # --- Output Pins ---
         self.instructionOut = self.addOut('instructionOut', instructionOut)
         self.Address_Out = self.addOut('Address_Out', Address_Out)
+
+        self.Instruction_fetched = self.addOut('Instruction_fetched',Instruction_fetched)
+        self.Executed_Jump = self.addOut('Executed_Jump',Executed_Jump)
         
         # --- Input Pins (Control Signals from Decoder/Execute stage) ---
         self.Load_Z = self.addIn('Load_Z', Load_Z)
@@ -90,16 +133,26 @@ class RomHandler(py4hw.Logic):
         
         self.Load_Jump = self.addIn('Load_Jump', Load_Jump)
         self.relative_Absolute = self.addIn('relative_Absolute', relative_Absolute)
-        
+    
         self.Load_Byte = self.addIn('Load_Byte', Load_Byte)
         self.WriteVal = self.addIn('WriteVal', WriteVal)
 
-        self.Enable = self.addIn('Enable',Enable)
+        self.Fetch_next_instruction = self.addIn('Fetch_next_instruction',Fetch_next_instruction)
+
+        self.Pc_valL =  self.addOut('Pc_valL',Pc_valL)
+        self.PC_valH =  self.addOut('Pc_valH',Pc_valH)
+
+        self.JumpWidth = self.addIn('JumpWidth',JumpWidth)
+        self.Load_PCL  = self.addIn('Load_PCL',Load_PCL)
+        self.Load_PCH = self.addIn('Load_PCH',Load_PCH)
+
+        self.PCL_LOAD_VAL = self.addIn('PCL_LOAD_VAL',PCL_LOAD_VAL)
+        self.PCH_LOAD_VAL = self.addIn('PCH_LOAD_VAL',PCH_LOAD_VAL) 
 
     def clock(self):
 
         # ---------------------------------------------------------
-        # STATE: STOP - Halt Execution until Enabled
+        # STATE: STOP - Halt Execution until Fetch_next_instruction
         # ---------------------------------------------------------
         if self.FSM == 'STOP':
             # Keep memory control signals cleanly deasserted
@@ -107,8 +160,8 @@ class RomHandler(py4hw.Logic):
             self.mem.read.prepare(0)
             self.mem.write.prepare(0)
             
-            # Transition to fetch if ControlBox enables execution
-            if self.Enable.get() == 1:
+            # Transition to fetch if ControlBox Fetch_next_instruction execution
+            if self.Fetch_next_instruction.get() == 1:
                 self.FSM = 'FETCH_REQ'
 
 
@@ -217,14 +270,14 @@ class RomHandler(py4hw.Logic):
             if self.mem.resp.get() == 1:
                 self.PC = (self.PC + 1) & 0x3FFF
                 # [CHANGED] Go to the trap state
-                self.FSM = 'WAIT_ENABLE_LOW'
+                self.FSM = 'WAIT_Fetch_next_instruction_LOW'
 
         # ---------------------------------------------------------
-        # STATE: WAIT_ENABLE_LOW - The Single-Step Trap
+        # STATE: WAIT_Fetch_next_instruction_LOW - The Single-Step Trap
         # ---------------------------------------------------------
-        elif self.FSM == 'WAIT_ENABLE_LOW':
-            # Completely freeze execution until the user/ControlBox pulls Enable to 0
-            if self.Enable.get() == 0:
+        elif self.FSM == 'WAIT_Fetch_next_instruction_LOW':
+            # Completely freeze execution until the user/ControlBox pulls Fetch_next_instruction to 0
+            if self.Fetch_next_instruction.get() == 0:
                 self.FSM = 'STOP'
 
         # ---------------------------------------------------------

@@ -25,25 +25,41 @@ MEM_WB_ADDR    = 14  # Register file: address comes from the WB_Addr port (for R
 # ---------------------------------------------------------------------------
 STATES = [
     # ── Entry ───────────────────────────────────────────────────────────────
-    'DECODE_INSTRUCTION',
+
+    'FETCH_INSTRUION', # Tells the RomHandler to Fetch the next instruction
+    'DECODE_INSTRUCTION', # Waits for the Instruction decoder to send a decoded instruction signa
+    'EXECUTE_INSTRUCTION' # The control box is deciding what to do with the new instruction code it recived 
+    'FINISED_INSTRUCTION_EXECUTION' # This tells the RomLoader to fetch a new instruction and sends a signal to the instruction decoder that the current instruction has finished exeution so it should wait for a new one and tell the control box wen it has recived it.
 
     # ── Fetch Rd (8-bit) ────────────────────────────────────────────────────
-    'FETCH_RD_INIT', 'FETCH_RD_WAIT', 'FETCH_RD_LOADBUFFER',
+    'FETCH_RD_INIT', # Tells the MemoryInterface handler to load to the bus the rd address and that it is a read operation
+    'FETCH_RD_WAIT', # Waits for the Memory interface to rend back the resp signal
+    'FETCH_RD_LOADBUFFER', # Writes the value of the RD register in the value buffer before the ALU
     # Fetch Rd high byte for 16-bit ops (ADIW/SBIW/MOVW)
-    'FETCH_RD_INIT_B2', 'FETCH_RD_WAIT_B2', 'FETCH_RD_LOADBUFFER_B2',
-
+    'FETCH_RD_INIT_B2', # Tells the MemoryInterface handler to load to the bus the rd address and that it is a read operation
+    'FETCH_RD_WAIT_B2', # Waits for the Memory interface to rend back the resp signal
+    'FETCH_RD_LOADBUFFER_B2', # Writes the value of the RD register in the value buffer before the ALU
     # ── Fetch Rr (8-bit) ────────────────────────────────────────────────────
-    'FETCH_RR_INIT', 'FETCH_RR_WAIT', 'FETCH_RR_LOADBUFFER',
+    'FETCH_RR_INIT',# Tells the MemoryInterface handler to load to the bus the rd address and that it is a read operation
+    'FETCH_RR_WAIT',# Waits for the Memory interface to rend back the resp signal
+    'FETCH_RR_LOADBUFFER',# Writes the value of the RE register in the value buffer before the ALU
     # Fetch Rr high byte for 16-bit ops
-    'FETCH_RR_INIT_B2', 'FETCH_RR_WAIT_B2', 'FETCH_RR_LOADBUFFER_B2',
+    'FETCH_RR_INIT_B2',# Tells the MemoryInterface handler to load to the bus the rd address and that it is a read operation
+    'FETCH_RR_WAIT_B2',# Waits for the Memory interface to rend back the resp signal
+    'FETCH_RR_LOADBUFFER_B2', # Writes the value of the RD register in the value buffer before the ALU
 
     # ── Execute ─────────────────────────────────────────────────────────────
     'EXECUTE_ALU_OPP',      # ALU computes; next → write-back or DECODE
     'EXECUTE_BRANCH',       # Evaluate branch condition, update PC if taken
     'EXECUTE_SKIP',         # CPSE / SBRC / SBRS / SBIC / SBIS: may skip next instr
+    
+    'SKIP'
 
     # ── Load from memory (LD / LDS / LPM) ──────────────────────────────────
-    'FETCH_MEMORY_VALL_INIT', 'FETCH_MEMORY_VALL_WAIT',
+    'FETCH_MEMORY_VALL_INIT', 'FETCH_MEMORY_VALL_WAIT', #Before loading from memory the control box shoudl store the values (based ont the instruction) : 
+    # R26:R27 intor the X register of the MemoryHandlerInterface
+    # R28:R29 intor the Y register of the MemoryHandlerInterface
+    # R30:R31 intor the Z register of the MemoryHandlerInterface
 
     # ── Store to memory (ST / STS / SPM) ───────────────────────────────────
     'WRITE_MEMORY_VALL_INIT', 'WRITE_MEMORY_VALL_WAIT',
@@ -63,7 +79,8 @@ STATES = [
 
     # ── PUSH / POP ───────────────────────────────────────────────────────────
     'PUSH_INIT', 'PUSH_WAIT',
-    'POP_INIT',  'POP_WAIT',  'POP_LOADBUFFER',
+    'POP_INIT',  'POP_WAIT',  
+    # 'POP_LOADBUFFER', There is no need for a load buffer fecause after a pop the controlbox is going to directly load the value to a register in memory
 
     # ── IN / OUT ─────────────────────────────────────────────────────────────
     'IO_READ_INIT',  'IO_READ_WAIT',  'IO_READ_LOADBUFFER',
@@ -74,7 +91,7 @@ STATES = [
 
     # ── Interrupt handling ───────────────────────────────────────────────────
     'INTERRUPT_INIT', 'INTERRUPT_JUMP',
-    'INTERRUPT',
+    #'INTERRUPT',# this in terrupt state  is not neaded as we have jumped to the interup and we are going to return once the reti instruction is called 
     'RETURN_FROM_INTERRUPT',
 ]
 
@@ -308,6 +325,9 @@ class control_Box(py4hw.Logic):
                  Branch,             # 1-bit: ALU branch condition met
                  Skip,               # 1-bit: ALU skip condition met
                  Interrupt,          # 1-bit: interrupt pending
+                 Instruction_fetched, # 1-bit This signal is sent by the romHandler to tell the controll box that it has fetched the next instruction and has sent it to the instruction decoder
+                 Instruction_decoded, # 1-bit This signak is sent by the Instruction_decoder to thell the controll box that the instruction decoder has updated ist outputs based on the new instruction 
+                 Executed_Jump, # This tell the controll box that the romHandler has successfully executed the jump instrution and it is ready to load the next instruction
 
                  # ── Memory Interface Outputs ─────────────────────────────
                  NotExecute,         # stall signal
@@ -330,16 +350,26 @@ class control_Box(py4hw.Logic):
                  Load_Jump,          # trigger PC jump
                  relative_Absolute,  # 0=relative, 1=absolute jump
                  Load_Byte,          # 0 = fetches form rom  1 = writes to rom 
-                 Enable,             # If set to 1 fetches the next instruction it has to be set back to 0 and then to one for the next instruction to be fetched
+                 Fetch_next_instruction, # If set to 1 fetches the next instruction it has to be set back to 0 and then to one for the next instruction to be fetched
+                 # Fethc_next_instruction is also used to rest the outputs of the instruction decoder and to tell it to expect a new instruction
+                 # The instruction decoder also recives the instruction_fetched signal form the romHandler to tell it that it has a new instrucion in its entrance.
+
+
+
+                 # ── Write-back address ───────────────────────────────────
+                 WB_Addr,            # 5-bit explicit write-back address (for Rd+1, R0, R1 in MUL, etc.)
                  ):
         super().__init__(parent, name)
 
         # ── Register inputs ──────────────────────────────────────────────
-        self.Instruction      = self.addIn('Instruction',      Instruction)
-        self.Resp             = self.addIn('Resp',             Resp)
-        self.Branch           = self.addIn('Branch',           Branch)
-        self.Skip             = self.addIn('Skip',             Skip)
-        self.Interrupt        = self.addIn('Interrupt',        Interrupt)
+        self.Instruction           = self.addIn('Instruction',           Instruction)
+        self.Resp                  = self.addIn('Resp',                  Resp)
+        self.Branch                = self.addIn('Branch',                Branch)
+        self.Skip                  = self.addIn('Skip',                  Skip)
+        self.Interrupt             = self.addIn('Interrupt',             Interrupt)
+        self.Instruction_fetched   = self.addIn('Instruction_fetched',   Instruction_fetched)
+        self.Instruction_decoded   = self.addIn('Instruction_decoded',   Instruction_decoded)
+        self.Executed_Jump         = self.addIn('Executed_Jump',         Executed_Jump)
 
         # ── Register outputs ─────────────────────────────────────────────
         self.NotExecute       = self.addOut('NotExecute',       NotExecute)
@@ -360,41 +390,51 @@ class control_Box(py4hw.Logic):
         self.Load_Jump        = self.addOut('Load_Jump',        Load_Jump)
         self.relative_Absolute= self.addOut('relative_Absolute',relative_Absolute)
         self.Load_Byte        = self.addOut('Load_Byte',        Load_Byte)
-        self.Enable           = self.addOut('Enable',           Enable)
+        self.Fetch_next_instruction           = self.addOut('Fetch_next_instruction',           Fetch_next_instruction)
+        self.WB_Addr          = self.addOut('WB_Addr',          WB_Addr)
 
         # ── FSM state ────────────────────────────────────────────────────
         self.current_state = 'DECODE_INSTRUCTION'
         # Remember the instruction across multi-cycle sequences
         self._latched_inst = 0
         # Explicit write-back address used when Address_XYZ == MEM_WB_ADDR
+        self._wb_addr_val = 0
 
     # ====================================================================
     def clock(self):
-        inst   = self.Instruction.get()
-        resp   = self.Resp.get()
-        branch = self.Branch.get()
-        skip   = self.Skip.get()
-        irq    = self.Interrupt.get()
+        inst              = self.Instruction.get()
+        resp              = self.Resp.get()
+        branch            = self.Branch.get()
+        skip              = self.Skip.get()
+        irq               = self.Interrupt.get()
+        instr_fetched     = self.Instruction_fetched.get()
+        instr_decoded     = self.Instruction_decoded.get()
+        executed_jump     = self.Executed_Jump.get()
 
         # ── Default output values (all de-asserted) ──────────────────────
-        out = {
-            'NotExecute':       0,
-            'LoadSelectMux':    0,
-            'LoadingMux':       0,
-            'Input_Select':     0,
-            'WE':               0,
-            'Read_Write':       0,   # 0 = read
-            'Address_XYZ':      0,
-            'write_RdL_Buffer': 0,
-            'write_RdH_Buffer': 0,
-            'write_RrL_Buffer': 0,
-            'write_RrH_Buffer': 0,
-            'Load_Z':           0,
-            'Load_K':           0,
-            'Load_Jump':        0,
-            'relative_Absolute':0,
-            'Load_Byte':        0,
-        }
+        # output variables
+
+        NotExecute=0
+        LoadSelectMux=0
+        LoadingMux=0
+        Input_Select=0
+        WE=0
+        Read_Write=0   
+        Address_XYZ=0
+        IncDec=0
+        write_RdL_Buffer=0
+        write_RdH_Buffer=0
+        write_RrL_Buffer=0
+        write_RrH_Buffer=0
+        InputSelect=0
+        Write_Enable=0
+        Load_Z=0
+        Load_K=0
+        Load_Jump=0
+        relative_Absolute=0
+        Load_Byte=0
+        Fetch_next_instruction=0
+        WB_Addr=self._wb_addr_val
 
         state = self.current_state
         i     = self._latched_inst   # use latched opcode during multi-cycle seqs
@@ -404,121 +444,133 @@ class control_Box(py4hw.Logic):
         # STATE MACHINE
         # ================================================================
 
-        # ── DECODE ──────────────────────────────────────────────────────
-        if state == 'DECODE_INSTRUCTION':
-            # Latch the incoming instruction for use across all subsequent states
-            i = inst
-            self._latched_inst = i
-
-
-
-            # Check for pending interrupt (only when we are at instruction boundary)
-            if irq:
-                next_state = 'INTERRUPT_INIT'
-
-            # ── Two-register ALU (fetch Rd first) ──────────────────────
-            elif i in (_ALL_TWO_REG | _WORD_ALU | _BLD):
-                next_state = 'FETCH_RD_INIT'
-
-            # ── Single-register ALU (fetch Rd only) ────────────────────
-            elif i in _ALL_ONE_REG:
-                next_state = 'FETCH_RD_INIT'
-
-            # ── Immediate ALU (Rd from reg file, K from decoder) ────────
-            elif i in _ALL_IMM_ALU:
-                next_state = 'FETCH_RD_INIT'   # still need Rd; K is wired
-
-            # ── Load from memory → Rd ───────────────────────────────────
-            elif i in _LOAD_MEM - _POP:
-                next_state = 'FETCH_MEMORY_VALL_INIT'
-
-            # ── Store Rr to memory ───────────────────────────────────────
-            elif i in _STORE_MEM - _PUSH:
-                next_state = 'FETCH_RD_INIT'    # fetch source register first
-
-            # ── PUSH ─────────────────────────────────────────────────────
-            elif i in _PUSH:
-                next_state = 'FETCH_RD_INIT'
-
-            # ── POP ──────────────────────────────────────────────────────
-            elif i in _POP:
-                next_state = 'POP_INIT'
-
-            # ── IN (read I/O port) ───────────────────────────────────────
-            elif i in _IO_READ:
-                next_state = 'IO_READ_INIT'
-
-            # ── OUT (write I/O port) ─────────────────────────────────────
-            elif i in _IO_WRITE:
-                next_state = 'FETCH_RD_INIT'   # fetch source, then write I/O
-
-            # ── Skip instructions ─────────────────────────────────────────
-            elif i in _SKIP:
-                next_state = 'FETCH_RD_INIT'   # CPSE needs both regs; SBRC/RS need Rd
-
-            # ── Branch instructions ───────────────────────────────────────
-            elif i in _BRANCH:
-                next_state = 'EXECUTE_BRANCH'
-
-            # ── Relative/Indirect/Absolute JUMP ──────────────────────────
-            elif i in _RELATIVE_JUMP:
-                out['Load_Jump']          = 1
-                out['relative_Absolute']  = 0   # relative
-                next_state = 'DECODE_INSTRUCTION'  # single cycle
-
-            elif i in _INDIRECT_JUMP:
-                out['Load_Z']    = 1
-                out['Load_Jump'] = 1
-                out['relative_Absolute'] = 1    # absolute (Z)
+        # ── FETCH_INSTRUION: trigger fetch, wait for RomHandler ─────────
+        if state == 'FETCH_INSTRUION':
+            Fetch_next_instruction = 1
+            if instr_fetched:                     # RomHandler signals fetch done
                 next_state = 'DECODE_INSTRUCTION'
 
-            elif i in _ABSOLUTE_JUMP:
-                next_state = 'LONG_JUMP_LOAD_UPPER6_BITS_IN_TO_REGISTER'
-
-            # ── CALL instructions ─────────────────────────────────────────
-            elif i in _ALL_CALLS:
-                next_state = 'CALL_PUSH_PCL_INIT'
-
-            # ── RET / RETI ────────────────────────────────────────────────
-            elif i in _ALL_RETS:
-                next_state = 'RET_POP_PCH_INIT'
-
-            # ── SREG-only (SEC CLI BSET BCLR …) ─────────────────────────
-            elif i in _SREG_ONLY - _BLD:
-                # ALU / SREG updates happen combinatorially; single cycle.
-                next_state = 'DECODE_INSTRUCTION'
-
-            # ── NOP / SLEEP / WDR / BREAK ────────────────────────────────
-            elif i in _NOP_MISC:
-                next_state = 'DECODE_INSTRUCTION'
-
+        # ── DECODE_INSTRUCTION: wait for decoder, then latch & route ────
+        elif state == 'DECODE_INSTRUCTION':
+            if not instr_decoded:
+                # Decoder hasn't signalled ready yet — hold here
+                pass
             else:
-                # Unknown opcode — treat as NOP
-                next_state = 'DECODE_INSTRUCTION'
+                # Latch the incoming instruction for use across all subsequent states
+                i = inst
+                self._latched_inst = i
+
+                # For MUL instructions the result always goes to R1:R0. Pre-set
+                # _wb_addr_val = 0 (R0) here so WRITE_RES_INIT can use MEM_WB_ADDR.
+                if i in _MUL_FAMILY:
+                    self._wb_addr_val = 0
+
+                # Check for pending interrupt (only when we are at instruction boundary)
+                if irq:
+                    next_state = 'INTERRUPT_INIT'
+
+                # ── Two-register ALU (fetch Rd first) ──────────────────────
+                elif i in (_ALL_TWO_REG | _WORD_ALU | _BLD):
+                    next_state = 'FETCH_RD_INIT'
+
+                # ── Single-register ALU (fetch Rd only) ────────────────────
+                elif i in _ALL_ONE_REG:
+                    next_state = 'FETCH_RD_INIT'
+
+                # ── Immediate ALU (fetch Rd only, K is directly wired to the ALU) ────────
+                elif i in _ALL_IMM_ALU:
+                    next_state = 'FETCH_RD_INIT'
+
+                # ── Load from memory → Load to Rd that is in memory ────────
+                elif i in _LOAD_MEM - _POP:
+                    next_state = 'FETCH_MEMORY_VALL_INIT'
+
+                # ── Store Rr to memory ───────────────────────────────────────
+                elif i in _STORE_MEM - _PUSH:
+                    next_state = 'FETCH_RD_INIT'    # fetch source register first
+
+                # ── PUSH ─────────────────────────────────────────────────────
+                elif i in _PUSH:
+                    next_state = 'FETCH_RD_INIT'
+
+                # ── POP ──────────────────────────────────────────────────────
+                elif i in _POP:
+                    next_state = 'POP_INIT'
+
+                # ── IN (read I/O port) ───────────────────────────────────────
+                elif i in _IO_READ:
+                    next_state = 'IO_READ_INIT'
+
+                # ── OUT (write I/O port) ─────────────────────────────────────
+                elif i in _IO_WRITE:
+                    next_state = 'FETCH_RD_INIT'   # fetch source, then write I/O
+
+                # ── Skip instructions ─────────────────────────────────────────
+                elif i in _SKIP:
+                    next_state = 'FETCH_RD_INIT'   # CPSE needs both regs; SBRC/RS need Rd
+
+                # ── Branch instructions ───────────────────────────────────────
+                elif i in _BRANCH:
+                    next_state = 'EXECUTE_BRANCH'
+
+                # ── Relative/Indirect/Absolute JUMP ──────────────────────────
+                elif i in _RELATIVE_JUMP:
+                    Load_Jump         = 1
+                    relative_Absolute = 0            # relative
+                    next_state = 'FINISED_INSTRUCTION_EXECUTION'
+
+                elif i in _INDIRECT_JUMP:
+                    Load_Z            = 1
+                    Load_Jump         = 1
+                    relative_Absolute = 1            # absolute (Z)
+                    next_state = 'FINISED_INSTRUCTION_EXECUTION'
+
+                elif i in _ABSOLUTE_JUMP:
+                    next_state = 'LONG_JUMP_LOAD_UPPER6_BITS_IN_TO_REGISTER'
+
+                # ── CALL instructions ─────────────────────────────────────────
+                elif i in _ALL_CALLS:
+                    next_state = 'CALL_PUSH_PCL_INIT'
+
+                # ── RET / RETI ────────────────────────────────────────────────
+                elif i in _ALL_RETS:
+                    next_state = 'RET_POP_PCH_INIT'
+
+                # ── SREG-only (SEC CLI BSET BCLR …) ─────────────────────────
+                elif i in _SREG_ONLY - _BLD:
+                    # ALU / SREG updates happen combinatorially; single cycle.
+                    next_state = 'FETCH_INSTRUION'
+
+                # ── NOP / SLEEP / WDR / BREAK ────────────────────────────────
+                elif i in _NOP_MISC:
+                    next_state = 'FETCH_INSTRUION'
+
+                else:
+                    # Unknown opcode — treat as NOP
+                    next_state = 'FETCH_INSTRUION'
 
         # ================================================================
         # FETCH Rd — low byte
         # ================================================================
         elif state == 'FETCH_RD_INIT':
-            out['Address_XYZ'] = MEM_RD   # drive Rd (0-31) onto address bus
-            out['Read_Write']   = 0        # read
+            Address_XYZ = MEM_RD    # drive Rd (0-31) onto address bus
+            Read_Write  = 0         # read
             next_state = 'FETCH_RD_WAIT'
 
         elif state == 'FETCH_RD_WAIT':
-            out['Address_XYZ'] = MEM_RD
-            out['Read_Write']   = 0
+            Address_XYZ = MEM_RD
+            Read_Write  = 0
             if resp:
                 next_state = 'FETCH_RD_LOADBUFFER'
 
         elif state == 'FETCH_RD_LOADBUFFER':
-            out['write_RdL_Buffer'] = 1   # latch Rd into ALU input buffer
+            write_RdL_Buffer = 1    # latch Rd into ALU input buffer
 
             # ── Route: where to next? ────────────────────────────────────
             if i in (_ALL_TWO_REG | _WORD_ALU):
                 # Need Rr or second byte
                 if i in _WORD_ALU:
                     # Pre-compute Rd+1 so B2 fetch/write states can use MEM_WB_ADDR.
-                    # Reconstruct Rd the same way the decoder does for each format.
                     ins_word = self._latched_inst
                     if i in {3, 8}:     # ADIW, SBIW: Rd = 24 + 2*(bits[5:4])
                         rd_base = 24 + (((ins_word >> 4) & 0x03) << 1)
@@ -526,7 +578,8 @@ class control_Box(py4hw.Logic):
                         rd_base = ((ins_word >> 4) & 0x0F) * 2
                     else:
                         rd_base = (ins_word >> 4) & 0x1F
-
+                    self._wb_addr_val = (rd_base + 1) & 0x1F
+                    WB_Addr = self._wb_addr_val
                     next_state = 'FETCH_RD_INIT_B2'   # grab RdH first
                 else:
                     next_state = 'FETCH_RR_INIT'
@@ -535,7 +588,7 @@ class control_Box(py4hw.Logic):
                 next_state = 'EXECUTE_ALU_OPP'
 
             elif i in _ALL_IMM_ALU:
-                out['Load_K'] = 1          # tell ROM handler to latch K
+                Load_K = 1              # tell ROM handler to latch K
                 next_state = 'EXECUTE_ALU_OPP'
 
             elif i in _STORE_MEM - _PUSH:
@@ -562,56 +615,55 @@ class control_Box(py4hw.Logic):
                 next_state = 'EXECUTE_ALU_OPP'
 
         # ================================================================
-        # FETCH Rd — high byte  (ADIW / SBIW / MOVW)
-        # ================================================================
         # FETCH Rd — high byte  (ADIW / SBIW / MOVW — need Rd+1)
         # The ControlBox sets WB_Addr = Rd+1 so MemoryInterfaceHandler can
         # address it via MEM_WB_ADDR mode.
         # ================================================================
         elif state == 'FETCH_RD_INIT_B2':
-            out['Address_XYZ'] = MEM_WB_ADDR  # address comes from WB_Addr port
-
-            out['Read_Write']  = 0
+            Address_XYZ = MEM_WB_ADDR   # address comes from WB_Addr port
+            WB_Addr     = self._wb_addr_val
+            Read_Write  = 0
             next_state = 'FETCH_RD_WAIT_B2'
 
         elif state == 'FETCH_RD_WAIT_B2':
-            out['Address_XYZ'] = MEM_WB_ADDR
-            out['Read_Write']  = 0
+            Address_XYZ = MEM_WB_ADDR
+            WB_Addr     = self._wb_addr_val
+            Read_Write  = 0
             if resp:
                 next_state = 'FETCH_RD_LOADBUFFER_B2'
 
         elif state == 'FETCH_RD_LOADBUFFER_B2':
-            out['write_RdH_Buffer'] = 1
+            write_RdH_Buffer = 1
             if i in {94}:   # MOVW — source is Rr pair, need Rr next
                 next_state = 'FETCH_RR_INIT'
             else:
                 # ADIW / SBIW: second operand is K (immediate)
-                out['Load_K'] = 1
+                Load_K = 1
                 next_state = 'EXECUTE_ALU_OPP'
 
         # ================================================================
         # FETCH Rr — low byte
         # ================================================================
         elif state == 'FETCH_RR_INIT':
-            out['Address_XYZ'] = MEM_RR   # drive Rr (0-31) onto address bus
-            out['Read_Write']   = 0
+            Address_XYZ = MEM_RR    # drive Rr (0-31) onto address bus
+            Read_Write  = 0
             next_state = 'FETCH_RR_WAIT'
 
         elif state == 'FETCH_RR_WAIT':
-            out['Address_XYZ'] = MEM_RR
-            out['Read_Write']   = 0
+            Address_XYZ = MEM_RR
+            Read_Write  = 0
             if resp:
                 next_state = 'FETCH_RR_LOADBUFFER'
 
         elif state == 'FETCH_RR_LOADBUFFER':
-            out['write_RrL_Buffer'] = 1
+            write_RrL_Buffer = 1
 
             if i in _WORD_ALU:      # MOVW still needs RrH
                 # Pre-compute Rr+1 for the B2 fetch (MOVW only).
-                # MOVW: Rr = (ins & 0x0F) * 2
                 ins_word = self._latched_inst
                 rr_base = (ins_word & 0x0F) * 2
-
+                self._wb_addr_val = (rr_base + 1) & 0x1F
+                WB_Addr = self._wb_addr_val
                 next_state = 'FETCH_RR_INIT_B2'
             elif i in _SKIP:
                 next_state = 'EXECUTE_SKIP'
@@ -622,45 +674,45 @@ class control_Box(py4hw.Logic):
         # FETCH Rr — high byte  (MOVW only — need Rr+1)
         # ================================================================
         elif state == 'FETCH_RR_INIT_B2':
-            out['Address_XYZ'] = MEM_WB_ADDR  # WB_Addr holds Rr+1
-            out['Read_Write']  = 0
+            Address_XYZ = MEM_WB_ADDR   # WB_Addr holds Rr+1
+            WB_Addr     = self._wb_addr_val
+            Read_Write  = 0
             next_state = 'FETCH_RR_WAIT_B2'
 
         elif state == 'FETCH_RR_WAIT_B2':
-            out['Address_XYZ'] = MEM_WB_ADDR
-            out['Read_Write']  = 0
+            Address_XYZ = MEM_WB_ADDR
+            WB_Addr     = self._wb_addr_val
+            Read_Write  = 0
             if resp:
                 next_state = 'FETCH_RR_LOADBUFFER_B2'
 
         elif state == 'FETCH_RR_LOADBUFFER_B2':
-            out['write_RrH_Buffer'] = 1
+            write_RrH_Buffer = 1
             next_state = 'EXECUTE_ALU_OPP'
 
         # ================================================================
         # EXECUTE — ALU operation (result available next clock)
         # ================================================================
         elif state == 'EXECUTE_ALU_OPP':
-            # No output signals: ALU is purely combinatorial and
-            # settles on its own based on the latched buffer values.
-            # Decide whether to write back.
+            # ALU is purely combinatorial; no output signals needed here.
+            # Route to the correct write-back path based on result width.
 
             if i in (_RD_RR_NO_WRITE | _RD_ONLY_NO_WRITE | _RD_K_NO_WRITE):
-                # CP / CPC / CPI / TST — flags updated, no register write
-                next_state = 'DECODE_INSTRUCTION'
+                # CP / CPC / CPSE / CPI / TST / BST — flags only, no register write
+                next_state = 'FINISED_INSTRUCTION_EXECUTION'
 
-            elif i in _MUL_FAMILY:
-                # Result is 16-bit in R1:R0 — two write-back cycles
-                next_state = 'WRITE_RES_INIT'    # write low byte to R0
-
-            elif i in _WORD_ALU:
-                # ADIW / SBIW / MOVW — write low byte first
-                next_state = 'WRITE_RES_INIT'
-
-            elif i in _WRITES_RD - _RD_K_NO_WRITE:
+            elif i in (_MUL_FAMILY | _WORD_ALU):
+                # 16-bit result instructions:
+                #   MUL family  → R1:R0
+                #   ADIW / SBIW / MOVW → Rd+1:Rd
+                # Write low byte first; WRITE_RES_FINISHED will chain to B2.
                 next_state = 'WRITE_RES_INIT'
 
             else:
-                # Default: write back (handles any edge cases)
+                # All remaining 8-bit write-back ops:
+                # ADD, ADC, SUB, SUBI, SBC, SBCI, AND, ANDI, OR, ORI, EOR,
+                # MOV, LDI, COM, NEG, INC, DEC, CLR, SER, LSL, LSR, ROL,
+                # ROR, ASR, SWAP, BLD, CBR, SBR — single byte to Rd.
                 next_state = 'WRITE_RES_INIT'
 
         # ================================================================
@@ -668,31 +720,40 @@ class control_Box(py4hw.Logic):
         # ================================================================
         elif state == 'EXECUTE_BRANCH':
             if branch:
-                out['Load_Jump']         = 1
-                out['relative_Absolute'] = 0   # all AVR branches are PC-relative
-            # Either way return to decode next cycle
-            next_state = 'DECODE_INSTRUCTION'
+                Load_Jump         = 1
+                relative_Absolute = 0   # all AVR branches are PC-relative
+                next_state = 'FINISED_INSTRUCTION_EXECUTION'
+            else:
+                next_state = 'FINISED_INSTRUCTION_EXECUTION'
 
         # ================================================================
         # EXECUTE — Skip
         # ================================================================
         elif state == 'EXECUTE_SKIP':
             if skip:
-                # Insert a bubble: suppress instruction fetch for one cycle
-                out['NotExecute'] = 1
-            next_state = 'DECODE_INSTRUCTION'
+                # SKIP state will suppress the next fetched instruction
+                next_state = 'SKIP'
+            else:
+                next_state = 'FINISED_INSTRUCTION_EXECUTION'
+
+        # ================================================================
+        # SKIP — hold NotExecute for one cycle to swallow the next instr
+        # ================================================================
+        elif state == 'SKIP':
+            NotExecute = 1
+            next_state = 'FINISED_INSTRUCTION_EXECUTION'
 
         # ================================================================
         # LOAD from memory (LD / LDS / LPM)
         # ================================================================
         elif state == 'FETCH_MEMORY_VALL_INIT':
-            out['Address_XYZ'] = 1    # use pointer address from instruction decoder
-            out['Read_Write']  = 0    # read
+            Address_XYZ = 1     # use pointer address from instruction decoder
+            Read_Write  = 0     # read
             next_state = 'FETCH_MEMORY_VALL_WAIT'
 
         elif state == 'FETCH_MEMORY_VALL_WAIT':
-            out['Address_XYZ'] = 1
-            out['Read_Write']  = 0
+            Address_XYZ = 1
+            Read_Write  = 0
             if resp:
                 # Data from memory arrives on bus → write to Rd
                 next_state = 'WRITE_RES_INIT'
@@ -701,17 +762,17 @@ class control_Box(py4hw.Logic):
         # STORE to memory (ST / STS / SPM)
         # ================================================================
         elif state == 'WRITE_MEMORY_VALL_INIT':
-            out['Address_XYZ'] = 1
-            out['Read_Write']  = 1    # write
-            out['Input_Select']= 1    # source = ALU ResL (which holds Rd value)
+            Address_XYZ = 1
+            Read_Write  = 1     # write
+            Input_Select= 1     # source = ALU ResL (which holds Rd value)
             next_state = 'WRITE_MEMORY_VALL_WAIT'
 
         elif state == 'WRITE_MEMORY_VALL_WAIT':
-            out['Address_XYZ'] = 1
-            out['Read_Write']  = 1
-            out['Input_Select']= 1
+            Address_XYZ = 1
+            Read_Write  = 1
+            Input_Select= 1
             if resp:
-                next_state = 'DECODE_INSTRUCTION'
+                next_state = 'FINISED_INSTRUCTION_EXECUTION'
 
         # ================================================================
         # WRITE result to register file — low byte  (Rd ← ResL)
@@ -719,287 +780,296 @@ class control_Box(py4hw.Logic):
         # For all other ops: result → Rd, driven via MEM_RD.
         # ================================================================
         elif state == 'WRITE_RES_INIT':
-            out['Input_Select']  = 2          # ALU ResL → write data
-            out['Read_Write']    = 1           # write
+            Input_Select = 2            # ALU ResL → write data
+            Read_Write   = 1            # write
             if i in _MUL_FAMILY:
-                out['Address_XYZ'] = MEM_WB_ADDR  # WB_Addr = 0 (R0), set at DECODE
-
+                Address_XYZ = MEM_WB_ADDR   # WB_Addr = 0 (R0), set at DECODE
+                WB_Addr     = self._wb_addr_val
             else:
-                out['Address_XYZ'] = MEM_RD       # address = Rd
+                Address_XYZ = MEM_RD        # address = Rd
             next_state = 'WRITE_RES_WAIT'
 
         elif state == 'WRITE_RES_WAIT':
-            out['Input_Select']  = 2
-            out['Read_Write']    = 1
+            Input_Select = 2
+            Read_Write   = 1
             if i in _MUL_FAMILY:
-                out['Address_XYZ'] = MEM_WB_ADDR
-
+                Address_XYZ = MEM_WB_ADDR
+                WB_Addr     = self._wb_addr_val
             else:
-                out['Address_XYZ'] = MEM_RD
+                Address_XYZ = MEM_RD
             if resp:
                 next_state = 'WRITE_RES_FINISHED'
 
         elif state == 'WRITE_RES_FINISHED':
-            # For 16-bit results, we need to write the high byte too.
-            # Pre-compute the B2 write address and store it for the B2 states.
-            if i in (_MUL_FAMILY | _WORD_ALU | {94}):
+            # Only 16-bit-result instructions chain to a second write-back:
+            #   _MUL_FAMILY  (23-28)  → high byte goes to R1  (WB_Addr=1)
+            #   _WORD_ALU    (3,8,94) → high byte goes to Rd+1 (WB_Addr=rd+1)
+            # Every other instruction (8-bit ALU, LD, POP, IN ...) stops here.
+            if i in (_MUL_FAMILY | _WORD_ALU):
                 if i in _MUL_FAMILY:
-                    # MUL family: result always goes to R1:R0
-                    pass
+                    self._wb_addr_val = 1   # R1 (high byte of MUL result)
                 else:
-                    # ADIW / SBIW / MOVW: high byte → Rd+1
-                    rd_addr = self.Instruction.get()   # Instruction still holds decoded Rd via wire
-                    # Use the latched instruction — Rd was decoded from _latched_inst
-                    # We reconstruct Rd from the latched opcode the same way the decoder did.
-                    # For ADIW/SBIW (code 3,8): Rd = 24 + (((ins>>4)&0x03)<<1)
-                    # For MOVW (code 94):        Rd = ((ins>>4)&0x0F)*2
+                    # ADIW (3) / SBIW (8) / MOVW (94): high byte → Rd+1
                     ins_word = self._latched_inst
-                    if i in {3, 8}:     # ADIW, SBIW
+                    if i in {3, 8}:     # ADIW, SBIW: Rd = 24 + 2*(bits[5:4])
                         rd_base = 24 + (((ins_word >> 4) & 0x03) << 1)
-                    elif i == 94:       # MOVW
+                    else:               # MOVW (94): Rd = bits[7:4] * 2
                         rd_base = ((ins_word >> 4) & 0x0F) * 2
-                    else:
-                        rd_base = (ins_word >> 4) & 0x1F
-
+                    self._wb_addr_val = (rd_base + 1) & 0x1F
+                WB_Addr = self._wb_addr_val
                 next_state = 'WRITE_RES_INIT_B2'
             else:
-                next_state = 'DECODE_INSTRUCTION'
+                # 8-bit result — single write-back is complete.
+                next_state = 'FINISED_INSTRUCTION_EXECUTION'
 
         # ================================================================
         # WRITE result — high byte (R1 for MUL; Rd+1 for ADIW/SBIW/MOVW)
         # ================================================================
         elif state == 'WRITE_RES_INIT_B2':
-            # WB_Addr was set in WRITE_RES_FINISHED (R1 for MUL, Rd+1 for ADIW/SBIW/MOVW)
-            out['Input_Select']  = 3          # ALU ResH → write data
-            out['Read_Write']    = 1
-            out['Address_XYZ']   = MEM_WB_ADDR
-
+            Input_Select = 3            # ALU ResH → write data
+            Read_Write   = 1
+            Address_XYZ  = MEM_WB_ADDR
+            WB_Addr      = self._wb_addr_val
             next_state = 'WRITE_RES_WAIT_B2'
 
         elif state == 'WRITE_RES_WAIT_B2':
-            out['Input_Select']  = 3
-            out['Read_Write']    = 1
-            out['Address_XYZ']   = MEM_WB_ADDR
+            Input_Select = 3
+            Read_Write   = 1
+            Address_XYZ  = MEM_WB_ADDR
+            WB_Addr      = self._wb_addr_val
             if resp:
                 next_state = 'WRITE_RES_FINISHED_B2'
 
         elif state == 'WRITE_RES_FINISHED_B2':
-            next_state = 'DECODE_INSTRUCTION'
+            next_state = 'FINISED_INSTRUCTION_EXECUTION'
 
         # ================================================================
         # PUSH  (SP-- then write Rd to new SP)
         # ================================================================
         elif state == 'PUSH_INIT':
-            out['Address_XYZ'] = 6    # SP pointer
-            out['Read_Write']  = 1
-            out['Input_Select']= 1    # Rd value in ALU ResL
+            Address_XYZ = MEM_SP        # SP pointer
+            Read_Write  = 1
+            Input_Select= 1             # Rd value in ALU ResL
             next_state = 'PUSH_WAIT'
 
         elif state == 'PUSH_WAIT':
-            out['Address_XYZ'] = 6
-            out['Read_Write']  = 1
-            out['Input_Select']= 1
+            Address_XYZ = MEM_SP
+            Read_Write  = 1
+            Input_Select= 1
             if resp:
-                next_state = 'DECODE_INSTRUCTION'
+                next_state = 'FINISED_INSTRUCTION_EXECUTION'
 
         # ================================================================
         # POP  (read from SP then SP++)
         # ================================================================
         elif state == 'POP_INIT':
-            out['Address_XYZ'] = 6    # SP pointer
-            out['Read_Write']  = 0    # read
+            Address_XYZ = MEM_SP        # SP pointer
+            Read_Write  = 0             # read
             next_state = 'POP_WAIT'
 
         elif state == 'POP_WAIT':
-            out['Address_XYZ'] = 6
-            out['Read_Write']  = 0
+            Address_XYZ = MEM_SP
+            Read_Write  = 0
             if resp:
-                next_state = 'POP_LOADBUFFER'
-
-        elif state == 'POP_LOADBUFFER':
-            out['write_RdL_Buffer'] = 1
-            next_state = 'WRITE_RES_INIT'   # write popped value back to Rd
+                # Data is on the bus — latch it then write back to Rd
+                write_RdL_Buffer = 1
+                next_state = 'WRITE_RES_INIT'
 
         # ================================================================
         # IN — read from I/O port into Rd
         # ================================================================
         elif state == 'IO_READ_INIT':
-            out['Address_XYZ'] = 8    # I/O address from instruction decoder
-            out['Read_Write']  = 0
+            Address_XYZ = MEM_RAM_ADDR  # I/O address from instruction decoder
+            Read_Write  = 0
             next_state = 'IO_READ_WAIT'
 
         elif state == 'IO_READ_WAIT':
-            out['Address_XYZ'] = 8
-            out['Read_Write']  = 0
+            Address_XYZ = MEM_RAM_ADDR
+            Read_Write  = 0
             if resp:
                 next_state = 'IO_READ_LOADBUFFER'
 
         elif state == 'IO_READ_LOADBUFFER':
-            out['write_RdL_Buffer'] = 1
+            write_RdL_Buffer = 1
             next_state = 'WRITE_RES_INIT'
 
         # ================================================================
         # OUT — write Rd to I/O port (Rd was fetched in FETCH_RD sequence)
         # ================================================================
         elif state == 'IO_WRITE_INIT':
-            out['Address_XYZ'] = 8    # I/O address from instruction decoder
-            out['Read_Write']  = 1
-            out['Input_Select']= 1    # Rd in ResL
+            Address_XYZ = MEM_RAM_ADDR  # I/O address from instruction decoder
+            Read_Write  = 1
+            Input_Select= 1             # Rd in ResL
             next_state = 'IO_WRITE_WAIT'
 
         elif state == 'IO_WRITE_WAIT':
-            out['Address_XYZ'] = 8
-            out['Read_Write']  = 1
-            out['Input_Select']= 1
+            Address_XYZ = MEM_RAM_ADDR
+            Read_Write  = 1
+            Input_Select= 1
             if resp:
-                next_state = 'DECODE_INSTRUCTION'
+                next_state = 'FINISED_INSTRUCTION_EXECUTION'
 
         # ================================================================
         # CALL — push return address (PCL first, then PCH), then jump
         # ================================================================
         elif state == 'CALL_PUSH_PCL_INIT':
-            out['Address_XYZ'] = 6    # SP
-            out['Read_Write']  = 1
-            out['Input_Select']= 3    # PC low byte via GeneralInput
+            Address_XYZ = MEM_SP        # SP
+            Read_Write  = 1
+            Input_Select= 3             # PC low byte via GeneralInput
             next_state = 'CALL_PUSH_PCL_WAIT'
 
         elif state == 'CALL_PUSH_PCL_WAIT':
-            out['Address_XYZ'] = 6
-            out['Read_Write']  = 1
-            out['Input_Select']= 3
+            Address_XYZ = MEM_SP
+            Read_Write  = 1
+            Input_Select= 3
             if resp:
                 next_state = 'CALL_PUSH_PCH_INIT'
 
         elif state == 'CALL_PUSH_PCH_INIT':
-            out['Address_XYZ'] = 6
-            out['Read_Write']  = 1
-            out['Input_Select']= 3    # PC high byte via GeneralInput
+            Address_XYZ = MEM_SP
+            Read_Write  = 1
+            Input_Select= 3             # PC high byte via GeneralInput
             next_state = 'CALL_PUSH_PCH_WAIT'
 
         elif state == 'CALL_PUSH_PCH_WAIT':
-            out['Address_XYZ'] = 6
-            out['Read_Write']  = 1
-            out['Input_Select']= 3
+            Address_XYZ = MEM_SP
+            Read_Write  = 1
+            Input_Select= 3
             if resp:
                 # Return address saved — now perform the jump
                 if i in _RELATIVE_CALL:
-                    out['Load_Jump']          = 1
-                    out['relative_Absolute']  = 0
+                    Load_Jump         = 1
+                    relative_Absolute = 0
                 elif i in _INDIRECT_CALL:
-                    out['Load_Z']             = 1
-                    out['Load_Jump']          = 1
-                    out['relative_Absolute']  = 1
+                    Load_Z            = 1
+                    Load_Jump         = 1
+                    relative_Absolute = 1
                 elif i in _ABSOLUTE_CALL:
-                    out['Load_Jump']          = 1
-                    out['relative_Absolute']  = 1
-                next_state = 'DECODE_INSTRUCTION'
+                    Load_Jump         = 1
+                    relative_Absolute = 1
+                next_state = 'FINISED_INSTRUCTION_EXECUTION'
 
         # ================================================================
         # RET / RETI — pop return address from stack
         # ================================================================
         elif state == 'RET_POP_PCH_INIT':
-            out['Address_XYZ'] = 6    # SP
-            out['Read_Write']  = 0
+            Address_XYZ = MEM_SP        # SP
+            Read_Write  = 0
             next_state = 'RET_POP_PCH_WAIT'
 
         elif state == 'RET_POP_PCH_WAIT':
-            out['Address_XYZ'] = 6
-            out['Read_Write']  = 0
+            Address_XYZ = MEM_SP
+            Read_Write  = 0
             if resp:
                 next_state = 'RET_POP_PCL_INIT'
 
         elif state == 'RET_POP_PCL_INIT':
-            out['Address_XYZ'] = 6
-            out['Read_Write']  = 0
+            Address_XYZ = MEM_SP
+            Read_Write  = 0
             next_state = 'RET_POP_PCL_WAIT'
 
         elif state == 'RET_POP_PCL_WAIT':
-            out['Address_XYZ'] = 6
-            out['Read_Write']  = 0
+            Address_XYZ = MEM_SP
+            Read_Write  = 0
             if resp:
                 next_state = 'RET_LOAD_PC'
 
         elif state == 'RET_LOAD_PC':
-            out['Load_Jump']         = 1
-            out['relative_Absolute'] = 1   # absolute (restored address)
+            Load_Jump         = 1
+            relative_Absolute = 1       # absolute (restored address)
             if i in _RETURN_INT:
-                # RETI also re-enables interrupts (set SREG.I)
-                # That is signalled to the ALU/SREG logic externally;
-                # the FSM simply marks the state.
+                # RETI also re-enables interrupts (set SREG.I) —
+                # signalled externally; FSM just marks the state.
                 pass
-            next_state = 'DECODE_INSTRUCTION'
+            next_state = 'FINISED_INSTRUCTION_EXECUTION'
 
         # ================================================================
         # JMP (absolute 22-bit)
         # ================================================================
         elif state == 'LONG_JUMP_LOAD_UPPER6_BITS_IN_TO_REGISTER':
-            # Second word of the 32-bit JMP/CALL instruction holds the full
-            # 16-bit lower target address; upper 6 bits are in the opcode word.
-            out['Load_Byte']         = 1
-            out['Load_Jump']         = 1
-            out['relative_Absolute'] = 1
-            next_state = 'DECODE_INSTRUCTION'
+            # Second word of 32-bit JMP/CALL instruction holds full 16-bit
+            # lower target address; upper 6 bits are in the opcode word.
+            Load_Byte         = 1
+            Load_Jump         = 1
+            relative_Absolute = 1
+            next_state = 'FINISED_INSTRUCTION_EXECUTION'
 
         # ================================================================
         # INTERRUPT — save context, jump to vector
         # ================================================================
         elif state == 'INTERRUPT_INIT':
             # Push PCL onto stack
-            out['Address_XYZ'] = 6
-            out['Read_Write']  = 1
-            out['Input_Select']= 3
+            Address_XYZ = MEM_SP
+            Read_Write  = 1
+            Input_Select= 3
             next_state = 'INTERRUPT_JUMP'
 
         elif state == 'INTERRUPT_JUMP':
-            out['Address_XYZ'] = 6
-            out['Read_Write']  = 1
-            out['Input_Select']= 3
+            Address_XYZ = MEM_SP
+            Read_Write  = 1
+            Input_Select= 3
             if resp:
-                out['Load_Jump']         = 1
-                out['relative_Absolute'] = 1   # jump to interrupt vector (absolute)
-                next_state = 'DECODE_INSTRUCTION'
-
-        elif state == 'INTERRUPT':
-            # Placeholder for multi-cycle interrupt acknowledgement if needed
-            next_state = 'DECODE_INSTRUCTION'
+                Load_Jump         = 1
+                relative_Absolute = 1   # jump to interrupt vector (absolute)
+                next_state = 'FINISED_INSTRUCTION_EXECUTION'
 
         elif state == 'RETURN_FROM_INTERRUPT':
             # Alias for RETI handling (routed through RET path above)
-            out['Load_Jump']         = 1
-            out['relative_Absolute'] = 1
-            next_state = 'DECODE_INSTRUCTION'
+            Load_Jump         = 1
+            relative_Absolute = 1
+            next_state = 'FINISED_INSTRUCTION_EXECUTION'
+
+        # ================================================================
+        # FINISED_INSTRUCTION_EXECUTION — signal fetch of next instruction
+        # ================================================================
+        elif state == 'FINISED_INSTRUCTION_EXECUTION':
+            # Assert Fetch_next_instruction to tell RomHandler + decoder
+            # that execution is complete and the pipeline should advance.
+            Fetch_next_instruction = 1
+            # Wait for RomHandler to confirm the jump/fetch is done before
+            # allowing the decoder to accept a new instruction.
+            if executed_jump:
+                next_state = 'FETCH_INSTRUION'
 
         else:
             # Safety catch-all
-            next_state = 'DECODE_INSTRUCTION'
+            next_state = 'FETCH_INSTRUION'
 
         # ================================================================
         # Drive all outputs
         # ================================================================
-        self.NotExecute.put(out['NotExecute'])
-        self.LoadSelectMux.put(out['LoadSelectMux'])
-        self.LoadingMux.put(out['LoadingMux'])
-        self.Input_Select.put(out['Input_Select'])
-        self.WE.put(out['WE'])
-        self.Read_Write.put(out['Read_Write'])
-        self.Address_XYZ.put(out['Address_XYZ'])
+        self.NotExecute.put(NotExecute)
+        self.LoadSelectMux.put(LoadSelectMux)
+        self.LoadingMux.put(LoadingMux)
+        self.Input_Select.put(Input_Select)
+        self.WE.put(WE)
+        self.Read_Write.put(Read_Write)
+        self.Address_XYZ.put(Address_XYZ)
+        self.IncDec.put(IncDec)
 
-        if out['write_RdL_Buffer'] == 1:
-            self.write_Opperand_Buffer.put(1) # 1=A0, 2=A1, 3=B0, 4=B1
-        elif out['write_RdH_Buffer'] == 1:
-            self.write_Opperand_Buffer.put(2) # 1=A0, 2=A1, 3=B0, 4=B1
-        elif out['write_RrL_Buffer'] == 1:
-            self.write_Opperand_Buffer.put(3) # 1=A0, 2=A1, 3=B0, 4=B1
-        elif out['write_RrH_Buffer'] == 1:
-            self.write_Opperand_Buffer.put(4) # 1=A0, 2=A1, 3=B0, 4=B1
+        if write_RdL_Buffer:
+            self.write_Opperand_Buffer.put(1)   # 1=A0
+        elif write_RdH_Buffer:
+            self.write_Opperand_Buffer.put(2)   # 2=A1
+        elif write_RrL_Buffer:
+            self.write_Opperand_Buffer.put(3)   # 3=B0
+        elif write_RrH_Buffer:
+            self.write_Opperand_Buffer.put(4)   # 4=B1
+        else:
+            self.write_Opperand_Buffer.put(0)
 
+        self.InputSelect.put(InputSelect)
+        self.Write_Enable.put(Write_Enable)
 
-        self.Load_Z.put(out['Load_Z'])
-        self.Load_K.put(out['Load_K'])
-        self.Load_Jump.put(out['Load_Jump'])
-        self.relative_Absolute.put(out['relative_Absolute'])
-        self.Load_Byte.put(out['Load_Byte'])
+        self.Load_Z.put(Load_Z)
+        self.Load_K.put(Load_K)
+        self.Load_Jump.put(Load_Jump)
+        self.relative_Absolute.put(relative_Absolute)
+        self.Load_Byte.put(Load_Byte)
+        self.Fetch_next_instruction.put(Fetch_next_instruction)
 
+        # Drive the explicit write-back address (used by MEM_WB_ADDR mode)
+        self.WB_Addr.put(WB_Addr)
 
         # Advance state
         self.current_state = next_state

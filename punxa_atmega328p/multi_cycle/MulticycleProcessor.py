@@ -46,6 +46,7 @@ class multicycleProcessor(py4hw.Logic):
         self.W_b = py4hw.Wire(self, 'w_b', 7)
         self.W_A = py4hw.Wire(self, 'w_A', 5)
         self.W_q = py4hw.Wire(self, 'w_q', 6)
+        self.W_Instruction_decoded = py4hw.Wire(self,'W_Instruction_decoded',1)
         #self.W_address_xyz = py4hw.Wire(self, 'W_address_xyz', 16)
 
         # ALU / SREG
@@ -80,6 +81,15 @@ class multicycleProcessor(py4hw.Logic):
         self.W_Relative_Absolute = py4hw.Wire(self, 'W_Relative_Absolute', 1)
         self.W_Load_byte = py4hw.Wire(self, 'w_load_byte', 1)
         self.w_EnableRead = py4hw.Wire(self,'w_EnableRead',1)
+        self.W_LoadL = py4hw.Wire(self,'W_LoadL',1)
+        self.W_LoadH = py4hw.Wire(self,'W_LoadH',1)
+        self.W_JumpWidth = py4hw.Wire(self,'W_JumpWidth',1)
+        self.W_LOAD_PCL = py4hw.Wire(self,'W_LOAD_PCL',1)
+        self.W_LOAD_PCH = py4hw.Wire(self,'W_LOAD_PCH',1)
+        self.W_Instruction_fetched = py4hw.Wire(self,'W_Instruction_fetched',1)
+        self.W_Executed_Jump = py4hw.Wire(self,'W_Executed_Jump',1)
+        self.W_Fetch_next_instruction = py4hw.Wire(self,'W_Fetch_next_instruction',1)
+    
 
         # MemoryInterfaceHandler wires
         #self.w_mem_register_out = py4hw.Wire(self, 'w_mem_register_out', 8)
@@ -88,9 +98,18 @@ class multicycleProcessor(py4hw.Logic):
         #self.w_general_input = py4hw.Wire(self, 'w_general_input', 8)
         self.w_address_ZL = py4hw.Wire(self,'w_address_ZL',8)
         self.w_address_ZH = py4hw.Wire(self,'w_address_ZH',8)
+        self.W_Pc_valL = py4hw.Wire(self,'W_Pc_val',8)
+        self.W_Pc_valH = py4hw.Wire(self,'W_Pc_valH',8)
+
+        # Write-back address: explicit register address driven by ControlBox
+        # (used for Rd+1 in ADIW/SBIW/MOVW, and R0/R1 in MUL family)
+        self.w_wb_addr = py4hw.Wire(self, 'w_wb_addr', 5)
 
         # ROM handler wires
         self.w_rom_address = py4hw.Wire(self, 'w_rom_address', 4)
+        self.W_PCL_LOAD_VAL = py4hw.Wire(self,'Load_PCL',8)
+        self.W_PCH_LOAD_VAL = py4hw.Wire(self,'W_PCH_LOAD_VAL',8)
+
 
         # -------------------------
         # Sub-components
@@ -110,7 +129,16 @@ class multicycleProcessor(py4hw.Logic):
             Load_Byte=self.W_Load_byte,
             WriteVal=self.W_K,
             reset_address=reset_address,
-            Enable=self.w_EnableRead,
+            Pc_valH= self.W_Pc_valH,
+            Pc_valL= self.W_Pc_valL,
+            PCL_LOAD_VAL= self.W_PCL_LOAD_VAL,
+            PCH_LOAD_VAL= self.W_PCH_LOAD_VAL,
+            Load_PCH= self.W_LOAD_PCH,
+            Load_PCL= self.W_LOAD_PCL, 
+            JumpWidth= self.W_JumpWidth,
+            Instruction_fetched= self.W_Instruction_fetched,
+            Executed_Jump= self.W_Executed_Jump,
+            Fetch_next_instruction= self.W_Fetch_next_instruction,
         )
 
         self.decoder = Instruction_decoder(
@@ -124,6 +152,8 @@ class multicycleProcessor(py4hw.Logic):
             b=self.W_b,
             A=self.W_A,
             q=self.W_q,
+            Instruction_fetched=self.W_Instruction_fetched,
+            Instruction_decoded=self.W_Instruction_decoded,
         )
 
         self.control = control_Box(
@@ -149,7 +179,12 @@ class multicycleProcessor(py4hw.Logic):
             IncDec = self.w_mem_incdec,
             InputSelect= self.w_input_select,
             Write_Enable= self.w_write_enbale,
-            Enable=self.w_EnableRead,
+            WB_Addr=self.w_wb_addr,
+
+            Instruction_fetched= self.W_Instruction_fetched,
+            Instruction_decoded= self.W_Instruction_decoded,
+            Executed_Jump= self.W_Executed_Jump,
+            Fetch_next_instruction= self.W_Fetch_next_instruction,
         )
 
         self.sreg = SREG_Logic(
@@ -205,9 +240,12 @@ class multicycleProcessor(py4hw.Logic):
             RomAddress=self.w_rom_address,
             ResL=self.W_OUTPUTByte0,
             ResH=self.W_OUTPUTByte1,
-            Param_Rd=self.W_Rd,
-            Param_Rr=self.W_Rr,
-            GeneralInput=self.W_K,
+            K_val_Input=self.W_K,
+            PCL_VAL_IN= self.W_Pc_valL,
+            PCH_VAL_IN= self.W_Pc_valH,
+            Rd=self.W_Rd,
+            Rr=self.W_Rr,
+            WbAddr=self.w_wb_addr,
             memory=self.memory,
             RegisterOut=self.w_operand_data,
             Resp=self.w_resp,
