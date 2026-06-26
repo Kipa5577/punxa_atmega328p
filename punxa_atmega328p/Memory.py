@@ -49,7 +49,7 @@ class Ram_Memory(Logic):
         
         if (self.port.write.get() == 1):
             self.data[add] = self.port.write_data.get()
-            assert isinstance (add.int)
+            #assert isinstance (add.int)
             self.port.resp.prepare(1)
         elif (self.port.read.get() == 1):
             self.port.read_data.prepare(self.data[add])

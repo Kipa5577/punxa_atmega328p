@@ -182,17 +182,17 @@ cpu = punxa.multicycleProcessor(
 )
 
 # --- Waveform Debugging ---
-watch = []
-watch.extend(py4hw.debug.getInterfaceWires(ins_p))
-watch.extend(py4hw.debug.getInterfaceWires(data_p))
-watch.extend(py4hw.debug.getInterfaceWires(reg_p))
+#watch = []
+#watch.extend(py4hw.debug.getInterfaceWires(ins_p))
+#watch.extend(py4hw.debug.getInterfaceWires(data_p))
+#watch.extend(py4hw.debug.getInterfaceWires(reg_p))
 
 #internal CPU wires to the waveform viewer for deeper debug
-watch.append(cpu.w_instruction)
-watch.append(cpu.W_CODE)
-watch.append(cpu.w_rom_address)
+#watch.append(cpu.w_instruction)
+#watch.append(cpu.W_CODE)
+#watch.append(cpu.w_rom_address)
 
-wvf = py4hw.Waveform(hw, 'wvf', watch)
+#wvf = py4hw.Waveform(hw, 'wvf', watch)
 
 # --- Load Program into Instruction Memory ---
 for i, b in enumerate(words):

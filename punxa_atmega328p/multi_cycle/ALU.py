@@ -1,19 +1,19 @@
 import py4hw 
 from ..Memory import * 
-from .AU import *
-from .LU import * 
-from .ALU_ConfCodeCalc import *
+from .ALU_Components.AU import *
+from .ALU_Components.LU import * 
+from .ALU_Components.ALU_ConfCodeCalc import *
 
-from .HandleC import *
-from .HandleH import * 
-from .HandleI import *
-from .HandleN import * 
-from .HandleT import * 
-from .HandleS import *
-from .HandleV import * 
-from .HandleZ import *
+from .ALU_Components.HandleC import *
+from .ALU_Components.HandleH import * 
+from .ALU_Components.HandleI import *
+from .ALU_Components.HandleN import * 
+from .ALU_Components.HandleT import * 
+from .ALU_Components.HandleS import *
+from .ALU_Components.HandleV import * 
+from .ALU_Components.HandleZ import *
 
-from .WireCombiner16 import *
+from .ALU_Components.WireCombiner16 import *
 
 
 """

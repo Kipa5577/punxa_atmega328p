@@ -3,23 +3,31 @@ import py4hw
 class OperandBuffer(py4hw.Logic):
 
     def __init__(self, parent, name,
-                 DATAInterface,K,WE,Reset,InputSelect,
-                 A0,A1,B0,B1,IOout):
+                 OB_DATA_IN,
+                 OB_K,
+                 OB_WE,
+                 OB_Reset,
+                 OB_InputSelectBuffer,
+                 OB_A0,
+                 OB_A1,
+                 OB_B0,
+                 OB_B1,
+                 OB_IOout):
         super().__init__(parent, name)
 
 
-        self.DATA = self.addIn('DATA',DATAInterface)
-        self.K = self.addIn('K',K)
-        self.Reset = self.addIn('Reset',Reset)
-        self.WE = self.addIn('WE',WE)
-        self.InputSelect = self.addIn('InputSelect',InputSelect)
+        self.DATA = self.addIn('OB_DATA_IN',OB_DATA_IN)
+        self.K = self.addIn('OB_K',OB_K)
+        self.Reset = self.addIn('OB_Reset',OB_Reset)
+        self.WE = self.addIn('OB_WE',OB_WE)
+        self.InputSelectBuffer = self.addIn('OB_InputSelectBuffer',OB_InputSelectBuffer)
 
 
-        self.A0 = self.addOut('A0',A0)
-        self.A1 = self.addOut('A1',A1)
-        self.B0 = self.addOut('B0',B0)
-        self.B1 = self.addOut('B1',B1)
-        self.IOout = self.addOut('IO',IOout)
+        self.A0 = self.addOut('OB_A0',OB_A0)
+        self.A1 = self.addOut('OB_A1',OB_A1)
+        self.B0 = self.addOut('OB_B0',OB_B0)
+        self.B1 = self.addOut('OB_B1',OB_B1)
+        self.IOout = self.addOut('IO',OB_IOout)
 
         self.valueRd0 = 0
         self.valueRd1 = 0
@@ -29,7 +37,7 @@ class OperandBuffer(py4hw.Logic):
         self.IOBuffer = 0
 
 
-    def Clock(self):
+    def clock(self):
 
         if self.Reset.get():
             self.valueRd0 = 0
@@ -46,13 +54,13 @@ class OperandBuffer(py4hw.Logic):
                 self.valueRd1 = self.DATA.get() & 0xFF
 
             if self.WE.get() == 3:
-                self.valueRr0 = self.DATA.get() & 0xFF if self.InputSelect == 1 else self.K.get()
+                self.valueRr0 = self.DATA.get() & 0xFF if self.InputSelectBuffer.get() == 1 else self.K.get()
 
             if self.WE.get() == 4:
                 self.valueRr1 = self.DATA.get() & 0xFF
 
             if self.WE.get() == 5:
-                self.IOBuffer = self.IOBuffer.get() & 0xFF
+                self.IOBuffer = self.DATA.get() & 0xFF
 
 
         self.A0.put(self.valueRd0)
