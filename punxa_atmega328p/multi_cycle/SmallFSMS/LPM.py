@@ -179,16 +179,6 @@ class MOV_FSM(py4hw.Logic):
         self.Mem_Instruction.prepare(Mem_Instruction)
         self.IncDec.prepare(IncDec)
 
-        if write_RdL_Buffer:
-            self.write_Opperand_Buffer.prepare(1)   # 1=A0
-        elif write_RdH_Buffer:
-            self.write_Opperand_Buffer.prepare(2)   # 2=A1
-        elif write_RrL_Buffer:
-            self.write_Opperand_Buffer.prepare(3)   # 3=B0
-        elif write_RrH_Buffer:
-            self.write_Opperand_Buffer.prepare(4)   # 4=B1
-        else:
-            self.write_Opperand_Buffer.prepare(0)
 
         self.InputSelect.prepare(InputSelect)
         self.Write_Enable.prepare(Write_Enable)

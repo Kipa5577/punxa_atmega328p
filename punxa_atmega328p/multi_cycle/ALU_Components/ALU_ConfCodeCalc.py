@@ -36,6 +36,8 @@ class ALU_ConfCodeCalc(py4hw.Logic):
         # 3. Initialize Default Handler Modes (0 = Default/Hold/Clear)
         copp, zopp, nopp, vopp, sopp, hopp, topp, iopp = 0, 0, 0, 0, 0, 0, 0, 0
 
+        branch_opp = 0
+
         # Mapped specifically to the modes defined in your Handle_X components:
         Z_MODE_8BIT  = 2 # HandleZ: 8-bit Zero
         Z_MODE_16BIT = 3 # HandleZ: 16-bit Zero
@@ -189,3 +191,5 @@ class ALU_ConfCodeCalc(py4hw.Logic):
         self.Topp.put(topp)
         self.Iopp.put(iopp)
         self.eSREG.put(esreg_val)
+
+        self.BranchOpp.put(branch_opp)

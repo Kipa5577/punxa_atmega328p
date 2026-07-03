@@ -47,17 +47,20 @@ op_codes = {
     # MCU Control
     'NOP': 128, 'SLEEP': 129, 'WDR': 130, 'BREAK': 131
 }
-
+op_names = {v: k for k, v in op_codes.items()}
 
 # Handled by OPP_FSM: ALU ops (Rd<-op(Rd,Rr/K)), compares, skips, single-register
-# ops, SREG bit set/clear, MOV, 16-bit ADIW/SBIW, and conditional branches. 
+# ops, SREG bit set/clear, MOV, 16-bit ADIW/SBIW, and conditional branches.
+# NOTE: LDI (95) used to be handled here as a Rd<-K immediate load, but it
+# is now routed to LDST_FSM instead (see LDST_FSM_INS below), since it is
+# a plain data-transfer instruction rather than an ALU operation.
 # See OPP_FSM's own opcode sets for the exact per-instruction routing inside that FSM.
 OPP_FSM_INS = {
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
     23, 24, 25, 26, 27, 28, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
     51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 67, 68, 69, 70,
     71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88,
-    89, 90, 91, 92, 93, 95
+    89, 90, 91, 92, 93
 }
  
 # Handled by MOV_FSM: register-to-register / register-pair moves.
@@ -76,10 +79,13 @@ POPPUSH_FSM_INS = {
 }
  
 # Handled by LDST_FSM: all indirect/direct SRAM loads & stores (X/Y/Z
-# pointer addressing, displacement addressing, direct LDS/STS) and the
+# pointer addressing, displacement addressing, direct LDS/STS), the
 # I/O space accesses IN/OUT and SBI/CBI (single-bit I/O set/clear, which
-# reuses the same A-6bit/Rd-style memory-interface access as IN/OUT).
+# reuses the same A-6bit/Rd-style memory-interface access as IN/OUT), and
+# LDI (Rd <- K immediate load), which needs no pointer at all and is
+# handled by LDST_FSM via its own dedicated immediate-load path.
 LDST_FSM_INS = {
+    95,                    # LDI
     96, 97, 98,            # LDX, LDX+, LD-X
     99, 100, 101, 102,     # LDY, LDY+, LD-Y, LDDY
     103, 104, 105, 106,    # LDZ, LDZ+, LD-Z, LDDZ
@@ -130,6 +136,8 @@ class FSM_SELECTOR(py4hw.Logic):
         self.RUN_LDSTFSM = self.addOut('RUN_LDSTFSM', RUN_LDSTFSM)
         self.RUN_CALLRETFSM = self.addOut('RUN_CALLRETFSM', RUN_CALLRETFSM)
  
+        self.debug = 1
+
     def propagate(self):
         run = self.run.get()
         ins = self.instruction.get()
@@ -143,20 +151,27 @@ class FSM_SELECTOR(py4hw.Logic):
         # Only decode and dispatch while the main controller is actually
         # requesting a sub-FSM to run; otherwise keep every RUN_* line low.
         if run:
+            ins_name = op_names.get(ins, f"UNKNOWN({ins})")
+
             if ins in OPP_FSM_INS:
-                print("OPP_FSM Selected")
+                if self.debug == 1:
+                    print(f"OPP_FSM Selected | Instruction: {ins_name}")
                 OPPFSM = 1
-            elif ins in MOV_FSM_INS:       # mov instructions
-                print("MOV_FSM Selected")
+            elif ins in MOV_FSM_INS:
+                if self.debug == 1:
+                    print(f"MOV_FSM Selected | Instruction: {ins_name}")
                 MOVFSM = 1
             elif ins in POPPUSH_FSM_INS:
-                print("POPPUSH_FSM Selected")
+                if self.debug == 1:
+                    print(f"POPPUSH_FSM Selected | Instruction: {ins_name}")
                 POPPUSHFSM = 1
             elif ins in LDST_FSM_INS:
-                print("LDST_FSM Selected")
+                if self.debug == 1:
+                    print(f"LDST_FSM Selected | Instruction: {ins_name}")
                 LDSTFSM = 1
             elif ins in CALLRET_FSM_INS:
-                print("CALLRET_FSM Selected")
+                if self.debug == 1:
+                    print(f"CALLRET_FSM Selected | Instruction: {ins_name}")
                 CALLRETFSM = 1
 
  

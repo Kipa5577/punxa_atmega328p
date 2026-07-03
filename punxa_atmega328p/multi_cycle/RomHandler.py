@@ -1,103 +1,5 @@
 import py4hw
 
-
-"""
-=============================================================================
-AI Agent Component Reference: RomHandler (PC & Fetch Unit)
-=============================================================================
-
-Description:
-This class acts as the Program Counter (PC) and Instruction Fetch Unit for an 
-ATmega328P-like architecture in py4hw. It utilizes an internal FSM to manage 
-a 2-cycle handshake (Request/Response) with an external Instruction Memory module.
-It supports sequential execution, relative/absolute jumps, conditional branches, 
-indirect Z-register jumps, and ROM writing (SPM). All PC operations are masked 
-to a 14-bit address space (0x3FFF).
-
-Memory Interface (Master/Source):
-- Drives: `read`, `write`, `write_data`, `address`, `instype`
-- Reads: `read_data`, `resp`
-
-Inputs (Control Signals):
-- Fetch_next_instruction (1-bit): One-shot fetch trigger. Setting this to 1
-  causes the RomHandler to fetch exactly one instruction word from ROM.
-  After that fetch completes, the RomHandler will NOT fetch again until
-  this signal has been pulled back to 0 and then raised to 1 a second
-  time (edge-triggered handshake, not a free-running enable).
-- Load_Z (1-bit): High to trigger an indirect jump (IJMP/ICALL).
-- address_ZL / address_ZH (8-bit): The lower/upper bytes of the Z register.
-- Load_Jump (1-bit): High to trigger an unconditional jump or call.
-- relative_Absolute (1-bit): 0 = Relative Jump (adds K to PC+1), 1 = Absolute Jump (PC = K).
-- Load_K (1-bit): High to trigger a conditional branch (BRxx/SBxx).
-- K_select (2-bit): Selects which K bus supplies the offset/address this cycle
-    (0 = K7 for branches, 1 = K12 for RJMP/RCALL, 2 = K7_22 for absolute JMP/CALL).
-- K7 / K12 / K7_22: Offset or absolute address sources. Treated as a 7-bit signed
-  offset for branches, a 12-bit signed offset for relative jumps, or an absolute
-  address for JMP/CALL.
-- Load_Byte (1-bit): High to initiate a Memory Write transaction (SPM instruction).
-- WriteVal (Variable width): The data to be written into the Instruction Memory during SPM.
-
-Outputs:
-- instructionOut (16-bit/32-bit): The latched instruction fetched from memory.
-- Address_Out (14-bit): The current value of the Program Counter (PC).
-
-FSM States:
-- STOP: Halts until Fetch_next_instruction == 1.
-- FETCH_REQ: Asserts memory read (or write if Load_Byte == 1) and address.
-- FETCH_WAIT: Waits for memory `resp` == 1. Latches instruction and calculates the next PC.
-- WRITE_WAIT: Waits for memory `resp` == 1 during an SPM operation.
-- WAIT_Fetch_next_instruction_LOW: Single-step trap; freezes execution until
-  Fetch_next_instruction is pulled back to 0.
-=============================================================================
-"""
-
-"""
-    STATE MACHINE
-
-    +------+
-    | STOP |<----------------------------------------------+
-    +------+                                                |
-        |                                                   |
-    Fetch_next_instruction == 1                              |
-        |                                                    |
-        v                                                    |
-    +-----------+   Load_Byte==1    +------------+           |
-    | FETCH_REQ |------------------>| WRITE_WAIT |           |
-    +-----------+                   +------------+           |
-        |  Load_Byte==0                   |                  |
-        v                            mem.resp == 1            |
-    +------------+                        |                  |
-    | FETCH_WAIT |                        |                  |
-    +------------+                        |                  |
-        |                                 |                  |
-    mem.resp == 1                         |                  |
-        |                                 v                  |
-        +------------------------> +--------------------------+
-                                    | WAIT_Fetch_next_instr_LOW |
-                                    +--------------------------+
-                                                |
-                                Fetch_next_instruction == 0
-                                                |
-                                                +-------------> STOP
-
-    Every single fetch (and every SPM write) is gated one-for-one by
-    Fetch_next_instruction. After a word is fetched, the FSM does NOT
-    loop back to FETCH_REQ on its own. It parks in
-    WAIT_Fetch_next_instruction_LOW until the caller drops the signal
-    to 0 (acknowledged here) and goes back to STOP, where it then waits
-    for the signal to rise to 1 again before fetching the next word.
-    This makes Fetch_next_instruction a true "fetch one word, then wait
-    for me to pulse you again" handshake rather than a free-running enable.
-
-
-In FETCH_WAIT: latch the fetched instruction, update outputs, and compute
-the next PC (sequential / branch / jump / indirect), then park in the
-single-step trap state until the next Fetch_next_instruction pulse.
-"""
-
-
-
-
 class RomHandler(py4hw.Logic):
     def __init__(self, parent, name,
                  # --- Memory Interface ---
@@ -109,7 +11,6 @@ class RomHandler(py4hw.Logic):
                  RH_Value_Out, # 16-bit Gives the value stored in rom to the memory controller
                  RH_Pc_valL, # 8-bit Outputs the low 8 bits of the program counter value
                  RH_Pc_valH, # 8-bit Outputs the high 8 bits of the program counter value
-
 
                 # -- StateOutputs -- 
                  RH_Instruction_fetched, # 1-bit Signal to indicate to the Control Box that the instruction has been outputed 
@@ -200,13 +101,14 @@ class RomHandler(py4hw.Logic):
         self.fetch_address = self.addIn('fetch_address',RH_fetch_address)
         self.Address_fetched = self.addOut('Address_fetched',RH_Address_fetched)
 
+        self.debug = 0
+
     def _select_K(self):
         """
         Multiplex between the three K sources based on K_select.
         0 = K7   (7-bit signed offset, conditional branches)
         1 = K12  (12-bit signed offset, RJMP/RCALL)
         2 = K7_22 (absolute target, JMP/CALL)
-        Falls back to K7 for any unmapped select value.
         """
         sel = self.K_select.get()
         if sel == 0:
@@ -221,133 +123,173 @@ class RomHandler(py4hw.Logic):
     def clock(self):
 
         # ---------------------------------------------------------
-        # STATE: STOP - Halt Execution until Fetch_next_instruction
+        # STATE: STOP - Halt Execution until requested
         # ---------------------------------------------------------
         if self.FSM == 'STOP':
-            # Keep memory control signals cleanly deasserted
             self.mem.instype.prepare(0)
             self.mem.read.prepare(0)
             self.mem.write.prepare(0)
-            # Keep handshake outputs deasserted while halted
+            
             self.Instruction_fetched.prepare(0)
-            self.Executed_Jump.prepare(0)
+            self.Address_fetched.prepare(0)
 
-            # Transition to fetch if ControlBox Fetch_next_instruction execution
-            if self.Fetch_next_instruction.get() == 1:
-                self.FSM = 'FETCH_REQ'
+            load_jump = self.Load_Jump.get()
+            load_z    = self.Load_Z.get()
+            load_k    = self.Load_K.get()
+            load_pcl  = self.Load_PCL.get()
+            load_pch  = self.Load_PCH.get()
+
+            if load_jump == 1 or load_z == 1 or load_k == 1 or load_pcl == 1 or load_pch == 1:
+                rel_abs = self.relative_Absolute.get()
+                jumped = False
+                
+                if load_z == 1:
+                    z_val = (self.address_ZH.get() << 8) | self.address_ZL.get()
+                    self.PC = z_val & 0x3FFF
+                    jumped = True
+                elif load_jump == 1:
+                    if rel_abs == 1:
+                        # Absolute Jump (JMP/CALL) - uses K7_22 via K_Select
+                        k_val = self._select_K()
+                        self.PC = k_val & 0x3FFF
+                    else:
+                        # Relative Jump (RJMP/RCALL) - ALWAYS uses K12
+                        k_val = self.K12.get()
+                        if k_val & 0x800:
+                            offset = k_val - 0x1000
+                        else:
+                            offset = k_val
+                        self.PC = (self.PC + offset) & 0x3FFF
+                    jumped = True
+                elif load_k == 1:
+                    # Conditional Branch (BRBS/BRBC) - uses K7 via K_Select
+                    k_val = self._select_K()
+                    if k_val & 0x40:
+                        offset = k_val - 0x80
+                    else:
+                        offset = k_val
+                    self.PC = (self.PC + offset) & 0x3FFF
+                    jumped = True
+                
+                if load_pch == 1:
+                    self.PC = (self.PC & 0x00FF) | ((self.PCH_LOAD_VAL.get() & 0x3F) << 8)
+                    jumped = True 
+                if load_pcl == 1:
+                    self.PC = (self.PC & 0xFF00) | (self.PCL_LOAD_VAL.get() & 0xFF)
+                    jumped = True
+
+                self.PC = self.PC & 0x3FFF
+                
+                if jumped:
+                    self.Executed_Jump.prepare(1)
+                    self.FSM = 'WAIT_Jump_LOW'
+                else:
+                    self.Executed_Jump.prepare(0)
+                    if self.Fetch_next_instruction.get() == 1:
+                        self.FSM = 'FETCH_REQ'
+                    elif self.fetch_address.get() == 1:
+                        self.FSM = 'FETCH_ADDR_REQ'
+            else:
+                self.Executed_Jump.prepare(0)
+                if self.Fetch_next_instruction.get() == 1:
+                    self.FSM = 'FETCH_REQ'
+                elif self.fetch_address.get() == 1:
+                    self.FSM = 'FETCH_ADDR_REQ'
 
         # ---------------------------------------------------------
-        # STATE: FETCH_REQ - Initiate memory transaction
+        # STATE: WAIT_Jump_LOW - Hold Executed_Jump until control FSM drops request
+        # ---------------------------------------------------------
+        elif self.FSM == 'WAIT_Jump_LOW':
+            self.mem.instype.prepare(0)
+            self.mem.read.prepare(0)
+            self.mem.write.prepare(0)
+            self.Instruction_fetched.prepare(0)
+            self.Address_fetched.prepare(0)
+            
+            if (self.Load_Jump.get() == 0 and self.Load_Z.get() == 0 and 
+                self.Load_K.get() == 0 and self.Load_PCL.get() == 0 and self.Load_PCH.get() == 0):
+                self.Executed_Jump.prepare(0)
+                self.FSM = 'STOP'
+            else:
+                self.Executed_Jump.prepare(1)
+
+        # ---------------------------------------------------------
+        # STATE: FETCH_REQ - Initiate standard instruction fetch
         # ---------------------------------------------------------
         elif self.FSM == 'FETCH_REQ':
-
             self.Instruction_fetched.prepare(0)
             self.Executed_Jump.prepare(0)
             self.mem.instype.prepare(1)     
             
-            # Check for Store Program Memory (SPM) write request first
             if self.Load_Byte.get() == 1:
                 # --- SPM WRITE TRANSACTION ---
-                self.mem.write.prepare(1)           # Enable write
-                self.mem.read.prepare(0)            # Disable read  
-                self.mem.address.prepare(self.PC)   # Target address
-                self.mem.write_data.prepare(self.WriteVal.get())  # Data to write
+                self.mem.write.prepare(1)
+                self.mem.read.prepare(0)
+                self.mem.address.prepare(self.PC)
+                self.mem.write_data.prepare(self.WriteVal.get())
                 self.FSM = 'WRITE_WAIT'
-            
             else:
                 # --- NORMAL INSTRUCTION FETCH ---
-                self.mem.write.prepare(0)           # Disable write
-                self.mem.read.prepare(1)            # Enable read
-                self.mem.address.prepare(self.PC)   # Address to fetch
-                
-                # Drive current PC to output (for debugging/external monitoring)
+                self.mem.write.prepare(0)
+                self.mem.read.prepare(1)
+                self.mem.address.prepare(self.PC)
                 self.Address_Out.prepare(self.PC)
-                
                 self.FSM = 'FETCH_WAIT'
 
         # ---------------------------------------------------------
-        # STATE: FETCH_WAIT - Complete read transaction
+        # STATE: FETCH_WAIT - Complete standard instruction fetch
         # ---------------------------------------------------------
         elif self.FSM == 'FETCH_WAIT':
-            
-            # Check if memory has responded (resp=1 means operation complete)
             if self.mem.resp.get() == 1:
-                
-                # Deassert bus control signals (release the interface)
                 self.mem.read.prepare(0)
                 self.mem.instype.prepare(0)
                 
-                # Latch the fetched instruction from memory
                 fetched_instruction = self.mem.read_data.get()
                 self.instructionOut.prepare(fetched_instruction)
-
-                # Also expose the raw fetched word on Value_Out for the
-                # MemoryController (previously left undriven).
                 self.Value_Out.prepare(fetched_instruction)
-
-                # Signal to ControlBox / decoder that a new instruction is ready
                 self.Instruction_fetched.prepare(1)
                 
-                # -----------------------------------------------------------------
-                # PC UPDATE LOGIC - Evaluate all control signals for next address
-                # -----------------------------------------------------------------
-                load_z    = self.Load_Z.get()       # IJMP/ICALL via Z register
-                load_k    = self.Load_K.get()        # Conditional branch taken
-                load_jump = self.Load_Jump.get()     # RJMP/RCALL/JMP/CALL
-                rel_abs   = self.relative_Absolute.get()  # 0=relative, 1=absolute
-                k_val     = self._select_K()         # FIX: was self.K.get() -- no such pin existed
+                # --- PC UPDATE LOGIC (Sequential Only) ---
+                # Jumps are no longer handled here. They are handled in STOP.
+                jump_width = self.JumpWidth.get()
+                next_pc = self.PC + (2 if jump_width == 1 else 1)
+                self.PC = next_pc & 0x3FFF
 
-                # Base: sequential next PC
-                next_pc = self.PC + 1
-
-                # Track whether any jump was taken this cycle
-                jumped = False
-
-                # --- PC Multiplexer (priority ordered) ---
-                if load_z == 1:
-                    # ===== INDIRECT JUMP/CALL (IJMP/ICALL) =====
-                    # Load PC from Z register (ZH:ZL)
-                    z_val = (self.address_ZH.get() << 8) | self.address_ZL.get()
-                    self.PC = z_val & 0x3FFF        # Mask to 14-bit address space
-                    jumped = True
-
-                elif load_jump == 1:
-                    if rel_abs == 1:
-                        # ===== ABSOLUTE JUMP/CALL (JMP/CALL) =====
-                        # K holds full target address
-                        self.PC = k_val & 0x3FFF
-                    else:
-                        # ===== RELATIVE JUMP/RCALL (RJMP/RCALL) =====
-                        # K is 12-bit signed offset (-2048..+2047)
-                        if k_val & 0x800:           # Bit 11 = sign bit
-                            offset = k_val - 0x1000  # Sign-extend via arithmetic, not a wide mask
-                        else:
-                            offset = k_val
-                        self.PC = (next_pc + offset) & 0x3FFF
-                    jumped = True
-
-                elif load_k == 1:
-                    # ===== CONDITIONAL BRANCH TAKEN (BRxx, SBxx) =====
-                    # K is 7-bit signed offset (-64..+63)
-                    if k_val & 0x40:             # Bit 6 = sign bit
-                        offset = k_val - 0x80     # Sign-extend via arithmetic
-                    else:
-                        offset = k_val
-                    self.PC = (next_pc + offset) & 0x3FFF
-                    jumped = True
-
-                else:
-                    # ===== SEQUENTIAL EXECUTION =====
-                    self.PC = next_pc & 0x3FFF    # Always mask to 14 bits
-
-                # Signal ControlBox that the jump target is committed
-                self.Executed_Jump.prepare(1 if jumped else 0)
-
-                # FIX: Do NOT loop straight back to FETCH_REQ. The handler
-                # must wait for Fetch_next_instruction to be pulsed again
-                # before fetching the next word. Go through the same
-                # single-step trap used by the SPM write path.
+                self.Executed_Jump.prepare(0)
                 self.FSM = 'WAIT_Fetch_next_instruction_LOW'
+
+        # ---------------------------------------------------------
+        # STATE: FETCH_ADDR_REQ - Initiate secondary address fetch
+        # ---------------------------------------------------------
+        elif self.FSM == 'FETCH_ADDR_REQ':
+            self.Address_fetched.prepare(0)
+            self.Executed_Jump.prepare(0)
+            
+            self.mem.instype.prepare(1)
+            self.mem.write.prepare(0)
+            self.mem.read.prepare(1)
+            self.mem.address.prepare(self.PC)
+            
+            self.FSM = 'FETCH_ADDR_WAIT'
+
+        # ---------------------------------------------------------
+        # STATE: FETCH_ADDR_WAIT - Complete secondary address fetch
+        # ---------------------------------------------------------
+        elif self.FSM == 'FETCH_ADDR_WAIT':
+            if self.mem.resp.get() == 1:
+                self.mem.read.prepare(0)
+                self.mem.instype.prepare(0)
+                
+                fetched_word = self.mem.read_data.get()
+                
+                self.Address_Out.prepare(fetched_word)
+                self.Value_Out.prepare(fetched_word)
+
+                self.Address_fetched.prepare(1)
+                
+                self.PC = (self.PC + 1) & 0x3FFF
+                
+                self.FSM = 'WAIT_fetch_address_LOW'
 
         # ---------------------------------------------------------
         # STATE: WRITE_WAIT - Complete SPM write transaction  
@@ -361,16 +303,39 @@ class RomHandler(py4hw.Logic):
                 self.FSM = 'WAIT_Fetch_next_instruction_LOW'
 
         # ---------------------------------------------------------
-        # STATE: WAIT_Fetch_next_instruction_LOW - The Single-Step Trap
+        # TRAP STATES: Wait for handshakes to complete
         # ---------------------------------------------------------
         elif self.FSM == 'WAIT_Fetch_next_instruction_LOW':
-            # Completely freeze execution until the user/ControlBox pulls Fetch_next_instruction to 0
             if self.Fetch_next_instruction.get() == 0:
+                self.Instruction_fetched.prepare(0)
                 self.FSM = 'STOP'
 
+        elif self.FSM == 'WAIT_fetch_address_LOW':
+            if self.fetch_address.get() == 0:
+                self.Address_fetched.prepare(0)
+                self.FSM = 'STOP'
+            else:
+                self.Address_fetched.prepare(1)
+
         # ---------------------------------------------------------
-        # DEFAULT: Safety fallback (should never reach here)
+        # DEFAULT: Safety fallback
         # ---------------------------------------------------------
         else:
-            print(f"[RomHandler WARNING] Unknown state '{self.FSM}', resetting to FETCH_REQ")
-            self.FSM = 'FETCH_REQ'
+            print(f"[RomHandler WARNING] Unknown state '{self.FSM}', resetting to STOP")
+            self.FSM = 'STOP'
+
+        # Continuously drive PC values out
+        self.Pc_valL.prepare(self.PC & 0xFF)
+        self.PC_valH.prepare((self.PC >> 8) & 0xFF)
+
+        if self.debug == 1:
+            state_log = (
+                f"ROM_STATE | "
+                f"State: {self.FSM:15} | "
+                f"PC: {self.PC:04X} | "
+                f"FetchReq: {self.Fetch_next_instruction.get()} "
+                f"Resp: {self.mem.resp.get()} | "
+                f"Inst: {self.instructionOut.get():04X} | "
+                f"Jump: {self.Executed_Jump.get()}"
+            )
+            print(state_log)

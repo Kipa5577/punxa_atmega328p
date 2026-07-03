@@ -6,8 +6,6 @@ from .PopPushFSM import *
 from .MovFSM import * 
 from .FSM_SELECTOR import * 
 from .FSM_OutputMerger import * 
-
-
 # =============================================================================
 # INSTRUCTION_FSM_BOX  —  top-level structural wrapper
 # =============================================================================
@@ -37,6 +35,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
                  IFB_Resp,
                  IFB_Branch,
                  IFB_Executed_Jump,
+                 IFB_Address_fetched, 
                  # ── Combined (OR-merged) Outputs ────────────────────
                  IFB_DONE,
                  IFB_LoadSelectMux,
@@ -55,9 +54,9 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
                  IFB_Load_Byte,
                  IFB_Fetch_Address,
                  IFB_WB_Addr,
-                 IFB_JumpWidth,
                  IFB_LOAD_PCL,
                  IFB_LOAD_PCH,
+                 IFB_K_Select,
                  ):
         super().__init__(parent, name)
 
@@ -67,6 +66,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.Resp                   = self.addIn('Resp',                   IFB_Resp)
         self.Branch                 = self.addIn('Branch',                 IFB_Branch)
         self.Executed_Jump          = self.addIn('Executed_Jump',          IFB_Executed_Jump)
+        self.Address_fetched        = self.addIn('Address_fetched',        IFB_Address_fetched) 
 
         # ── External Outputs (22, matching the constructor) ─────────
         self.done                   = self.addOut('done',                   IFB_DONE)
@@ -86,9 +86,9 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.Load_Byte              = self.addOut('Load_Byte',              IFB_Load_Byte)
         self.Fetch_Address          = self.addOut('Fetch_Address',          IFB_Fetch_Address)
         self.WB_Addr                = self.addOut('WB_Addr',                IFB_WB_Addr)
-        self.JumpWidth              = self.addOut('JumpWidth',              IFB_JumpWidth)
         self.LOAD_PCL               = self.addOut('LOAD_PCL',               IFB_LOAD_PCL)
         self.LOAD_PCH               = self.addOut('LOAD_PCH',               IFB_LOAD_PCH)
+        self.K_Select               = self.addOut('IFB_K_Select',           IFB_K_Select)
 
         # ==============================================================
         # INTERNAL WIRES
@@ -108,12 +108,12 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_opp_NotExecute             = py4hw.Wire(self, 'w_opp_NotExecute',             1)
         self.w_opp_LoadSelectMux          = py4hw.Wire(self, 'w_opp_LoadSelectMux',          1)
         self.w_opp_LoadingMux             = py4hw.Wire(self, 'w_opp_LoadingMux',             4)
-        self.w_opp_Input_Select           = py4hw.Wire(self, 'w_opp_Input_Select',           4)
+        self.w_opp_Input_Select           = py4hw.Wire(self, 'w_opp_Input_Select',           5)
         self.w_opp_WE                     = py4hw.Wire(self, 'w_opp_WE',                     1)
-        self.w_opp_Read_Write             = py4hw.Wire(self, 'w_opp_Read_Write',             1)
+        self.w_opp_Read_Write             = py4hw.Wire(self, 'w_opp_Read_Write',             2)
         self.w_opp_Mem_Instruction        = py4hw.Wire(self, 'w_opp_Mem_Instruction',        5)
         self.w_opp_IncDec                 = py4hw.Wire(self, 'w_opp_IncDec',                 3)
-        self.w_opp_write_Opperand_Buffer  = py4hw.Wire(self, 'w_opp_write_Opperand_Buffer',  1)
+        self.w_opp_write_Opperand_Buffer  = py4hw.Wire(self, 'w_opp_write_Opperand_Buffer',  3)
         self.w_opp_InputSelect            = py4hw.Wire(self, 'w_opp_InputSelect',            1)
         self.w_opp_Load_Z                 = py4hw.Wire(self, 'w_opp_Load_Z',                 1)
         self.w_opp_Load_K                 = py4hw.Wire(self, 'w_opp_Load_K',                 1)
@@ -122,8 +122,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_opp_Load_Byte              = py4hw.Wire(self, 'w_opp_Load_Byte',              1)
         self.w_opp_Fetch_next_instruction = py4hw.Wire(self, 'w_opp_Fetch_next_instruction', 1)
         self.w_opp_Fetch_Address          = py4hw.Wire(self, 'w_opp_Fetch_Address',          1)
-        self.w_opp_WB_Addr                = py4hw.Wire(self, 'w_opp_WB_Addr',                5)
-        self.w_opp_JumpWidth              = py4hw.Wire(self, 'w_opp_JumpWidth',              1)
+        self.w_opp_WB_Addr                = py4hw.Wire(self, 'w_opp_WB_Addr',                8)
         self.w_opp_LOAD_PCL               = py4hw.Wire(self, 'w_opp_LOAD_PCL',               1)
         self.w_opp_LOAD_PCH               = py4hw.Wire(self, 'w_opp_LOAD_PCH',               1)
 
@@ -133,12 +132,12 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_mov_NotExecute             = py4hw.Wire(self, 'w_mov_NotExecute',             1)
         self.w_mov_LoadSelectMux          = py4hw.Wire(self, 'w_mov_LoadSelectMux',          1)
         self.w_mov_LoadingMux             = py4hw.Wire(self, 'w_mov_LoadingMux',             4)
-        self.w_mov_Input_Select           = py4hw.Wire(self, 'w_mov_Input_Select',           4)
+        self.w_mov_Input_Select           = py4hw.Wire(self, 'w_mov_Input_Select',           5)
         self.w_mov_WE                     = py4hw.Wire(self, 'w_mov_WE',                     1)
-        self.w_mov_Read_Write             = py4hw.Wire(self, 'w_mov_Read_Write',             1)
+        self.w_mov_Read_Write             = py4hw.Wire(self, 'w_mov_Read_Write',             2)
         self.w_mov_Mem_Instruction        = py4hw.Wire(self, 'w_mov_Mem_Instruction',        5)
         self.w_mov_IncDec                 = py4hw.Wire(self, 'w_mov_IncDec',                 3)
-        self.w_mov_write_Opperand_Buffer  = py4hw.Wire(self, 'w_mov_write_Opperand_Buffer',  1)
+        self.w_mov_write_Opperand_Buffer  = py4hw.Wire(self, 'w_mov_write_Opperand_Buffer',  3)
         self.w_mov_InputSelect            = py4hw.Wire(self, 'w_mov_InputSelect',            1)
         self.w_mov_Load_Z                 = py4hw.Wire(self, 'w_mov_Load_Z',                 1)
         self.w_mov_Load_K                 = py4hw.Wire(self, 'w_mov_Load_K',                 1)
@@ -147,8 +146,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_mov_Load_Byte              = py4hw.Wire(self, 'w_mov_Load_Byte',              1)
         self.w_mov_Fetch_next_instruction = py4hw.Wire(self, 'w_mov_Fetch_next_instruction', 1)
         self.w_mov_Fetch_Address          = py4hw.Wire(self, 'w_mov_Fetch_Address',          1)
-        self.w_mov_WB_Addr                = py4hw.Wire(self, 'w_mov_WB_Addr',                5)
-        self.w_mov_JumpWidth              = py4hw.Wire(self, 'w_mov_JumpWidth',              1)
+        self.w_mov_WB_Addr                = py4hw.Wire(self, 'w_mov_WB_Addr',                8)
         self.w_mov_LOAD_PCL               = py4hw.Wire(self, 'w_mov_LOAD_PCL',               1)
         self.w_mov_LOAD_PCH               = py4hw.Wire(self, 'w_mov_LOAD_PCH',               1)
 
@@ -158,12 +156,12 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_poppush_NotExecute             = py4hw.Wire(self, 'w_poppush_NotExecute',             1)
         self.w_poppush_LoadSelectMux          = py4hw.Wire(self, 'w_poppush_LoadSelectMux',          1)
         self.w_poppush_LoadingMux             = py4hw.Wire(self, 'w_poppush_LoadingMux',             4)
-        self.w_poppush_Input_Select           = py4hw.Wire(self, 'w_poppush_Input_Select',           4)
+        self.w_poppush_Input_Select           = py4hw.Wire(self, 'w_poppush_Input_Select',           5)
         self.w_poppush_WE                     = py4hw.Wire(self, 'w_poppush_WE',                     1)
-        self.w_poppush_Read_Write             = py4hw.Wire(self, 'w_poppush_Read_Write',             1)
+        self.w_poppush_Read_Write             = py4hw.Wire(self, 'w_poppush_Read_Write',             2)
         self.w_poppush_Mem_Instruction        = py4hw.Wire(self, 'w_poppush_Mem_Instruction',        5)
         self.w_poppush_IncDec                 = py4hw.Wire(self, 'w_poppush_IncDec',                 3)
-        self.w_poppush_write_Opperand_Buffer  = py4hw.Wire(self, 'w_poppush_write_Opperand_Buffer',  1)
+        self.w_poppush_write_Opperand_Buffer  = py4hw.Wire(self, 'w_poppush_write_Opperand_Buffer',  3)
         self.w_poppush_InputSelect            = py4hw.Wire(self, 'w_poppush_InputSelect',            1)
         self.w_poppush_Load_Z                 = py4hw.Wire(self, 'w_poppush_Load_Z',                 1)
         self.w_poppush_Load_K                 = py4hw.Wire(self, 'w_poppush_Load_K',                 1)
@@ -172,8 +170,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_poppush_Load_Byte              = py4hw.Wire(self, 'w_poppush_Load_Byte',              1)
         self.w_poppush_Fetch_next_instruction = py4hw.Wire(self, 'w_poppush_Fetch_next_instruction', 1)
         self.w_poppush_Fetch_Address          = py4hw.Wire(self, 'w_poppush_Fetch_Address',          1)
-        self.w_poppush_WB_Addr                = py4hw.Wire(self, 'w_poppush_WB_Addr',                5)
-        self.w_poppush_JumpWidth              = py4hw.Wire(self, 'w_poppush_JumpWidth',              1)
+        self.w_poppush_WB_Addr                = py4hw.Wire(self, 'w_poppush_WB_Addr',                8)
         self.w_poppush_LOAD_PCL               = py4hw.Wire(self, 'w_poppush_LOAD_PCL',               1)
         self.w_poppush_LOAD_PCH               = py4hw.Wire(self, 'w_poppush_LOAD_PCH',               1)
 
@@ -183,12 +180,12 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_ldst_NotExecute             = py4hw.Wire(self, 'w_ldst_NotExecute',             1)
         self.w_ldst_LoadSelectMux          = py4hw.Wire(self, 'w_ldst_LoadSelectMux',          1)
         self.w_ldst_LoadingMux             = py4hw.Wire(self, 'w_ldst_LoadingMux',             4)
-        self.w_ldst_Input_Select           = py4hw.Wire(self, 'w_ldst_Input_Select',           4)
+        self.w_ldst_Input_Select           = py4hw.Wire(self, 'w_ldst_Input_Select',           5)
         self.w_ldst_WE                     = py4hw.Wire(self, 'w_ldst_WE',                     1)
-        self.w_ldst_Read_Write             = py4hw.Wire(self, 'w_ldst_Read_Write',             1)
+        self.w_ldst_Read_Write             = py4hw.Wire(self, 'w_ldst_Read_Write',             2)
         self.w_ldst_Mem_Instruction        = py4hw.Wire(self, 'w_ldst_Mem_Instruction',        5)
         self.w_ldst_IncDec                 = py4hw.Wire(self, 'w_ldst_IncDec',                 3)
-        self.w_ldst_write_Opperand_Buffer  = py4hw.Wire(self, 'w_ldst_write_Opperand_Buffer',  1)
+        self.w_ldst_write_Opperand_Buffer  = py4hw.Wire(self, 'w_ldst_write_Opperand_Buffer',  3)
         self.w_ldst_InputSelect            = py4hw.Wire(self, 'w_ldst_InputSelect',            1)
         self.w_ldst_Load_Z                 = py4hw.Wire(self, 'w_ldst_Load_Z',                 1)
         self.w_ldst_Load_K                 = py4hw.Wire(self, 'w_ldst_Load_K',                 1)
@@ -197,8 +194,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_ldst_Load_Byte              = py4hw.Wire(self, 'w_ldst_Load_Byte',              1)
         self.w_ldst_Fetch_next_instruction = py4hw.Wire(self, 'w_ldst_Fetch_next_instruction', 1)
         self.w_ldst_Fetch_Address          = py4hw.Wire(self, 'w_ldst_Fetch_Address',          1)
-        self.w_ldst_WB_Addr                = py4hw.Wire(self, 'w_ldst_WB_Addr',                5)
-        self.w_ldst_JumpWidth              = py4hw.Wire(self, 'w_ldst_JumpWidth',              1)
+        self.w_ldst_WB_Addr                = py4hw.Wire(self, 'w_ldst_WB_Addr',                8)
         self.w_ldst_LOAD_PCL               = py4hw.Wire(self, 'w_ldst_LOAD_PCL',               1)
         self.w_ldst_LOAD_PCH               = py4hw.Wire(self, 'w_ldst_LOAD_PCH',               1)
 
@@ -208,12 +204,12 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_callret_NotExecute             = py4hw.Wire(self, 'w_callret_NotExecute',             1)
         self.w_callret_LoadSelectMux          = py4hw.Wire(self, 'w_callret_LoadSelectMux',          1)
         self.w_callret_LoadingMux             = py4hw.Wire(self, 'w_callret_LoadingMux',             4)
-        self.w_callret_Input_Select           = py4hw.Wire(self, 'w_callret_Input_Select',           4)
+        self.w_callret_Input_Select           = py4hw.Wire(self, 'w_callret_Input_Select',           5)
         self.w_callret_WE                     = py4hw.Wire(self, 'w_callret_WE',                     1)
-        self.w_callret_Read_Write             = py4hw.Wire(self, 'w_callret_Read_Write',             1)
+        self.w_callret_Read_Write             = py4hw.Wire(self, 'w_callret_Read_Write',             2)
         self.w_callret_Mem_Instruction        = py4hw.Wire(self, 'w_callret_Mem_Instruction',        5)
         self.w_callret_IncDec                 = py4hw.Wire(self, 'w_callret_IncDec',                 3)
-        self.w_callret_write_Opperand_Buffer  = py4hw.Wire(self, 'w_callret_write_Opperand_Buffer',  1)
+        self.w_callret_write_Opperand_Buffer  = py4hw.Wire(self, 'w_callret_write_Opperand_Buffer',  3)
         self.w_callret_InputSelect            = py4hw.Wire(self, 'w_callret_InputSelect',            1)
         self.w_callret_Load_Z                 = py4hw.Wire(self, 'w_callret_Load_Z',                 1)
         self.w_callret_Load_K                 = py4hw.Wire(self, 'w_callret_Load_K',                 1)
@@ -222,11 +218,10 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_callret_Load_Byte              = py4hw.Wire(self, 'w_callret_Load_Byte',              1)
         self.w_callret_Fetch_next_instruction = py4hw.Wire(self, 'w_callret_Fetch_next_instruction', 1)
         self.w_callret_Fetch_Address          = py4hw.Wire(self, 'w_callret_Fetch_Address',          1)
-        self.w_callret_WB_Addr                = py4hw.Wire(self, 'w_callret_WB_Addr',                5)
-        self.w_callret_JumpWidth              = py4hw.Wire(self, 'w_callret_JumpWidth',              1)
+        self.w_callret_WB_Addr                = py4hw.Wire(self, 'w_callret_WB_Addr',                8)
         self.w_callret_LOAD_PCL               = py4hw.Wire(self, 'w_callret_LOAD_PCL',               1)
         self.w_callret_LOAD_PCH               = py4hw.Wire(self, 'w_callret_LOAD_PCH',               1)
-
+        self.w_callret_K_Select               = py4hw.Wire(self, 'w_callret_K_Select',               2)
 
         # ==============================================================
         # FSM_SELECTOR  —  decodes Instruction while run==1 and raises
@@ -271,7 +266,6 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             Fetch_next_instruction    = self.w_opp_Fetch_next_instruction,
             Fetch_Address             = self.w_opp_Fetch_Address,
             WB_Addr                   = self.w_opp_WB_Addr,
-            JumpWidth                 = self.w_opp_JumpWidth,
             LOAD_PCL                  = self.w_opp_LOAD_PCL,
             LOAD_PCH                  = self.w_opp_LOAD_PCH,
         )
@@ -304,7 +298,6 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             Fetch_next_instruction    = self.w_mov_Fetch_next_instruction,
             Fetch_Address             = self.w_mov_Fetch_Address,
             WB_Addr                   = self.w_mov_WB_Addr,
-            JumpWidth                 = self.w_mov_JumpWidth,
             LOAD_PCL                  = self.w_mov_LOAD_PCL,
             LOAD_PCH                  = self.w_mov_LOAD_PCH,
         )
@@ -337,7 +330,6 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             Fetch_next_instruction    = self.w_poppush_Fetch_next_instruction,
             Fetch_Address             = self.w_poppush_Fetch_Address,
             WB_Addr                   = self.w_poppush_WB_Addr,
-            JumpWidth                 = self.w_poppush_JumpWidth,
             LOAD_PCL                  = self.w_poppush_LOAD_PCL,
             LOAD_PCH                  = self.w_poppush_LOAD_PCH,
         )
@@ -353,6 +345,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             Resp                      = self.Resp,
             Branch                    = self.Branch,
             Executed_Jump             = self.Executed_Jump,
+            Address_fetched           = self.Address_fetched, 
             LoadSelectMux             = self.w_ldst_LoadSelectMux,
             LoadingMux                = self.w_ldst_LoadingMux,
             InputSelectMemory         = self.w_ldst_Input_Select,
@@ -370,7 +363,6 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             Fetch_next_instruction    = self.w_ldst_Fetch_next_instruction,
             Fetch_Address             = self.w_ldst_Fetch_Address,
             WB_Addr                   = self.w_ldst_WB_Addr,
-            JumpWidth                 = self.w_ldst_JumpWidth,
             LOAD_PCL                  = self.w_ldst_LOAD_PCL,
             LOAD_PCH                  = self.w_ldst_LOAD_PCH,
         )
@@ -386,6 +378,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             Resp                      = self.Resp,
             Branch                    = self.Branch,
             Executed_Jump             = self.Executed_Jump,
+            Address_fetched           = self.Address_fetched, 
             LoadSelectMux             = self.w_callret_LoadSelectMux,
             LoadingMux                = self.w_callret_LoadingMux,
             InputSelectMemory         = self.w_callret_Input_Select,
@@ -403,9 +396,9 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             Fetch_next_instruction    = self.w_callret_Fetch_next_instruction,
             Fetch_Address             = self.w_callret_Fetch_Address,
             WB_Addr                   = self.w_callret_WB_Addr,
-            JumpWidth                 = self.w_callret_JumpWidth,
             LOAD_PCL                  = self.w_callret_LOAD_PCL,
             LOAD_PCH                  = self.w_callret_LOAD_PCH,
+            K_Select                  = self.w_callret_K_Select,
         )
 
         # ==============================================================
@@ -430,7 +423,6 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             'Fetch_next_instruction': self.w_opp_Fetch_next_instruction,
             'Fetch_Address':          self.w_opp_Fetch_Address,
             'WB_Addr':                self.w_opp_WB_Addr,
-            'JumpWidth':              self.w_opp_JumpWidth,
             'LOAD_PCL':               self.w_opp_LOAD_PCL,
             'LOAD_PCH':               self.w_opp_LOAD_PCH,
         }
@@ -454,7 +446,6 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             'Fetch_next_instruction': self.w_mov_Fetch_next_instruction,
             'Fetch_Address':          self.w_mov_Fetch_Address,
             'WB_Addr':                self.w_mov_WB_Addr,
-            'JumpWidth':              self.w_mov_JumpWidth,
             'LOAD_PCL':               self.w_mov_LOAD_PCL,
             'LOAD_PCH':               self.w_mov_LOAD_PCH,
         }
@@ -478,7 +469,6 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             'Fetch_next_instruction': self.w_poppush_Fetch_next_instruction,
             'Fetch_Address':          self.w_poppush_Fetch_Address,
             'WB_Addr':                self.w_poppush_WB_Addr,
-            'JumpWidth':              self.w_poppush_JumpWidth,
             'LOAD_PCL':               self.w_poppush_LOAD_PCL,
             'LOAD_PCH':               self.w_poppush_LOAD_PCH,
         }
@@ -502,7 +492,6 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             'Fetch_next_instruction': self.w_ldst_Fetch_next_instruction,
             'Fetch_Address':          self.w_ldst_Fetch_Address,
             'WB_Addr':                self.w_ldst_WB_Addr,
-            'JumpWidth':              self.w_ldst_JumpWidth,
             'LOAD_PCL':               self.w_ldst_LOAD_PCL,
             'LOAD_PCH':               self.w_ldst_LOAD_PCH,
         }
@@ -526,9 +515,9 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             'Fetch_next_instruction': self.w_callret_Fetch_next_instruction,
             'Fetch_Address':          self.w_callret_Fetch_Address,
             'WB_Addr':                self.w_callret_WB_Addr,
-            'JumpWidth':              self.w_callret_JumpWidth,
             'LOAD_PCL':               self.w_callret_LOAD_PCL,
             'LOAD_PCH':               self.w_callret_LOAD_PCH,
+            'K_Select':               self.w_callret_K_Select,
         }
 
 
@@ -550,9 +539,9 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             'Load_Byte':              self.Load_Byte,
             'Fetch_Address':          self.Fetch_Address,
             'WB_Addr':                self.WB_Addr,
-            'JumpWidth':              self.JumpWidth,
             'LOAD_PCL':               self.LOAD_PCL,
             'LOAD_PCH':               self.LOAD_PCH,
+            'K_Select':               self.K_Select,
         }
 
         self.merger = FSM_OutputMerger(

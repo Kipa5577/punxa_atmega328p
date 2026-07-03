@@ -1,67 +1,128 @@
 import py4hw
 
-
-
-
 STATES = [
-    'STOP',
-    # READ STACK POINTER
-    'FETCH_STACK_POINTER_BEGIN_L','FETCH_STACK_POINTER_BEGIN_L','LOAD_STACK_POINTER_L_IN_BUFFER' 
-    'FETCH_STACK_POINTER_BEGIN_H','FETCH_STACK_POINTER_BEGIN_H','LOAD_STACK_POINTER_H_IN_BUFFER'
+    "STOP",
 
-    # HANDLE PC RETURN VALUE INCREMENTATION
-    'INCREMENT_STORED_PC'
+    # Read stack pointer
+    "FETCH_STACK_POINTER_BEGIN_L",
+    "FETCH_STACK_POINTER_WAIT_L",
+    "LOAD_STACK_POINTER_L_IN_BUFFER",
 
-    #LOAD_PC TO MEMORY
-    'READ_L_BYTE_OF_PC','LOAD_L_BYTE_OF_PC_TO_STACK',
-    'READ_H_BYTE_OF_PC','LOAD_H_BYTE_OF_PC_TO_STACK',
+    "FETCH_STACK_POINTER_BEGIN_H",
+    "FETCH_STACK_POINTER_WAIT_H",
+    "LOAD_STACK_POINTER_H_IN_BUFFER",
 
-    # JUMP_PART RCALL
-    'FETCH_K_OFFSET','WAIT_K_OFFSET',
-    'JUMP_R',
+    # Prepare return address
+    "INCREMENT_STORED_PC",
 
-    #JUMP_PART ICALL
-    'FETCH_ADDRESS_Z_L','WAIT_FETCH_ADDRESS_Z_L',
-    'FETCH_ADDRESS_Z_H','WAIT_FETCH_ADDRESS_Z_H',
-    'JUMP_I',
+    # Push PC
+    "READ_L_BYTE_OF_PC",
+    "LOAD_L_BYTE_OF_PC_TO_STACK",
 
-    #JUMP_PART CALL
-    'FETCH_ADDRESS_BYTE','WAIT_ADDRESS_RECONSTRUCTION',
-    'JUMP'
+    "READ_H_BYTE_OF_PC",
+    "LOAD_H_BYTE_OF_PC_TO_STACK",
 
-    #JUMP BACK RET
-    'FETCH_L_BYTE_OF_PC','WAIT_FETCH_L_BYTE_OF_PC','STORE_L_BYTE_OF_PC'
-    'FETCH_L_BYTE_OF_PC','WAIT_FETCH_L_BYTE_OF_PC','STORE_L_BYTE_OF_PC'
+    # Save decremented SP back to SRAM
+    "SAVE_DECREMENTED_SP_L",
+    "WAIT_SAVE_DECREMENTED_SP_L",
+    "SAVE_DECREMENTED_SP_H",
+    "WAIT_SAVE_DECREMENTED_SP_H",
 
-    # 
-    'LOAD_STACK_POINTER_BEGIN_L','LOAD_STACK_POINTER_WAIT_L',
-    'LOAD_STACK_POINTER_BEGIN_H','LOAD_STACK_POINTER_WAIT_H',
+    # RCALL
+    "FETCH_K_OFFSET",
+    "WAIT_K_OFFSET",
+    "JUMP_R",
+
+    # ICALL
+    "FETCH_ADDRESS_Z_L",
+    "WAIT_FETCH_ADDRESS_Z_L",
+    "LOAD_ADDRESS_Z_L",
+
+    "FETCH_ADDRESS_Z_H",
+    "WAIT_FETCH_ADDRESS_Z_H",
+    "LOAD_ADDRESS_Z_H",
+
+    "JUMP_I",
+
+    # CALL
+    "FETCH_ADDRESS_BYTE",
+    "WAIT_ADDRESS_RECONSTRUCTION",
+    "JUMP",
+
+    # RET
+    "FETCH_L_BYTE_OF_PC",
+    "WAIT_FETCH_L_BYTE_OF_PC",
+    "STORE_L_BYTE_OF_PC",
+
+    "FETCH_H_BYTE_OF_PC",
+    "WAIT_FETCH_H_BYTE_OF_PC",
+    "STORE_H_BYTE_OF_PC",
+
+    # Restore SP
+    "LOAD_STACK_POINTER_BEGIN_L",
+    "LOAD_STACK_POINTER_WAIT_L",
+
+    "LOAD_STACK_POINTER_BEGIN_H",
+    "LOAD_STACK_POINTER_WAIT_H",
 ]
 
+OPCODE_RJMP  = 29
+OPCODE_IJMP  = 30
+OPCODE_JMP   = 31
+
+OPCODE_RET   = (
+                35, # RET
+                36  # RETI
+                )
+OPCODE_RCALL = 32 
+OPCODE_ICALL = 33
+OPCODE_CALL  = 34
+
+# 2-byte (1-word) instructions
+two_byte_instructions = [
+    'ADD', 'ADC', 'ADIW', 'SUB', 'SUBI', 'SBC', 'SBCI', 'SBIW', 'AND', 'ANDI', 
+    'OR', 'ORI', 'EOR', 'COM', 'NEG', 'SBR', 'CBR', 'INC', 'DEC', 'TST', 'CLR', 
+    'SER', 'MUL', 'MULS', 'MULSU', 'FMUL', 'FMULS', 'FMULSU', 'RJMP', 'IJMP', 
+    'RCALL', 'ICALL', 'RET', 'RETI', 'CPSE', 'CP', 'CPC', 'CPI', 'SBRC', 'SBRS', 
+    'SBIC', 'SBIS', 'BRBS', 'BRBC', 'BREQ', 'BRNE', 'BRCS', 'BRCC', 'BRSH', 
+    'BRLO', 'BRMI', 'BRPL', 'BRGE', 'BRLT', 'BRHS', 'BRHC', 'BRTS', 'BRTC', 
+    'BRVS', 'BRVC', 'BRIE', 'BRID', 'SBI', 'CBI', 'LSL', 'LSR', 'ROL', 'ROR', 
+    'ASR', 'SWAP', 'BSET', 'BCLR', 'BST', 'BLD', 'SEC', 'CLC', 'SEN', 'CLN', 
+    'SEZ', 'CLZ', 'SEI', 'CLI', 'SES', 'CLS', 'SEV', 'CLV', 'SET', 'CLT', 'SEH', 
+    'CLH', 'MOV', 'MOVW', 'LDI', 'LDX', 'LDX+', 'LD-X', 'LDY', 'LDY+', 'LD-Y', 
+    'LDDY', 'LDZ', 'LDZ+', 'LD-Z', 'LDDZ', 'STX', 'STX+', 'ST-X', 'STY', 'STY+', 
+    'ST-Y', 'STDY', 'STZ', 'STZ+', 'ST-Z', 'STDZ', 'LPM', 'LPMZ', 'LPMZ+', 
+    'SPM', 'IN', 'OUT', 'PUSH', 'POP', 'NOP', 'SLEEP', 'WDR', 'BREAK'
+]
+
+# 4-byte (2-word) instructions
+four_byte_instructions = ['JMP', 'CALL', 'LDS', 'STS']
 
 class CallRet_FSM(py4hw.Logic):
     def __init__(self, parent, name,
-                 # ── Logic imputs─────────────────────────────────────────
+                 # ── Logic inputs ─────────────────────────────────────────
                  run, # 1-Bit The main FSM pulls this to high to trigger this FSM
-                 done, # 1-Bit The main FSM recives this to high to indicate that this FSM has finished
+                 done, # 1-Bit The main FSM receives this to high to indicate that this FSM has finished
                  # ── Inputs ──────────────────────────────────────────────
                  Instruction,        # 8-bit opcode from instruction decoder
                  Resp,               # 1-bit: memory operation Finished
+                 Address_fetched,    # 1-bit: romHandler Fetched address
                  Branch,             # 1-bit: ALU branch condition met
-                 Executed_Jump, # This tell the controll box that the romHandler has successfully executed the jump instrution and it is ready to load the next instruction
+                 Executed_Jump,      # This tell the control box that the romHandler has successfully executed the jump instruction
 
                  # ── Memory Interface Outputs ─────────────────────────────
                  LoadSelectMux,      # address mux for memory reads
                  LoadingMux,         # selects which pointer reg is loaded
-                 InputSelectMemory,       # data source mux for memory writes
+                 InputSelectMemory,  # data source mux for memory writes
                  WEMEMORY,           # write enable for pointer registers
-                 Read_Write,         # 0=read, 1=write
+                 Read_Write,         # 0=idle, 1=write , 2=read
                  Mem_Instruction,    # pointer selection for Mem_instruction in MemoryInterface
-                 IncDec,             # This icrement or Decrements address
+                 IncDec,             # This increments or Decrements address
+                 Fetch_next_instruction,
 
                  # ── ALU Buffer Outputs ───────────────────────────────────
-                 InputSelectBuffer, # 1 = Load Data in to Rr0 , 0 = Load K in to Rr0
-                 WEBUFFER, # 1 = Rd0, 2 = Rd1, 3 = Rr0, 4 = Rr1, 5 = IOBuffer
+                 InputSelectBuffer,  # 1 = Load Data in to Rr0 , 0 = Load K in to Rr0
+                 WEBUFFER,           # 1 = Rd0, 2 = Rd1, 3 = Rr0, 4 = Rr1, 5 = IOBuffer
 
                  # ── ROM Handler Outputs ──────────────────────────────────
                  Load_Z,             # load Z pointer from program memory
@@ -69,136 +130,441 @@ class CallRet_FSM(py4hw.Logic):
                  Load_Jump,          # trigger PC jump
                  relative_Absolute,  # 0=relative, 1=absolute jump
                  Load_Byte,          # 0 = fetches form rom  1 = writes to rom
-                 Fetch_next_instruction, # If set to 1 fetches the next instruction it has to be set back to 0 and then to one for the next instruction to be fetched
-                 Fetch_Address, # In the case of STS instruction to fetch the instruction address
-                 JumpWidth,
+                 Fetch_Address,      # In the case of STS instruction to fetch the instruction address
                  LOAD_PCL,
                  LOAD_PCH,
-                 # Fethc_next_instruction is also used to rest the outputs of the instruction decoder and to tell it to expect a new instruction
-                 # The instruction decoder also recives the instruction_fetched signal form the romHandler to tell it that it has a new instrucion in its entrance.
+                 K_Select,
 
                  # ── Write-back address ───────────────────────────────────
-                 WB_Addr,            # 5-bit explicit write-back address (for Rd+1, R0, R1 in MUL, etc.)
+                 WB_Addr,            # 5-bit explicit write-back address 
                  ):
         super().__init__(parent, name)
 
-
-        # ── Logic imputs─────────────────────────────────────────
-        self.run                   = self.addIn('Run',run)
-        self.done                  = self.addOut('Done',done)
+        # ── Logic inputs ─────────────────────────────────────────────────
+        self.run                   = self.addIn('Run', run)
+        self.done                  = self.addOut('Done', done)
+        
         # ── Register inputs ──────────────────────────────────────────────
-        self.Instruction           = self.addIn('Instruction',           Instruction)
-        self.Resp                  = self.addIn('Resp',                  Resp)
-        self.Branch                = self.addIn('Branch',                Branch)
-        self.Executed_Jump         = self.addIn('Executed_Jump',         Executed_Jump)
+        self.Instruction           = self.addIn('Instruction', Instruction)
+        self.Resp                  = self.addIn('Resp', Resp)
+        self.Branch                = self.addIn('Branch', Branch)
+        self.Executed_Jump         = self.addIn('Executed_Jump', Executed_Jump)
+        self.Address_fetched       = self.addIn('Address_fetched', Address_fetched)
 
         # ── Register outputs ─────────────────────────────────────────────
-        self.LoadSelectMux    = self.addOut('LoadSelectMux',    LoadSelectMux)
-        self.LoadingMux       = self.addOut('LoadingMux',       LoadingMux)
-        self.InputSelectMemory     = self.addOut('InputSelectMemory',     InputSelectMemory)
-        self.WEMEMORY         = self.addOut('WEMEMORY',         WEMEMORY)
-        self.Read_Write       = self.addOut('Read_Write',       Read_Write)
-        self.Mem_Instruction      = self.addOut('Mem_Instruction',      Mem_Instruction)
-        self.IncDec           = self.addOut('IncDec',           IncDec)
+        self.LoadSelectMux         = self.addOut('LoadSelectMux', LoadSelectMux)
+        self.LoadingMux            = self.addOut('LoadingMux', LoadingMux)
+        self.InputSelectMemory     = self.addOut('InputSelectMemory', InputSelectMemory)
+        self.WEMEMORY              = self.addOut('WEMEMORY', WEMEMORY)
+        self.Read_Write            = self.addOut('Read_Write', Read_Write)
+        self.Mem_Instruction       = self.addOut('Mem_Instruction', Mem_Instruction)
+        self.IncDec                = self.addOut('IncDec', IncDec)
 
-        self.InputSelectBuffer =  self.addOut('InputSelectBuffer', InputSelectBuffer)
-        self.WEBUFFER         = self.addOut('WEBUFFER',         WEBUFFER)
+        self.InputSelectBuffer     = self.addOut('InputSelectBuffer', InputSelectBuffer)
+        self.WEBUFFER              = self.addOut('WEBUFFER', WEBUFFER)
 
-        self.Load_Z           = self.addOut('Load_Z',           Load_Z)
-        self.Load_K           = self.addOut('Load_K',           Load_K)
-        self.Load_Jump        = self.addOut('Load_Jump',        Load_Jump)
-        self.relative_Absolute= self.addOut('relative_Absolute',relative_Absolute)
-        self.Load_Byte        = self.addOut('Load_Byte',        Load_Byte)
-        self.Fetch_next_instruction           = self.addOut('Fetch_next_instruction',           Fetch_next_instruction)
-        self.WB_Addr          = self.addOut('WB_Addr',          WB_Addr)
-        self.Fetch_Address    = self.addOut('Fetch_Address',Fetch_Address)
+        self.Load_Z                = self.addOut('Load_Z', Load_Z)
+        self.Load_K                = self.addOut('Load_K', Load_K)
+        self.Load_Jump             = self.addOut('Load_Jump', Load_Jump)
+        self.relative_Absolute     = self.addOut('relative_Absolute', relative_Absolute)
+        self.Load_Byte             = self.addOut('Load_Byte', Load_Byte)
 
-        self.JumpWidth = self.addOut('JumpWidth',JumpWidth)
-        self.LOAD_PCL = self.addOut('LOAD_PCL',LOAD_PCL)
-        self.LOAD_PCH = self.addOut('LOAD_PCH',LOAD_PCH)
+        self.WB_Addr               = self.addOut('WB_Addr', WB_Addr)
+        self.Fetch_Address         = self.addOut('Fetch_Address', Fetch_Address)
 
+        self.LOAD_PCL              = self.addOut('LOAD_PCL', LOAD_PCL)
+        self.LOAD_PCH              = self.addOut('LOAD_PCH', LOAD_PCH)
+
+        self.K_SELECT              = self.addOut('K_SELECT',K_Select)
 
         # ── FSM state ────────────────────────────────────────────────────
         self.current_state = 'STOP'
-        # Remember the instruction across multi-cycle sequences
         self._latched_inst = 0
-        # Explicit selected address used when Mem_instruction == MEM_WB_ADDR
-
-        # Remember whether the pointer used a post-increment / pre-decrement
-        # addressing mode and therefore needs the updated value written
-        # back to its SRAM-mapped register (R26-R31) once the access
-        # sequence completes.
+        self._wb_addr_val = 0
         self._pointer_update_pending = False
-
-
+        self.debug = 0
     def clock(self):
+        # Read inputs
         inst              = self.Instruction.get()
         resp              = self.Resp.get()
         branch            = self.Branch.get()
         executed_jump     = self.Executed_Jump.get()
         run               = self.run.get()
+        address_fetched   = self.Address_fetched.get()
 
+        # Default internal wire states
+        InputSelect_Buffer = 0       
+        WE_Buffer = 0
+        LoadSelectMux = 0 
+        LoadingMux = 0
+        
 
-        #--- Instruction Buffers ----
-        InputSelect_Buffer=0       
-        WE_Buffer=0
-        LoadSelectMux=0 
-        LoadingMux=0
+        RH_K_select = 0
+        RH_Load_K = 0
 
-        # --- MemoryInterfeceHandler ---
-        Read_Write=0
-        Mem_Instruction=0
-        IncDec=0
-        InputSelect_Memory=0
-        WE_Memory=0
-        WB_Addr=0
+        Read_Write = 0
+        
+        Mem_Instruction = 0
+        IncDec = 0
+        InputSelect_Memory = 0
+        WE_Memory = 0
+        WB_Addr = 0
 
-        # --- RomHandler ---
-        Load_Z=0
-        Load_K=0
-        Load_Jump=0
-        relative_Absolute=0
-        Load_Byte=0
-        Fetch_Address=0
+        Load_Z = 0
+        Load_K = 0
+        Load_Jump = 0
+        relative_Absolute = 0
+        Load_Byte = 0
+        Fetch_Address = 0
+        
+        # New defaults for PC loading
+        Load_PCL = 0
+        Load_PCH = 0
 
-        # --- FSM_Control ---
         done = 0
 
+        JumpWidth = 1
+        K_select = 0
+
         state = self.current_state
-        i     = self._latched_inst   # use latched opcode during multi-cycle seqs
-        next_state = state           # default: stay
+        i     = self._latched_inst
+        next_state = state
 
         # ================================================================
         # STATE MACHINE
         # ================================================================
 
         if state == 'STOP':
-            if run == 1: 
-                next_state = 'FETCH_RD'
-                
-        elif state == 'FETCH_RD':
-            Mem_Instruction = 12 # RD pointer
-            Read_Write  = 0 # read opp 
-            Input_Select= 1 # Fetching value form dataBus
-            next_state = 'WAIT_FETCH_RD'
+            if run == 1:
+                self._latched_inst = inst
 
-        elif state == 'WAIT_FETCH_RD':
+                # FIX: Route RJMP/IJMP/JMP directly to their jump states. 
+                # Only RCALL/ICALL/CALL should push the PC.
+                if self._latched_inst in OPCODE_RET:
+                    next_state = 'FETCH_L_BYTE_OF_PC'
+                elif self._latched_inst == OPCODE_RJMP:
+                    next_state = 'FETCH_K_OFFSET'
+                elif self._latched_inst == OPCODE_IJMP:
+                    next_state = 'FETCH_ADDRESS_Z_L'
+                elif self._latched_inst == OPCODE_JMP:
+                    next_state = 'FETCH_ADDRESS_BYTE'
+                else: # RCALL, ICALL, CALL
+                    next_state = 'FETCH_STACK_POINTER_BEGIN_L'
+
+        # ------------------------------------------------
+        # Read Stack Pointer (SPL)
+        # ------------------------------------------------
+        elif state == 'FETCH_STACK_POINTER_BEGIN_L':
+            Mem_Instruction = 16 #  "Direct Address via WB_Addr"
+            IncDec = 0
+            Read_Write = 2       
+            WB_Addr = 0x5D       # SPL address
+            next_state = 'FETCH_STACK_POINTER_WAIT_L'
+
+        elif state == 'FETCH_STACK_POINTER_WAIT_L':
+            Mem_Instruction = 16 
+            IncDec = 0
+            Read_Write = 2       
+            WB_Addr = 0x5D 
             if resp == 1:
-                next_state = 'LOAD_IN_RR'
+                next_state = 'LOAD_STACK_POINTER_L_IN_BUFFER'
 
-        elif state == 'LOAD_IN_RR':
-            Mem_Instruction = 13 # RR pointer
-            Input_Select= 1 # Fetching value form dataBus
-            Read_Write  = 1 # Write opp
+        elif state == 'LOAD_STACK_POINTER_L_IN_BUFFER':
+            WB_Addr = 0x5D
+            Mem_Instruction = 16 
+            IncDec = 0
+            Read_Write = 2       
+            WE_Memory = 1        # Enabling the writing to buffer
+            LoadingMux =  7      # Loading to SPL
+            next_state = 'FETCH_STACK_POINTER_BEGIN_H'
 
-        elif state == 'WAIT_LOAD_IN_RR':
+        # ------------------------------------------------
+        # Read Stack Pointer (SPH)
+        # ------------------------------------------------
+        elif state == 'FETCH_STACK_POINTER_BEGIN_H':
+            Mem_Instruction = 16 
+            IncDec = 0
+            Read_Write = 2       
+            WB_Addr = 0x5E       # SPH address
+            next_state = 'FETCH_STACK_POINTER_WAIT_H'
+
+        elif state == 'FETCH_STACK_POINTER_WAIT_H':
+            Mem_Instruction = 16 
+            IncDec = 0
+            Read_Write = 2       
+            WB_Addr = 0x5E 
+            if resp == 1:
+                next_state = 'LOAD_STACK_POINTER_H_IN_BUFFER'
+
+        elif state == 'LOAD_STACK_POINTER_H_IN_BUFFER':
+            Mem_Instruction = 16 
+            IncDec = 0
+            Read_Write = 2       
+            WB_Addr = 0x5E 
+            WE_Memory = 1        # Enabling the writing to buffer
+            LoadingMux =  8      # Loading to SPH
+        
+            next_state = 'READ_L_BYTE_OF_PC'
+
+        # ------------------------------------------------
+        # CALL / RCALL / ICALL
+        # ------------------------------------------------
+
+        elif state == 'READ_L_BYTE_OF_PC':
+            LoadingMux = 7 # LOAD_SPL
+
+            next_state = 'LOAD_L_BYTE_OF_PC_TO_STACK'
+
+        elif state == 'LOAD_L_BYTE_OF_PC_TO_STACK':
+            LoadingMux = 7 # LOAD_SPL
+            Read_Write = 1              # Write to memory
+            Mem_Instruction = 7        # 7 "Use Buffered SP as Address"
+            InputSelect_Memory = 14     # 14 Mux select to route PCL to memory
+            IncDec = 3                  # 3 = Post-decrement SP (standard AVR behavior for Push)
+            
+            if resp == 1:
+                next_state = 'READ_H_BYTE_OF_PC'
+
+        elif state == 'READ_H_BYTE_OF_PC':
+            LoadingMux = 8 # LOAD_SPH
+
+            next_state = 'LOAD_H_BYTE_OF_PC_TO_STACK'
+
+        elif state == 'LOAD_H_BYTE_OF_PC_TO_STACK':
+            LoadingMux = 8 # LOAD_SPH
+            Read_Write = 1              # Write to memory
+            Mem_Instruction = 7        # 7 "Use Buffered SP as Address"
+            InputSelect_Memory = 15     # 15 Mux select to route PCH to memory
+            IncDec = 3                  # 3 = Post-decrement SP (standard AVR behavior for Push)
+            
+            if resp == 1:
+                next_state = 'SAVE_DECREMENTED_SP_L'
+
+        # ------------------------------------------------
+        # Save Decremented SP back to SRAM
+        # ------------------------------------------------
+        elif state == 'SAVE_DECREMENTED_SP_L':
+            Read_Write = 1
+            Mem_Instruction = 16        # Target WB_Addr
+            WB_Addr = 0x5D              # SPL address
+            InputSelect_Memory = 12     # Mux to route SPL (from MemoryInterfaceHandler) to Mem In
+            next_state = 'WAIT_SAVE_DECREMENTED_SP_L'
+
+        elif state == 'WAIT_SAVE_DECREMENTED_SP_L':
+            Read_Write = 1              
+            Mem_Instruction = 16
+            WB_Addr = 0x5D
+            InputSelect_Memory = 12     
+            if resp == 1:
+                next_state = 'SAVE_DECREMENTED_SP_H'
+
+        elif state == 'SAVE_DECREMENTED_SP_H':
+            Read_Write = 1
+            Mem_Instruction = 16        
+            WB_Addr = 0x5E              # SPH address
+            InputSelect_Memory = 13     # Mux to route SPH (from MemoryInterfaceHandler) to Mem In
+            next_state = 'WAIT_SAVE_DECREMENTED_SP_H'
+
+        elif state == 'WAIT_SAVE_DECREMENTED_SP_H':
+            Read_Write = 1              
+            Mem_Instruction = 16
+            WB_Addr = 0x5E
+            InputSelect_Memory = 13     
+            if resp == 1:
+                if i == OPCODE_RCALL:
+                    next_state = 'FETCH_K_OFFSET'
+                elif i == OPCODE_ICALL:
+                    next_state = 'FETCH_ADDRESS_Z_L'
+                else: # CALL
+                    next_state = 'FETCH_ADDRESS_BYTE'
+
+        # ------------------------------------------------
+        # RCALL / RJMP
+        # ------------------------------------------------
+        elif state == 'FETCH_K_OFFSET':
+            Load_K = 1                  # Tell ROM loader to expect offset
+            next_state = 'WAIT_K_OFFSET'
+
+        elif state == 'WAIT_K_OFFSET':
+            next_state = 'JUMP_R'
+
+        elif state == 'JUMP_R':
+            Load_Jump = 1
+            K_select = 1                 # FIX: Use K12 for 12-bit offsets (RJMP/RCALL)
+            relative_Absolute = 0       # 0 = Relative jump (PC + K)
+            if executed_jump == 1:
+                next_state = 'STOP'
+                done = 1
+
+        # ------------------------------------------------
+        # ICALL / IJMP
+        # ------------------------------------------------
+        elif state == 'FETCH_ADDRESS_Z_L':
+            WB_Addr = 30                  # R30 = ZL
+            Mem_Instruction = 14          # MEM_WB_ADDR
+            Read_Write = 2                # Read
+            InputSelect_Memory = 1
+            next_state = 'WAIT_FETCH_ADDRESS_Z_L'
+
+        elif state == 'WAIT_FETCH_ADDRESS_Z_L':
+            WB_Addr = 30
+            Mem_Instruction = 14
+            Read_Write = 2
+            InputSelect_Memory = 1
+
+            if resp == 1:
+                next_state = 'LOAD_ADDRESS_Z_L'
+
+        elif state == 'LOAD_ADDRESS_Z_L':
+            WB_Addr = 30                  # R30 = ZL
+            Mem_Instruction = 14          # MEM_WB_ADDR
+            Read_Write = 2                # Read
+            InputSelect_Memory = 1
+            WE_Memory = 1
+            LoadingMux = 5                # LOAD_ZL
+            next_state = 'FETCH_ADDRESS_Z_H'
+
+        elif state == 'FETCH_ADDRESS_Z_H':
+            WB_Addr = 31                  # R31 = ZH
+            Mem_Instruction = 14
+            Read_Write = 2
+            InputSelect_Memory = 1
+            next_state = 'WAIT_FETCH_ADDRESS_Z_H'
+
+        elif state == 'WAIT_FETCH_ADDRESS_Z_H':
+            WB_Addr = 31
+            Mem_Instruction = 14
+            Read_Write = 2
+            InputSelect_Memory = 1
+
+            if resp == 1:
+                next_state = 'LOAD_ADDRESS_Z_H'
+
+        elif state == 'LOAD_ADDRESS_Z_H':
+            WB_Addr = 31
+            Mem_Instruction = 14
+            Read_Write = 2
+            WE_Memory = 1
+            LoadingMux = 6                # LOAD_ZH
+            next_state = 'JUMP_I'
+
+        elif state == 'JUMP_I':
+            Load_Jump = 1
+            relative_Absolute = 1         # Absolute jump to Z
+
+            if executed_jump == 1:
+                done = 1
+                next_state = 'STOP'
+
+        # ------------------------------------------------
+        # CALL / JMP
+        # ------------------------------------------------
+        elif state == 'FETCH_ADDRESS_BYTE':
+            Fetch_Address = 1           # Get absolute 32-bit address word
+            next_state = 'WAIT_ADDRESS_RECONSTRUCTION'
+ 
+        # Example fix for the FSM waiting for the address:
+        elif state == 'WAIT_ADDRESS_RECONSTRUCTION':
+            if address_fetched == 1:
+                # Fetch_Address must be driven to 0 in this state!
+                Fetch_Address = 0 
+                next_state = 'NEXT_STATE'
+ 
+        elif state == 'JUMP':
+            Load_Jump = 1
+            relative_Absolute = 1       # Absolute Jump
+            K_select = 2                 # K7_22 source (CALL/JMP absolute 22-bit address)
+            if executed_jump == 1:
+                next_state = 'STOP'
+                done = 1
+
+
+        # ------------------------------------------------
+        # RET (Pop PC from Stack)
+        # ------------------------------------------------
+        elif state == 'FETCH_L_BYTE_OF_PC':
+            Read_Write = 2              # Read Memory
+            Mem_Instruction = 7         # MEM_SP: use buffered SP as address
+            IncDec = 4                  # 4 = Pre-increment SP (standard AVR POP)
+            next_state = 'WAIT_FETCH_L_BYTE_OF_PC'
+ 
+        elif state == 'WAIT_FETCH_L_BYTE_OF_PC':
+            Read_Write = 2
+            Mem_Instruction = 7
+            IncDec = 4                  
+            if resp == 1:
+                next_state = 'STORE_L_BYTE_OF_PC'
+ 
+        elif state == 'STORE_L_BYTE_OF_PC':
+            Load_PCL = 1                # Assert PCL load pin
+            Read_Write = 2              
+            Mem_Instruction = 7
+            next_state = 'FETCH_H_BYTE_OF_PC'
+ 
+        elif state == 'FETCH_H_BYTE_OF_PC':
+            Read_Write = 2              
+            Mem_Instruction = 7
+            IncDec = 4                  # Pre-increment SP again
+            next_state = 'WAIT_FETCH_H_BYTE_OF_PC'
+ 
+        elif state == 'WAIT_FETCH_H_BYTE_OF_PC':
+            Read_Write = 2
+            Mem_Instruction = 7
+            IncDec = 4                  
+            if resp == 1:
+                next_state = 'STORE_H_BYTE_OF_PC'
+ 
+        elif state == 'STORE_H_BYTE_OF_PC':
+            Load_PCH = 1                # Assert PCH load pin
+            # Signal ROM to jump to newly restored PC.
+
+            Load_Jump = 1
+            relative_Absolute = 1       # Absolute jump to restored PC
+            Read_Write = 2              
+            Mem_Instruction = 7
+            next_state = 'LOAD_STACK_POINTER_BEGIN_L'
+
+
+        # ------------------------------------------------
+        # Restore / Save Updated Stack Pointer (For RET)
+        # ------------------------------------------------
+        elif state == 'LOAD_STACK_POINTER_BEGIN_L':
+            # Write updated SP_L back to 0x5D
+            Read_Write = 1
+            Mem_Instruction = 16        # Target WB_Addr
+            WB_Addr = 0x5D
+            InputSelect_Memory = 12     # Mux to route SP_L to Mem In
+            next_state = 'LOAD_STACK_POINTER_WAIT_L'
+
+        elif state == 'LOAD_STACK_POINTER_WAIT_L':
+            Read_Write = 1              
+            Mem_Instruction = 16
+            WB_Addr = 0x5D
+            InputSelect_Memory = 12     
+            if resp == 1:
+                next_state = 'LOAD_STACK_POINTER_BEGIN_H'
+
+        elif state == 'LOAD_STACK_POINTER_BEGIN_H':
+            # Write updated SP_H back to 0x5E
+            Read_Write = 1
+            Mem_Instruction = 16        
+            WB_Addr = 0x5E
+            InputSelect_Memory = 13     # Mux to route SP_H to Mem In
+            next_state = 'LOAD_STACK_POINTER_WAIT_H'
+
+        elif state == 'LOAD_STACK_POINTER_WAIT_H':
+            Read_Write = 1              
+            Mem_Instruction = 16
+            WB_Addr = 0x5E
+            InputSelect_Memory = 13     
             if resp == 1:
                 next_state = 'STOP'
                 done = 1
 
         # ================================================================
-        # Drive all outputs
+        # Drive outputs
         # ================================================================
+
         self.LoadSelectMux.prepare(LoadSelectMux)
         self.LoadingMux.prepare(LoadingMux)
         self.InputSelectMemory.prepare(InputSelect_Memory)
@@ -215,12 +581,27 @@ class CallRet_FSM(py4hw.Logic):
         self.Load_Jump.prepare(Load_Jump)
         self.relative_Absolute.prepare(relative_Absolute)
         self.Load_Byte.prepare(Load_Byte)
+        
+        #self.Fetch_next_instruction.prepare(0) 
         self.Fetch_Address.prepare(Fetch_Address)
 
-        self.done.prepare(done)
-        # Drive the explicit write-back address (used by MEM_WB_ADDR mode)
-        self.WB_Addr.prepare(WB_Addr)
+        self.LOAD_PCL.prepare(Load_PCL)
+        self.LOAD_PCH.prepare(Load_PCH)
 
-        # Advance state
-        print(f"CallRet_FSM_STATE:{self.current_state} -> {next_state}")
+        self.WB_Addr.prepare(WB_Addr)
+        self.done.prepare(done)
+
+        self.K_SELECT.put(K_select)
+
+        if self.debug and (self.current_state != 'STOP'):
+            print(
+                f"CALLRET_TRACE | "
+                f"{self.current_state} -> {next_state} | "
+                f"Inst:{i} "
+                f"MemInstr:{Mem_Instruction} "
+                f"RW:{Read_Write} "
+                f"Resp:{resp} "
+                f"Done:{done}"
+            )
+
         self.current_state = next_state

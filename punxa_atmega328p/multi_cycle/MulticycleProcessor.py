@@ -79,8 +79,8 @@ class multicycleProcessor(py4hw.Logic):
         # ControlBox wires
         self.W_NotExecute_CB_MIH = py4hw.Wire(self, 'NotExecute', 1)
         self.W_LoadSelect_MUX_CB_MIH = py4hw.Wire(self, 'W_LoadSelect_MUX', 3)
-        self.W_Loading_MUX_CB_MIH = py4hw.Wire(self, 'W_Loading_MUX', 3)
-        self.W_Input_Select_CB_MIH = py4hw.Wire(self, 'W_Input_Select', 3)
+        self.W_Loading_MUX_CB_MIH = py4hw.Wire(self, 'W_Loading_MUX', 5)
+        self.W_Input_Select_CB_MIH = py4hw.Wire(self, 'W_Input_Select', 5)
         self.W_WE_OpBuf_CB_MIH = py4hw.Wire(self, 'W_WE_OpBuf_CB_MIH', 6)
         self.W_read_write = py4hw.Wire(self, 'W_read_write', 2)
         #self.W_Mem_instruction = py4hw.Wire(self, 'W_Mem_instruction', 3)
@@ -97,6 +97,7 @@ class multicycleProcessor(py4hw.Logic):
         self.W_Instruction_fetched_RH_CB = py4hw.Wire(self,'W_Instruction_fetched',1)
         self.W_Executed_Jump_CB = py4hw.Wire(self,'W_Executed_Jump',1)
         self.W_Fetch_next_instruction_CB_RH = py4hw.Wire(self,'W_Fetch_next_instruction_CB_RH',1)
+        self.W_Select_K_CB_RH = py4hw.Wire(self,'W_Select_K_CB_RH',2)
         
 
 
@@ -111,7 +112,7 @@ class multicycleProcessor(py4hw.Logic):
         self.W_Pc_valH_RH_MIH = py4hw.Wire(self,'W_Pc_valH_RH_MIH',8)
 
         # Write-back address: explicit register address driven by ControlBox
-        self.W_WB_addr_CB_MIH = py4hw.Wire(self, 'w_wb_addr', 5)
+        self.W_WB_addr_CB_MIH = py4hw.Wire(self, 'w_wb_addr', 8)
 
         # ROM handler wires
         self.W_Rom_address_RH_MIH = py4hw.Wire(self, 'W_Rom_address_RH_MIH', 16)
@@ -143,7 +144,7 @@ class multicycleProcessor(py4hw.Logic):
             RH_address_ZL=self.w_address_ZL_MIH_RH,
             RH_address_ZH=self.w_address_ZH_MIH_RH,
             RH_Load_K=self.W_LOAD_K_CB_RH,
-            RH_K_select=self.W_Relative_Absolute_CB_RH,
+            RH_K_select=self.W_Select_K_CB_RH,
             RH_K7=self.W_k7_ID_RH,
             RH_K12=self.W_k12_ID_RH,
             RH_K7_22=self.W_k7_22_ID_RH,
@@ -186,34 +187,36 @@ class multicycleProcessor(py4hw.Logic):
 
         self.control = control_Box(
             self, 'ControlBox',
-            CB_Instruction=self.W_CODE_ID_CB,              # Decoded instruction opcode/code from Instruction_decoder, used to drive the FSM's control decisions
-            CB_Resp=self.W_Resp_MIH_CB,                     # Memory handshake response from MemoryInterfaceHandler, tells ControlBox the SRAM access has completed
-            CB_Branch=self.W_Branch_ALU_CB,                 # Branch condition result from the ALU (e.g. zero/carry flag check), tells ControlBox whether a conditional branch should be taken
-            CB_Skip=self.W_Skip_ALU_CB,                     # Skip condition result from the ALU, tells ControlBox whether a skip instruction (SBRC/SBRS/SBIC/SBIS) should skip the next instruction
-            CB_Interrupt=self.Interrupt,                    # Interrupt request line, signals ControlBox that an interrupt needs to be serviced
-            CB_Instruction_fetched=self.W_Instruction_fetched_RH_CB,   # Handshake from RomHandler indicating a new instruction word has been fetched and is ready to decode
-            CB_Instruction_decoded=self.W_Instruction_decoded_ID_CB,   # Handshake from Instruction_decoder indicating the decoded fields for the current instruction are valid/stable
-            CB_Executed_Jump=self.W_Executed_Jump_CB,       # Handshake from RomHandler confirming a jump/branch/call target has been committed to the PC this cycle
-            CB_LoadSelectMux=self.W_LoadSelect_MUX_CB_MIH,  # Output to MemoryInterfaceHandler: selects which displacement/offset source feeds the address-generation MUX
-            CB_LoadingMux=self.W_Loading_MUX_CB_MIH,        # Output to MemoryInterfaceHandler: selects which internal pointer byte (XL/XH/YL/YH/ZL/ZH/SPL/SPH) gets loaded when WE is asserted
-            CB_Input_Select=self.W_Input_Select_CB_MIH,     # Output to MemoryInterfaceHandler: selects the data source MUX for writes to memory (ALU result, K constant, ROM value, pointer byte, etc.)
-            CB_WE_MEMORY=self.W_WE_OpBuf_CB_MIH,                  # Output to MemoryInterfaceHandler: write-enable for loading data into the internal X/Y/Z/SP pointer registers
-            CB_Read_Write=self.W_read_write,                # Output to MemoryInterfaceHandler: selects memory read (0) vs memory write (1) for the current SRAM access
-            CB_mem_instr=self.w_mem_instr_MIH_CB,           # Output to MemoryInterfaceHandler: selects which addressing mode/pointer (X, Y, Z, SP, Rd, Rr, A5/A6, etc.) generates the SRAM address
-            CB_IncDec=self.w_mem_incdec_MIH_CB,             # Output to MemoryInterfaceHandler: controls pointer auto-increment/pre-decrement behavior (none / post-increment / pre-decrement)
-            CB_InputSelect=self.W_Input_Select_CB_OB,       # Output to OperandBuffer: selects whether the Rr0 latch loads from the data bus or from the decoded K constant
-            CB_WE_Buffer=self.W_BufferWe_CB_OB,            # Output to OperandBuffer: write-enable selecting which operand latch (Rd0/Rd1/Rr0/Rr1/IO) is updated this cycle
-            CB_Load_Z=self.W_LOAD_Z_CB_RH,                  # Output to RomHandler: triggers an indirect jump/call (IJMP/ICALL) using the Z register as the new PC
-            CB_Load_K=self.W_LOAD_K_CB_RH,                  # Output to RomHandler: triggers a conditional branch (BRxx/SBxx) using the K7 offset
-            CB_Load_Jump=self.W_LOAD_JUMP_CB_RH,            # Output to RomHandler: triggers an unconditional jump/call (RJMP/RCALL/JMP/CALL) using the K12/K7_22 offset/address
-            CB_relative_Absolute=self.W_Relative_Absolute_CB_RH,  # Output to RomHandler: selects whether the pending jump is relative (PC += K) or absolute (PC = K)
-            CB_Load_Byte=self.W_Load_byte_CB,               # Output to RomHandler: triggers a Store Program Memory (SPM) write of WriteVal into instruction ROM
-            CB_Fetch_next_instruction=self.W_Fetch_next_instruction_CB_RH,  # Output to RomHandler: releases the FSM from STOP/single-step trap to fetch the next instruction
-            CB_Fetch_Address=self.W_Fetch_Address_CB_RH,    # Output to RomHandler: requests fetching the next ROM word as a raw address/data value (e.g. second word of LDS/STS/JMP/CALL)
-            CB_WB_Addr=self.W_WB_addr_CB_MIH,               # Output to MemoryInterfaceHandler: explicit write-back register address (e.g. Rd+1 for ADIW/MOVW, R0/R1 for MUL) overriding Rd/Rr
-            CB_JumpWidth=self.W_JumpWidth_CB_RH,            # Output to RomHandler: tells it how much to advance the PC for the next instruction (0 = PC+1, 1 = PC+2 for two-word instructions)
-            CB_LOAD_PCL=self.W_LOAD_PCL_CB_RH,              # Output to RomHandler: enables loading the low byte of the Program Counter from PCL_LOAD_VAL (e.g. POP PC during RET)
-            CB_LOAD_PCH=self.W_LOAD_PCH_CB_RH,              # Output to RomHandler: enables loading the high byte of the Program Counter from PCH_LOAD_VAL (e.g. POP PC during RET)
+            CB_Instruction=self.W_CODE_ID_CB,              
+            CB_Resp=self.W_Resp_MIH_CB,                     
+            CB_Branch=self.W_Branch_ALU_CB,                 
+            CB_Skip=self.W_Skip_ALU_CB,                     
+            CB_Interrupt=self.Interrupt,                    
+            CB_Instruction_fetched=self.W_Instruction_fetched_RH_CB,   
+            CB_Instruction_decoded=self.W_Instruction_decoded_ID_CB,   
+            CB_Executed_Jump=self.W_Executed_Jump_CB,       
+            CB_Address_fetched=self.W_Address_fetched_RH_CB,
+            CB_LoadSelectMux=self.W_LoadSelect_MUX_CB_MIH,  
+            CB_LoadingMux=self.W_Loading_MUX_CB_MIH,        
+            CB_Input_Select=self.W_Input_Select_CB_MIH,     
+            CB_WE_MEMORY=self.W_WE_OpBuf_CB_MIH,                  
+            CB_Read_Write=self.W_read_write,                
+            CB_mem_instr=self.w_mem_instr_MIH_CB,           
+            CB_IncDec=self.w_mem_incdec_MIH_CB,             
+            CB_InputSelect=self.W_Input_Select_CB_OB,       
+            CB_WE_Buffer=self.W_BufferWe_CB_OB,            
+            CB_Load_Z=self.W_LOAD_Z_CB_RH,                  
+            CB_Load_K=self.W_LOAD_K_CB_RH,
+            CB_K_Select = self.W_Select_K_CB_RH,                  
+            CB_Load_Jump=self.W_LOAD_JUMP_CB_RH,            
+            CB_relative_Absolute=self.W_Relative_Absolute_CB_RH,  
+            CB_Load_Byte=self.W_Load_byte_CB,               
+            CB_Fetch_next_instruction=self.W_Fetch_next_instruction_CB_RH,  
+            CB_Fetch_Address=self.W_Fetch_Address_CB_RH,    
+            CB_WB_Addr=self.W_WB_addr_CB_MIH,               
+            CB_JumpWidth=self.W_JumpWidth_CB_RH,            
+            CB_LOAD_PCL=self.W_LOAD_PCL_CB_RH,              
+            CB_LOAD_PCH=self.W_LOAD_PCH_CB_RH,              
         )
 
         self.sreg = SREG_Logic(

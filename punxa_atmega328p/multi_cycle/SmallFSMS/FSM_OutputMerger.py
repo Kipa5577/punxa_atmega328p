@@ -33,7 +33,6 @@ class FSM_OutputMerger(py4hw.Logic):
         self.opp_Load_Byte              = self.addIn('opp_Load_Byte',              opp_outputs['Load_Byte'])
         self.opp_Fetch_Address          = self.addIn('opp_Fetch_Address',          opp_outputs['Fetch_Address'])
         self.opp_WB_Addr                = self.addIn('opp_WB_Addr',                opp_outputs['WB_Addr'])
-        self.opp_JumpWidth              = self.addIn('opp_JumpWidth',              opp_outputs['JumpWidth'])
         self.opp_LOAD_PCL               = self.addIn('opp_LOAD_PCL',               opp_outputs['LOAD_PCL'])
         self.opp_LOAD_PCH               = self.addIn('opp_LOAD_PCH',               opp_outputs['LOAD_PCH'])
 
@@ -55,7 +54,6 @@ class FSM_OutputMerger(py4hw.Logic):
         self.mov_Load_Byte              = self.addIn('mov_Load_Byte',              mov_outputs['Load_Byte'])
         self.mov_Fetch_Address          = self.addIn('mov_Fetch_Address',          mov_outputs['Fetch_Address'])
         self.mov_WB_Addr                = self.addIn('mov_WB_Addr',                mov_outputs['WB_Addr'])
-        self.mov_JumpWidth              = self.addIn('mov_JumpWidth',              mov_outputs['JumpWidth'])
         self.mov_LOAD_PCL               = self.addIn('mov_LOAD_PCL',               mov_outputs['LOAD_PCL'])
         self.mov_LOAD_PCH               = self.addIn('mov_LOAD_PCH',               mov_outputs['LOAD_PCH'])
 
@@ -77,7 +75,6 @@ class FSM_OutputMerger(py4hw.Logic):
         self.poppush_Load_Byte              = self.addIn('poppush_Load_Byte',              poppush_outputs['Load_Byte'])
         self.poppush_Fetch_Address          = self.addIn('poppush_Fetch_Address',          poppush_outputs['Fetch_Address'])
         self.poppush_WB_Addr                = self.addIn('poppush_WB_Addr',                poppush_outputs['WB_Addr'])
-        self.poppush_JumpWidth              = self.addIn('poppush_JumpWidth',              poppush_outputs['JumpWidth'])
         self.poppush_LOAD_PCL               = self.addIn('poppush_LOAD_PCL',               poppush_outputs['LOAD_PCL'])
         self.poppush_LOAD_PCH               = self.addIn('poppush_LOAD_PCH',               poppush_outputs['LOAD_PCH'])
 
@@ -99,7 +96,6 @@ class FSM_OutputMerger(py4hw.Logic):
         self.ldst_Load_Byte              = self.addIn('ldst_Load_Byte',              ldst_outputs['Load_Byte'])
         self.ldst_Fetch_Address          = self.addIn('ldst_Fetch_Address',          ldst_outputs['Fetch_Address'])
         self.ldst_WB_Addr                = self.addIn('ldst_WB_Addr',                ldst_outputs['WB_Addr'])
-        self.ldst_JumpWidth              = self.addIn('ldst_JumpWidth',              ldst_outputs['JumpWidth'])
         self.ldst_LOAD_PCL               = self.addIn('ldst_LOAD_PCL',               ldst_outputs['LOAD_PCL'])
         self.ldst_LOAD_PCH               = self.addIn('ldst_LOAD_PCH',               ldst_outputs['LOAD_PCH'])
 
@@ -121,9 +117,9 @@ class FSM_OutputMerger(py4hw.Logic):
         self.callret_Load_Byte              = self.addIn('callret_Load_Byte',              callret_outputs['Load_Byte'])
         self.callret_Fetch_Address          = self.addIn('callret_Fetch_Address',          callret_outputs['Fetch_Address'])
         self.callret_WB_Addr                = self.addIn('callret_WB_Addr',                callret_outputs['WB_Addr'])
-        self.callret_JumpWidth              = self.addIn('callret_JumpWidth',              callret_outputs['JumpWidth'])
         self.callret_LOAD_PCL               = self.addIn('callret_LOAD_PCL',               callret_outputs['LOAD_PCL'])
         self.callret_LOAD_PCH               = self.addIn('callret_LOAD_PCH',               callret_outputs['LOAD_PCH'])
+        self.callret_K_Select               = self.addIn('callret_K_Select',               callret_outputs['K_Select'])
 
         # --- Outputs ---
         self.out_done                   = self.addOut('out_done',                   merged_outputs['done'])
@@ -143,9 +139,10 @@ class FSM_OutputMerger(py4hw.Logic):
         self.out_Load_Byte              = self.addOut('out_Load_Byte',              merged_outputs['Load_Byte'])
         self.out_Fetch_Address          = self.addOut('out_Fetch_Address',          merged_outputs['Fetch_Address'])
         self.out_WB_Addr                = self.addOut('out_WB_Addr',                merged_outputs['WB_Addr'])
-        self.out_JumpWidth              = self.addOut('out_JumpWidth',              merged_outputs['JumpWidth'])
         self.out_LOAD_PCL               = self.addOut('out_LOAD_PCL',               merged_outputs['LOAD_PCL'])
         self.out_LOAD_PCH               = self.addOut('out_LOAD_PCH',               merged_outputs['LOAD_PCH'])
+        self.out_K_Select               = self.addOut('out_K_Select',               merged_outputs['K_Select'])
+
 
     def propagate(self):
         # --- Bitwise OR assignments mirroring ALU_Merger ---
@@ -183,8 +180,8 @@ class FSM_OutputMerger(py4hw.Logic):
         
         self.out_WB_Addr.put(self.opp_WB_Addr.get() | self.mov_WB_Addr.get() | self.poppush_WB_Addr.get() | self.ldst_WB_Addr.get() | self.callret_WB_Addr.get())
         
-        self.out_JumpWidth.put(self.opp_JumpWidth.get() | self.mov_JumpWidth.get() | self.poppush_JumpWidth.get() | self.ldst_JumpWidth.get() | self.callret_JumpWidth.get())
-        
         self.out_LOAD_PCL.put(self.opp_LOAD_PCL.get() | self.mov_LOAD_PCL.get() | self.poppush_LOAD_PCL.get() | self.ldst_LOAD_PCL.get() | self.callret_LOAD_PCL.get())
         
         self.out_LOAD_PCH.put(self.opp_LOAD_PCH.get() | self.mov_LOAD_PCH.get() | self.poppush_LOAD_PCH.get() | self.ldst_LOAD_PCH.get() | self.callret_LOAD_PCH.get())
+
+        self.out_K_Select.put(self.callret_K_Select.get())

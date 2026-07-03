@@ -42,7 +42,6 @@ class Ram_Memory(Logic):
 
     def clock(self):
         add = self.port.address.get()
-        #0print("Ram_Memory Address:", add, self.port.read.get(), self.port.write.get(), self.data[add])
 
         # ensure that no simultaneous read and write operations are done
         assert not((self.port.read.get() == 1) and (self.port.write.get() == 1))
@@ -101,7 +100,7 @@ class Ram_Memory(Logic):
             v = v >> 8
             b3 = v & 0xFF
             
-            tree.insert("", "end", values=("{:08X}".format(i*4), '{:02X}'.format(b3), '{:02X}'.format(b2), '{:02X}'.format(b1), '{:02X}'.format(b0)))
+            tree.insert("", "end", values=("{:08X}".format(i), '{:02X}'.format(b3), '{:02X}'.format(b2), '{:02X}'.format(b1), '{:02X}'.format(b0)))
 
         # Create label, entry box, and button
         label = ttk.Label(frame, text="Selected Item:")

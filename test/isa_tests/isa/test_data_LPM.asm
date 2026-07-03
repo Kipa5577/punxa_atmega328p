@@ -6,6 +6,7 @@
 ; LPM Rd, Z   : Load byte from Flash at address Z into Rd
 ; Updates: None.
 ; ============================================================
+
 ; -------------------------
 ; SRAM variables
 ; -------------------------
@@ -13,16 +14,19 @@
 .equ final_result = 0x0101
 
 ; -------------------------
-; Flash Data
+; Entry Vector
 ; -------------------------
-.org 0x0100                   ; Data stored in Program Memory
-test_data:
-.db 0xAA, 0x55, 0xFF, 0x00
+.org 0x0000                   ; Explicitly start code execution at 0x0000
+    rjmp reset
 
-; -------------------------
-; Reset
-; -------------------------
 reset:
+    ; --- Initialize Stack Pointer ---
+    ldi r16, low(RAMEND)
+    out SPL, r16
+    ldi r16, high(RAMEND)
+    out SPH, r16
+
+    ; --- Original init code ---
     ldi r16, 0
     sts test_case, r16
     ldi r16, 1
@@ -37,7 +41,9 @@ test1:
     lpm r16, Z
     
     cpi r16, 0xAA
-    brne fail
+    breq t1_ok
+    rjmp fail
+t1_ok:
     rcall inc_case
 
 ; ============================================================
@@ -49,7 +55,9 @@ test2:
     lpm r16, Z
     
     cpi r16, 0x55
-    brne fail
+    breq t2_ok
+    rjmp fail
+t2_ok:
     rcall inc_case
 
 ; ============================================================
@@ -61,7 +69,9 @@ test3:
     lpm r16, Z
     
     cpi r16, 0xFF
-    brne fail
+    breq t3_ok
+    rjmp fail
+t3_ok:
     rcall inc_case
 
 ; ============================================================
@@ -76,7 +86,9 @@ test4:
     ldi r31, high(test_data * 2)
     lpm r16, Z            ; LPM should not change Z
     
-    brne fail             ; If Z was cleared, this fails
+    breq t4_ok            ; If Z is set, skip fail
+    rjmp fail
+t4_ok:
     rcall inc_case
 
 ; ============================================================
@@ -104,3 +116,10 @@ inc_case:
     inc r16
     sts test_case, r16
     ret
+
+; ============================================================
+; Flash Data
+; ============================================================
+.org 0x0100                   ; Data safely stored away from code flow
+test_data:
+.db 0xAA, 0x55, 0xFF, 0x00

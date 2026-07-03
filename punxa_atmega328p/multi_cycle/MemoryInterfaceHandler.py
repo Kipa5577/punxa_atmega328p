@@ -1,7 +1,6 @@
 import py4hw
 import punxa_atmega328p.Memory 
 
-
 """
 =============================================================================
 AI Agent Component Reference: MemoryInterfaceHandler
@@ -28,7 +27,7 @@ Inputs (Control Signals):
 - WE (1-bit): Write Enable for loading data into the internal pointer registers.
 - LoadSelectMux (int): Selects displacement offsets (not fully mapped in top logic, handled via Q).
 - LoadingMux (int): Selects which specific pointer byte (XL, XH, YL, YH, etc.) is updated when WE is high.
-- IncDec (int): Controls pointer modification: 0=None, 1=Post-Increment, 2=Pre-Decrement.
+- IncDec (int): Controls pointer modification: 0=None, 1=Post-Inc, 2=Pre-Dec, 3=Post-Dec, 4=Pre-Inc.
 - ReadWrite (1-bit): 0 = Memory Read, 1 = Memory Write.
 - InputSelectMemory (int): MUX selecting the data source for a memory write (DataBus, ResL, ResH, GeneralInput).
 - Mem_instruction (int): Opcode determining which pointer to use for address generation (X, Y, Z, SP, ROM, Y+q, Z+q).
@@ -56,8 +55,6 @@ class MemoryInterfaceHandler(py4hw.Logic):
     # ----------------------------------------------------------
     # Memory instruction encodings
     # ----------------------------------------------------------
-    # 1=X, 2=X+, 3=Y, 4=Y+, 5=Z, 6=Z+, 7=SP, 8=SP+, 9=RamAddrReg
-    # 10=Y+q, 11=Z+q, 12=Rd (register file, address from Rd input), 13=Rr (register file, address from Rr input)
     MEM_X = 1
     MEM_X_PLUS = 2
     MEM_Y = 3
@@ -69,9 +66,9 @@ class MemoryInterfaceHandler(py4hw.Logic):
     MEM_RAM_ADDR_REG = 9
     MEM_Y_Q = 10
     MEM_Z_Q = 11
-    MEM_RD  = 12   # Direct register-file access: address = Rd (0-31)
-    MEM_RR  = 13   # Direct register-file access: address = Rr (0-31)
-    MEM_WB_ADDR = 14  # Explicit write-back address from WB_Addr port (for Rd+1, R0/R1 in MUL)
+    MEM_RD  = 12   
+    MEM_RR  = 13   
+    MEM_WB_ADDR = 14  
     MEM_RD_1 = 15
     MEM_RR_1 = 16
     MEM_A_5bit = 17
@@ -93,9 +90,7 @@ class MemoryInterfaceHandler(py4hw.Logic):
     INPUT_SPH = 13
     INPUT_PCL = 14
     INPUT_PCH = 15
-    # add PC
-
-
+    INPUT_RD_BUFFER = 16
 
     # --- LoadSelectMux ---
     LOAD_BUS_DATA = 1
@@ -121,56 +116,26 @@ class MemoryInterfaceHandler(py4hw.Logic):
     LOAD_ZH = 6
     LOAD_SPL = 7
     LOAD_SPH = 8
+    LOAD_RD_BUFFER = 14  
 
     # --- Increment/Decrement Control ---
     INC_NONE = 0
     INC_POST_INC = 1
     INC_PRE_DEC = 2
+    INC_POST_DEC = 3  
+    INC_PRE_INC = 4   
 
 
     def __init__(self, parent, name: str,
-            # control inputs
-            reset, 
-            WE, 
-            LoadSelectMux, 
-            LoadingMux, 
-            IncDec, 
-            ReadWrite, 
-            InputSelectMemory, 
-            Mem_instruction, 
-            RomAddress,
-            # data inputs
-            ResL, 
-            ResH, 
-            #RomHandlerValueRead,
-            K_val_Input, 
-            RomAddressValue,
-            PCL_VAL_IN,
-            PCH_VAL_IN,
-            Q,
-            # register-file address inputs (from instruction decoder)
-            Rd, 
-            Rr,
-            A_5bit,
-            A_6bit,
-            # explicit write-back address (from ControlBox, for Rd+1 / R0 / R1 writes)
-            WbAddr,
-            # memory interface
-            memory, # type: MemoryInterface
-            # output
-            RegisterOut, 
-            Resp, 
-            address_ZL, 
-            address_ZH, # These are for the RomHandler to Jump using this address
-            MIH_PCL_LOAD_VAL,
-            MIH_PCH_LOAD_VAL,
+            reset, WE, LoadSelectMux, LoadingMux, IncDec, ReadWrite, InputSelectMemory, 
+            Mem_instruction, RomAddress, ResL, ResH, K_val_Input, RomAddressValue,
+            PCL_VAL_IN, PCH_VAL_IN, Q, Rd, Rr, A_5bit, A_6bit, WbAddr, memory,
+            RegisterOut, Resp, address_ZL, address_ZH, MIH_PCL_LOAD_VAL, MIH_PCH_LOAD_VAL
         ):
         super().__init__(parent, name)
 
-        # Memory interface
         self.mem = self.addInterfaceSource('memory', memory)
 
-        # Control inputs
         self.reset = self.addIn('reset', reset)
         self.WE = self.addIn('WE', WE)
         self.LoadSelectMux = self.addIn('LoadSelectMux', LoadSelectMux)
@@ -179,10 +144,9 @@ class MemoryInterfaceHandler(py4hw.Logic):
         self.ReadWrite = self.addIn('ReadWrite', ReadWrite)
         self.InputSelectMemory = self.addIn('InputSelectMemory', InputSelectMemory)
         self.Mem_instruction = self.addIn('Mem_instruction', Mem_instruction)
-        self.RomAddress = self.addIn('RomAddress', RomAddress) # This is for instructions like STS 
+        self.RomAddress = self.addIn('RomAddress', RomAddress) 
         self.RomAddressValue = self.addIn('RomHandlerValueRead',RomAddressValue)
 
-        # Data inputs
         self.PCL_VAL_IN = self.addIn('PCL_VAL_IN',PCL_VAL_IN)
         self.PCH_VAL_IN = self.addIn('PCH_VAL_IN',PCH_VAL_IN)
         self.ResL = self.addIn('ResL', ResL)
@@ -190,20 +154,12 @@ class MemoryInterfaceHandler(py4hw.Logic):
         self.K_val_Input = self.addIn('K_val_Input', K_val_Input)
         self.Q = self.addIn('Q', Q)
 
-        # Register-file address inputs: the decoded Rd / Rr field from the
-        # instruction word.  Used when Mem_instruction == MEM_RD or MEM_RR so
-        # that the handler can address registers 0-31 directly in SRAM.
         self.Rd = self.addIn('Rd', Rd)
         self.Rr = self.addIn('Rr', Rr)
         self.A_5bit = self.addIn('A_5bit',A_5bit)
         self.A_6bit = self.addIn('A_6bit',A_6bit)
-
-        # Explicit write-back address supplied by the ControlBox.
-        # Used when Mem_instruction == MEM_WB_ADDR (e.g. Rd+1 for ADIW/MOVW,
-        # R0/R1 for MUL family).  5 bits covers all 32 general-purpose registers.
         self.WbAddr = self.addIn('WbAddr', WbAddr)
 
-        # Output
         self.RegisterOut = self.addOut('RegisterOut', RegisterOut)
         self.Resp = self.addOut('Resp',Resp)
         self.address_ZL = self.addOut('address_ZL',address_ZL)
@@ -211,9 +167,6 @@ class MemoryInterfaceHandler(py4hw.Logic):
         self.MIH_PCL_LOAD_VAL = self.addOut('MIH_PCL_LOAD_VAL',MIH_PCL_LOAD_VAL)
         self.MIH_PCH_LOAD_VAL = self.addOut('MIH_PCH_LOAD_VAL',MIH_PCH_LOAD_VAL)
 
-        # --------------------------------------------------
-        # Internal pointer registers
-        # --------------------------------------------------
         self.XregL = 0
         self.XregH = 0
         self.YregL = 0
@@ -222,9 +175,11 @@ class MemoryInterfaceHandler(py4hw.Logic):
         self.ZregH = 0
         self.SPL = 0
         self.SPH = 0
+        self.RdBuffer = 0  
 
-        # Internal bus register
         self.BusData = 0
+        self.Databuffer = 0
+        self.debug = 0
 
     # ==========================================================
     # Helpers
@@ -273,25 +228,21 @@ class MemoryInterfaceHandler(py4hw.Logic):
             base_address = self.getSP()
             pointer_name = "SP"
         elif mem_instr == self.MEM_RAM_ADDR_REG:
-            base_address = self.RomAddress.get()
+            base_address = self.RomAddressValue.get()
             pointer_name = "ROM"
 
-        # --- Direct register-file access (Rd / Rr from decoder) ---
         elif mem_instr == self.MEM_RD:
-            # Registers live at SRAM addresses 0x00-0x1F (0-31)
             base_address = self.Rd.get() & 0x1F
-            pointer_name = None   # no pointer to update after the access
+            pointer_name = None   
 
         elif mem_instr == self.MEM_RR:
             base_address = self.Rr.get() & 0x1F
             pointer_name = None
 
         elif mem_instr == self.MEM_WB_ADDR:
-            # Explicit address from ControlBox (Rd+1, R0, R1, etc.)
             base_address = self.WbAddr.get() & 0x1F
             pointer_name = None
 
-        # --- Displacement Addressing ---
         elif mem_instr == self.MEM_Y_Q:
             q_val = self.Q.get()
             if q_val & 0x20:
@@ -305,30 +256,28 @@ class MemoryInterfaceHandler(py4hw.Logic):
             base_address = self.getZ() + q_val
 
         elif mem_instr == self.MEM_RD_1:
-            # Registers live at SRAM addresses 0x00-0x1F (0-31)
             base_address = (self.Rd.get()+1) & 0x1F
-            pointer_name = None   # no pointer to update after the access
+            pointer_name = None   
 
         elif mem_instr == self.MEM_RR_1:
-            # Registers live at SRAM addresses 0x00-0x1F (0-31)
             base_address = (self.Rr.get()+1) & 0x1F
-            pointer_name = None   # no pointer to update after the access
+            pointer_name = None   
 
         elif mem_instr == self.MEM_A_5bit:
-            # Registers live at SRAM addresses 0x00-0x1F (0-31)
             base_address = self.A_5bit.get()
-            pointer_name = None   # no pointer to update after the access
+            pointer_name = None   
 
         elif mem_instr == self.MEM_A_6bit:
-            # Registers live at SRAM addresses 0x00-0x1F (0-31)
             base_address = self.A_6bit.get()
-            pointer_name = None   # no pointer to update after the access
+            pointer_name = None   
             
-        # Apply Pre-decrement BEFORE accessing memory if mode requires it
+        # UPDATED: Apply Pre-decrement OR Pre-increment BEFORE accessing memory 
         mode = self.IncDec.get()
-        if pointer_name in ("X", "Y", "Z", "SP") and mode == self.INC_PRE_DEC:
-            base_address -= 1
-
+        if pointer_name in ("X", "Y", "Z", "SP"):
+            if mode == self.INC_PRE_DEC:
+                base_address -= 1
+            elif mode == self.INC_PRE_INC:
+                base_address += 1
 
         return base_address & 0xFFFF, pointer_name
 
@@ -344,18 +293,21 @@ class MemoryInterfaceHandler(py4hw.Logic):
         if mode == self.INC_NONE:
             return
 
+        # UPDATED: Calculate the offset to apply to the pointer based on the mode
+        offset = 0
+        if mode in (self.INC_PRE_DEC, self.INC_POST_DEC):
+            offset = -1
+        elif mode in (self.INC_PRE_INC, self.INC_POST_INC):
+            offset = 1
+
         if ptr_name == "X":
-            val = self.getX()
-            self.setX(val - 1 if mode == self.INC_PRE_DEC else val + 1)
+            self.setX(self.getX() + offset)
         elif ptr_name == "Y":
-            val = self.getY()
-            self.setY(val - 1 if mode == self.INC_PRE_DEC else val + 1)
+            self.setY(self.getY() + offset)
         elif ptr_name == "Z":
-            val = self.getZ()
-            self.setZ(val - 1 if mode == self.INC_PRE_DEC else val + 1)
+            self.setZ(self.getZ() + offset)
         elif ptr_name == "SP":
-            val = self.getSP()
-            self.setSP(val - 1 if mode == self.INC_PRE_DEC else val + 1)
+            self.setSP(self.getSP() + offset)
 
 
     # ==========================================================
@@ -367,49 +319,29 @@ class MemoryInterfaceHandler(py4hw.Logic):
 
         if sel == self.INPUT_DATABUS:
             return self.mem.read_data.get()
-
         elif sel == self.INPUT_RESL:
             return self.ResL.get()
-
         elif sel == self.INPUT_RESH:
             return self.ResH.get()
-
         elif sel == self.INPUT_GENERAL:
             return self.K_val_Input.get()
-
         elif sel == self.INPUT_ROM_VALUE:
             return self.RomAddressValue.get()
-
-        # Pointer byte selections
-        elif sel == self.INPUT_XL:
-            return self.XregL
-
-        elif sel == self.INPUT_XH:
-            return self.XregH
-
-        elif sel == self.INPUT_YL:
-            return self.YregL
-
-        elif sel == self.INPUT_YH:
-            return self.YregH
-
-        elif sel == self.INPUT_ZL:
-            return self.ZregL
-
-        elif sel == self.INPUT_ZH:
-            return self.ZregH
-
-        elif sel == self.INPUT_SPL:
-            return self.SPL
-
-        elif sel == self.INPUT_SPH:
-            return self.SPH
         
-        elif sel == self.INPUT_PCL:
-            return self.PCL_VAL_IN.get()
+        elif sel == self.INPUT_XL: return self.XregL
+        elif sel == self.INPUT_XH: return self.XregH
+        elif sel == self.INPUT_YL: return self.YregL
+        elif sel == self.INPUT_YH: return self.YregH
+        elif sel == self.INPUT_ZL: return self.ZregL
+        elif sel == self.INPUT_ZH: return self.ZregH
+        elif sel == self.INPUT_SPL: return self.SPL
+        elif sel == self.INPUT_SPH: return self.SPH
         
-        elif sel == self.INPUT_PCH:
-            return self.PCH_VAL_IN.get() 
+        elif sel == self.INPUT_PCL: return self.PCL_VAL_IN.get()
+        elif sel == self.INPUT_PCH: return self.PCH_VAL_IN.get() 
+        
+        elif sel == self.INPUT_RD_BUFFER: 
+            return self.RdBuffer
 
         return 0
 
@@ -439,7 +371,6 @@ class MemoryInterfaceHandler(py4hw.Logic):
         # ----------------------------------------------
         # 1. Address generation
         # ----------------------------------------------
-        # Address must be asserted to the bus first so the memory can react
         address, pointer_name = self.selectAddress()
         self.mem.address.prepare(address)
 
@@ -448,21 +379,20 @@ class MemoryInterfaceHandler(py4hw.Logic):
         # ----------------------------------------------
         rw = self.ReadWrite.get()
 
-        if rw:
-            # WRITE: Latch data from MUX and send to memory
+        if rw == 1:
             self.BusData = self.selectWriteData()
             self.mem.write_data.prepare(self.BusData)
             self.mem.read.prepare(0)
             self.mem.write.prepare(1)
-        else:
-            # READ: Latch data returned by the memory model (not the address bus)
+        elif rw == 2:
             self.BusData = self.mem.read_data.get()
             self.mem.read.prepare(1)
             self.mem.write.prepare(0)
+        else: 
+            self.mem.read.prepare(0)
+            self.mem.write.prepare(0)
 
-        # Forward the memory handshake signal to the ControlBox
         self.Resp.prepare(self.mem.resp.get())
-
         self.RegisterOut.prepare(self.BusData)
 
         # ----------------------------------------------
@@ -471,7 +401,7 @@ class MemoryInterfaceHandler(py4hw.Logic):
         if self.WE.get():
             load_sel = self.LoadingMux.get()
             data = self.BusData & 0xFF
-
+            
             if load_sel == self.LOAD_XL: self.XregL = data
             elif load_sel == self.LOAD_XH: self.XregH = data
             elif load_sel == self.LOAD_YL: self.YregL = data
@@ -480,8 +410,20 @@ class MemoryInterfaceHandler(py4hw.Logic):
             elif load_sel == self.LOAD_ZH: self.ZregH = data
             elif load_sel == self.LOAD_SPL: self.SPL = data
             elif load_sel == self.LOAD_SPH: self.SPH = data
+            elif load_sel == self.LOAD_RD_BUFFER: self.RdBuffer = data
 
         # ----------------------------------------------
         # 4. Pointer update
         # ----------------------------------------------
         self.updatePointer(pointer_name)
+
+        if self.debug == 1:
+            state_log = (
+                f"MIH_STATE | "
+                f"PC: {self.PCH_VAL_IN.get():02X}{self.PCL_VAL_IN.get():02X} | "
+                f"X: {self.getX():04X} Y: {self.getY():04X} Z: {self.getZ():04X} SP: {self.getSP():04X} | "
+                f"Addr: {address:04X} Bus: {self.BusData:02X} | "
+                f"RD_BUFFER: {self.RdBuffer} |"
+                f"WE: {self.WE.get()} RW: {rw} Resp: {self.mem.resp.get()}"
+            )
+            print(state_log)

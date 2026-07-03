@@ -1,15 +1,6 @@
 ; ============================================================
 ; OUT (Store to I/O Register) test suite
 ; ============================================================
-; Tests that OUT correctly:
-; 1. Writes data from register to I/O space address (0x00-0x3F)
-; 2. Works with all registers R0-R31
-; 3. Does not modify any flags
-; ============================================================
-; OUT is a 1-word (16-bit) instruction
-; Format: 1011 0AAd dddd AAAA
-; Operation: I/O(A) <- Rd
-; ============================================================
 
 .equ test_case = 0x0100
 .equ final_result = 0x0101
@@ -20,12 +11,10 @@
 .equ DDRC = 0x07
 .equ PINC = 0x06
 
-; Test I/O registers (using GPIORs for testing)
 .equ GPIOR0 = 0x1E
 .equ GPIOR1 = 0x1A
 
 reset:
-    ; Initialize stack pointer
     ldi r16, high(0x08FF)
     out SPH, r16
     ldi r16, low(0x08FF)
@@ -44,10 +33,11 @@ test1_start:
     ldi r16, 0x42
     out GPIOR0, r16
     
-    ; Verify by reading back
     in r17, GPIOR0
     cpi r17, 0x42
-    brne fail
+    breq t1_ok
+    rjmp fail
+t1_ok:
     rcall inc_case
     rjmp test2_start
 
@@ -55,12 +45,15 @@ test1_start:
 ; TEST 2: OUT to GPIOR1 from R0 (lowest register)
 ; ============================================================
 test2_start:
-    ldi r0, 0xAA
+    ldi r16, 0xAA
+    mov r0, r16
     out GPIOR1, r0
     
     in r17, GPIOR1
     cpi r17, 0xAA
-    brne fail
+    breq t2_ok
+    rjmp fail
+t2_ok:
     rcall inc_case
     rjmp test3_start
 
@@ -73,7 +66,9 @@ test3_start:
     
     in r16, GPIOR0
     cpi r16, 0xBB
-    brne fail
+    breq t3_ok
+    rjmp fail
+t3_ok:
     rcall inc_case
     rjmp test4_start
 
@@ -86,7 +81,9 @@ test4_start:
     
     in r17, GPIOR0
     cpi r17, 0x00
-    brne fail
+    breq t4_ok
+    rjmp fail
+t4_ok:
     rcall inc_case
     rjmp test5_start
 
@@ -99,7 +96,9 @@ test5_start:
     
     in r17, GPIOR0
     cpi r17, 0xFF
-    brne fail
+    breq t5_ok
+    rjmp fail
+t5_ok:
     rcall inc_case
     rjmp test6_start
 
@@ -107,26 +106,34 @@ test5_start:
 ; TEST 6: OUT does not modify flags
 ; ============================================================
 test6_start:
-    ; Set all flags
-    sec                 ; C=1
-    sez                 ; Z=1
-    sen                 ; N=1
-    sev                 ; V=1
-    seh                 ; H=1
-    set                 ; T=1
+    sec
+    sez
+    sen
+    sev
+    seh
+    set
     
-    ; OUT should preserve flags
     ldi r16, 0x55
     out GPIOR0, r16
     
-    ; Verify all flags still set
-    brcc fail
-    brne fail
-    brmi fail
-    brvs fail
-    brhc fail
-    brtc fail
-    
+    brcs t6_pass1
+    rjmp fail
+t6_pass1:
+    breq t6_pass2
+    rjmp fail
+t6_pass2:
+    brmi t6_pass3
+    rjmp fail
+t6_pass3:
+    brvs t6_pass4
+    rjmp fail
+t6_pass4:
+    brhs t6_pass5
+    rjmp fail
+t6_pass5:
+    brts t6_ok
+    rjmp fail
+t6_ok:
     rcall inc_case
     rjmp test7_start
 
@@ -143,9 +150,13 @@ test7_start:
     in r18, GPIOR1
     
     cpi r17, 0x11
-    brne fail
+    breq t7_ok1
+    rjmp fail
+t7_ok1:
     cpi r18, 0x22
-    brne fail
+    breq t7_ok2
+    rjmp fail
+t7_ok2:
     rcall inc_case
     rjmp test8_start
 
@@ -153,18 +164,17 @@ test7_start:
 ; TEST 8: OUT to PORTC (output port)
 ; ============================================================
 test8_start:
-    ; Configure PORTC as output
     ldi r16, 0xFF
     out DDRC, r16
     
-    ; Write to PORTC
     ldi r16, 0x5A
     out PORTC, r16
     
-    ; Read back via PINC (if configured as output)
     in r17, PORTC
     cpi r17, 0x5A
-    brne fail
+    breq t8_ok
+    rjmp fail
+t8_ok:
     rcall inc_case
     rjmp test9_start
 
@@ -172,20 +182,17 @@ test8_start:
 ; TEST 9: OUT to SREG (Status Register)
 ; ============================================================
 test9_start:
-    ; Read current SREG
     in r16, SREG
     push r16
     
-    ; Write new value to SREG
-    ldi r16, 0b11000000  ; Set I and T flags
+    ldi r16, 0b11000000
     out SREG, r16
     
-    ; Verify
     in r17, SREG
     cpi r17, 0b11000000
-    brne fail
-    
-    ; Restore original SREG
+    breq t9_ok1
+    rjmp fail
+t9_ok1:
     pop r16
     out SREG, r16
     rcall inc_case
@@ -195,31 +202,26 @@ test9_start:
 ; TEST 10: OUT to SPH/SPL (Stack Pointer)
 ; ============================================================
 test10_start:
-    ; Save original SP
-    in r16, SPL
-    in r17, SPH
-    push r16
-    push r17
+    in r20, SPL
+    in r21, SPH
     
-    ; Write new SP value
     ldi r16, 0x34
     out SPL, r16
     ldi r16, 0x12
     out SPH, r16
     
-    ; Verify
     in r18, SPL
     in r19, SPH
     cpi r18, 0x34
-    brne fail
+    breq t10_ok1
+    rjmp fail
+t10_ok1:
     cpi r19, 0x12
-    brne fail
-    
-    ; Restore original SP
-    pop r17
-    pop r16
-    out SPH, r17
-    out SPL, r16
+    breq t10_ok2
+    rjmp fail
+t10_ok2:
+    out SPH, r21
+    out SPL, r20
     rcall inc_case
     rjmp test11_start
 
@@ -232,7 +234,9 @@ test11_start:
     
     in r17, GPIOR0
     cpi r17, 0x55
-    brne fail
+    breq t11_ok
+    rjmp fail
+t11_ok:
     rcall inc_case
     rjmp test12_start
 
@@ -245,7 +249,9 @@ test12_start:
     
     in r17, GPIOR0
     cpi r17, 0xAA
-    brne fail
+    breq t12_ok
+    rjmp fail
+t12_ok:
     rcall inc_case
     rjmp test13_start
 
@@ -255,12 +261,13 @@ test12_start:
 test13_start:
     ldi r16, 0xDE
     out GPIOR0, r16
-    ldi r16, 0xAD     ; Modify source
+    ldi r16, 0xAD
     
-    ; I/O should still have original value
     in r17, GPIOR0
     cpi r17, 0xDE
-    brne fail
+    breq t13_ok
+    rjmp fail
+t13_ok:
     rcall inc_case
     rjmp test14_start
 
@@ -277,7 +284,9 @@ test14_start:
     
     in r17, GPIOR0
     cpi r17, 0x03
-    brne fail
+    breq t14_ok
+    rjmp fail
+t14_ok:
     rcall inc_case
     rjmp test15_start
 
@@ -285,23 +294,28 @@ test14_start:
 ; TEST 15: OUT using all register types in sequence
 ; ============================================================
 test15_start:
-    ldi r0, 0xAA
+    ldi r16, 0xAA
+    mov r0, r16
     out GPIOR0, r0
     in r16, GPIOR0
     cpi r16, 0xAA
-    brne fail
-    
+    breq t15_ok1
+    rjmp fail
+t15_ok1:
     ldi r16, 0xBB
     out GPIOR0, r16
     in r17, GPIOR0
     cpi r17, 0xBB
-    brne fail
-    
+    breq t15_ok2
+    rjmp fail
+t15_ok2:
     ldi r31, 0xCC
     out GPIOR0, r31
     in r18, GPIOR0
     cpi r18, 0xCC
-    brne fail
+    breq t15_ok3
+    rjmp fail
+t15_ok3:
     rcall inc_case
     rjmp test16_start
 
@@ -314,14 +328,17 @@ test16_start:
     
     in r17, GPIOR0
     cpi r17, 0x12
-    brne fail
-    
+    breq t16_ok1
+    rjmp fail
+t16_ok1:
     ldi r18, 0x34
     out GPIOR0, r18
     
     in r19, GPIOR0
     cpi r19, 0x34
-    brne fail
+    breq t16_ok2
+    rjmp fail
+t16_ok2:
     rcall inc_case
     rjmp test17_start
 
@@ -334,7 +351,9 @@ test17_start:
     
     in r17, GPIOR0
     cpi r17, 0x01
-    brne fail
+    breq t17_ok
+    rjmp fail
+t17_ok:
     rcall inc_case
     rjmp test18_start
 
@@ -347,7 +366,9 @@ test18_start:
     
     in r17, GPIOR0
     cpi r17, 0x80
-    brne fail
+    breq t18_ok
+    rjmp fail
+t18_ok:
     rcall inc_case
     rjmp test19_start
 
@@ -363,10 +384,11 @@ test19_loop:
     dec r17
     brne test19_loop
     
-    ; Last value written should be 4
     in r18, GPIOR0
     cpi r18, 4
-    brne fail
+    breq t19_ok
+    rjmp fail
+t19_ok:
     rcall inc_case
     rjmp test20_start
 

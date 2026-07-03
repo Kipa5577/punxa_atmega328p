@@ -15,6 +15,13 @@
 .equ SREG = 0x3F
 
 reset:
+    ; === Add this Stack Pointer initialization ===
+    ldi r16, 0x08        ; SPH (RAMEND high byte)
+    out 0x3E, r16
+    ldi r16, 0xFF        ; SPL (RAMEND low byte)
+    out 0x3D, r16
+    ; =============================================
+
     ldi r16, 1
     sts test_case, r16
     sts final_result, r16

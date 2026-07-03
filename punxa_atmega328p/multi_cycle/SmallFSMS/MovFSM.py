@@ -44,7 +44,6 @@ class MOV_FSM(py4hw.Logic):
                  Load_Byte,          # 0 = fetches form rom  1 = writes to rom
                  Fetch_next_instruction, # If set to 1 fetches the next instruction it has to be set back to 0 and then to one for the next instruction to be fetched
                  Fetch_Address, # In the case of STS instruction to fetch the instruction address
-                 JumpWidth,
                  LOAD_PCL,
                  LOAD_PCH,
                  # Fethc_next_instruction is also used to rest the outputs of the instruction decoder and to tell it to expect a new instruction
@@ -86,7 +85,6 @@ class MOV_FSM(py4hw.Logic):
         self.WB_Addr          = self.addOut('WB_Addr',          WB_Addr)
         self.Fetch_Address    = self.addOut('Fetch_Address',Fetch_Address)
 
-        self.JumpWidth = self.addOut('JumpWidth',JumpWidth)
         self.LOAD_PCL = self.addOut('LOAD_PCL',LOAD_PCL)
         self.LOAD_PCH = self.addOut('LOAD_PCH',LOAD_PCH)
 
@@ -102,6 +100,7 @@ class MOV_FSM(py4hw.Logic):
         # back to its SRAM-mapped register (R26-R31) once the access
         # sequence completes.
         self._pointer_update_pending = False
+        self.debug = 1
 
 
     def clock(self):
@@ -193,7 +192,17 @@ class MOV_FSM(py4hw.Logic):
         self.done.prepare(done)
         # Drive the explicit write-back address (used by MEM_WB_ADDR mode)
         self.WB_Addr.prepare(WB_Addr)
+        
+        # --- AI-Friendly State & I/O Trace ---
+        if self.debug and (self.current_state != 'STOP'):
+            state_log = (
+                f"MOV_TRACE  | "
+                f"State: {self.current_state} -> {next_state} | "
+                f"MemInstr: {Mem_Instruction} RW: {Read_Write} | "
+                f"Resp: {resp} Done: {done}"
+            )
+            print(state_log)
+
 
         # Advance state
-        print(f"MOV_FSM_STATE:{self.current_state} -> {next_state}")
         self.current_state = next_state

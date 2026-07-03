@@ -9,10 +9,14 @@
 .equ final_result = 0x0101
 
 reset:
+    ldi r16, 0xFF
+    out SPL, r16
+    ldi r16, 0x08
+    out SPH, r16
+
     ldi r16, 1
     sts test_case, r16
     sts final_result, r16
-
     rjmp test1_start
 
 ; ============================================================

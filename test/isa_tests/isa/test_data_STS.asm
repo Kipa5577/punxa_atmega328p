@@ -9,10 +9,15 @@
 .equ target_mem = 0x0850
 
 reset:
+    ldi r16, high(RAMEND)
+    out 0x3E, r16        ; SPH (0x3E is standard for ATMega328P)
+    ldi r16, low(RAMEND)
+    out 0x3D, r16        ; SPL (0x3D is standard for ATMega328P)
+    ; ---------------------------------------------
+    
     ldi r16, 1
     sts test_case, r16
     sts final_result, r16
-
     rjmp test1_start
 
 ; ============================================================

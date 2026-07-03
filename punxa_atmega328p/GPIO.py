@@ -270,39 +270,94 @@ class PortX(py4hw.Logic):
         else:
             self.READY.put(0)  
         
-class VirtualGPIO(py4hw.Logic):
-    def __init__(self,parent,name:str,memory:MemoryInterface):
-        super().__init__(parent,name)
 
-        self.interface = self.addInterfaceSink('port',memory)
-        
+
+
+class VirtualGPIO(py4hw.Logic):
+    def __init__(self, parent, name: str, memory: MemoryInterface):
+        super().__init__(parent, name)
+        self.interface = self.addInterfaceSink('port', memory)
+
+        # PORTB group
         self.port_b = 0
         self.ddr_b = 0
+
+        # PORTC group
+        self.port_c = 0
+        self.ddr_c = 0
+
+        # General purpose I/O registers
+        self.gpior0 = 0
+        self.gpior1 = 0
+
+        # address -> (name, kind, group)
+        # kind: 'pin' / 'port' / 'ddr' / 'gpior'
+        self.add_map = {
+            0x03: ('PINB',  'pin',  'b'),
+            0x04: ('DDRB',  'ddr',  'b'),
+            0x05: ('PORTB', 'port', 'b'),
+            0x06: ('PINC',  'pin',  'c'),
+            0x07: ('DDRC',  'ddr',  'c'),
+            0x08: ('PORTC', 'port', 'c'),
+            0x1A: ('GPIOR1', 'gpior', 'gpior1'),
+            0x1E: ('GPIOR0', 'gpior', 'gpior0'),
+        }
+
+    def _read_value(self, kind, group):
+        if kind == 'ddr':
+            return self.ddr_b if group == 'b' else self.ddr_c
+        if kind in ('port', 'pin'):
+            return self.port_b if group == 'b' else self.port_c
+        if kind == 'gpior':
+            return self.gpior0 if group == 'gpior0' else self.gpior1
+        return 0
 
     def clock(self):
         add = self.interface.address.get()
         v = self.interface.write_data.get()
-        
-        add_map = {0x3: 'PINB', 0x4: 'DDRB', 0x5 : 'PORTB'}
-        
-        if (self.interface.read.get()):
-            
-            if (add == 0x03 or add == 0x05):
-                self.interface.read_data.prepare(self.port_b)
-            elif (add == 0x04):
-                self.interface.read_data.prepare(self.ddr_b)
-                
-            print(f'Reading GPIO {add_map[add]} = {self.interface.read_data.next:02X}')
-            
+
+        entry = self.add_map.get(add)
+        name = entry[0] if entry else f'0x{add:02X}'
+
+        if self.interface.read.get():
+            if entry is None:
+                self.interface.resp.prepare(0)
+                return
+            _, kind, group = entry
+            value = self._read_value(kind, group)
+            self.interface.read_data.prepare(value)
+            print(f'Reading GPIO {name} = {self.interface.read_data.next:02X}')
             self.interface.resp.prepare(1)
-            
-        elif (self.interface.write.get()):
-            print(f'Writing GPIO {add_map[add]}={v:02X}')
-            if (add == 0x5):
-                self.port_b = v
-            elif (add == 0x4):
-                self.ddr_b = v
+
+        elif self.interface.write.get():
+            if entry is None:
+                self.interface.resp.prepare(0)
+                return
+            _, kind, group = entry
+
+            if kind == 'pin':
+                # PIN registers are read-only on real hardware; ignore writes
+                print(f'Ignoring write to read-only {name}={v:02X}')
+                self.interface.resp.prepare(1)
+                return
+
+            print(f'Writing GPIO {name}={v:02X}')
+            if kind == 'ddr':
+                if group == 'b':
+                    self.ddr_b = v
+                else:
+                    self.ddr_c = v
+            elif kind == 'port':
+                if group == 'b':
+                    self.port_b = v
+                else:
+                    self.port_c = v
+            elif kind == 'gpior':
+                if group == 'gpior0':
+                    self.gpior0 = v
+                else:
+                    self.gpior1 = v
+
             self.interface.resp.prepare(1)
-            
         else:
             self.interface.resp.prepare(0)

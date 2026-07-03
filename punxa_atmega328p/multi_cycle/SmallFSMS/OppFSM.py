@@ -9,7 +9,7 @@ _RD_K_ALU_WRITE = {
     12,  # ORI
     16,  # SBR  (= ORI)
     17,  # CBR  (= ANDI with ~K)
-    95,  # LDI
+    # 95 (LDI) removed — LDI is now handled entirely by LDST_FSM.
 }
 
 # op(Rd, K)  — no write-back
@@ -32,6 +32,7 @@ _RD_ONLY_WRITE = {
     70,  # ROR
     71,  # ASR
     72,  # SWAP
+    76,  # BLD moved here — reads Rd, writes Rd
 }
 
 # Skip-if instructions: CPSE / SBRC / SBRS / SBIC / SBIS
@@ -54,7 +55,7 @@ _SREG_ONLY = {
     87, 88,             # SEV / CLV
     89, 90,             # SET / CLT
     91, 92,             # SEH / CLH
-    76,                 # BLD (bit load from T → Rd, but only flag-like; Rd written)
+    
 }
 
 # op(Rd, Rr)  — compare / test, no write-back to register file
@@ -87,6 +88,7 @@ STATES = [
     # FOR 1 WORD INSTRUCTIONS
     'FETCH_RD','WAIT_FETCH_RD','LOAD_VAL_RD_IN_BUFFER',
     'FETCH_RR','WAIT_FETCH_RR','LOAD_VAL_RR_IN_BUFFER',
+    'WAIT_RR_RESP_LOW',
 
     # FOR 2 WORD INSTRUCTIONS 
     'FETCH_RD_B2','WAIT_FETCH_RD_B2','LOAD_VAL_RD_IN_BUFFER_B2',
@@ -106,10 +108,11 @@ STATES = [
 
     #
     'LOAD_RESULT','WAIT_LOAD_RESULT',
+    'WAIT_WRITE_RESP_LOW',
+    
     # THESE ARE FOR 2 BYRE RESULT INSTRUCTIONS 
     'LOAD_RESULT_B2','WAIT_LOAD_RESULT_B2',
 ]
-
 class OPP_FSM(py4hw.Logic):
     def __init__(self, parent, name,
                  # ── Logic imputs─────────────────────────────────────────
@@ -141,8 +144,7 @@ class OPP_FSM(py4hw.Logic):
                  relative_Absolute,  # 0=relative, 1=absolute jump
                  Load_Byte,          # 0 = fetches form rom  1 = writes to rom
                  Fetch_next_instruction, # If set to 1 fetches the next instruction it has to be set back to 0 and then to one for the next instruction to be fetched
-                 Fetch_Address, # In the case of STS instruction to fetch the instruction address
-                 JumpWidth,
+                 Fetch_Address, # In the case of STS instruction to fetch the instruction 
                  LOAD_PCL,
                  LOAD_PCH,
                  # Fethc_next_instruction is also used to rest the outputs of the instruction decoder and to tell it to expect a new instruction
@@ -184,7 +186,6 @@ class OPP_FSM(py4hw.Logic):
         self.WB_Addr          = self.addOut('WB_Addr',          WB_Addr)
         self.Fetch_Address    = self.addOut('Fetch_Address',Fetch_Address)
 
-        self.JumpWidth = self.addOut('JumpWidth',JumpWidth)
         self.LOAD_PCL = self.addOut('LOAD_PCL',LOAD_PCL)
         self.LOAD_PCH = self.addOut('LOAD_PCH',LOAD_PCH)
 
@@ -199,6 +200,7 @@ class OPP_FSM(py4hw.Logic):
         # back to its SRAM-mapped register (R26-R31) once the access
         # sequence completes.
         self._pointer_update_pending = False
+        self.debug = 1
 
     def clock(self):
         inst              = self.Instruction.get()
@@ -242,11 +244,12 @@ class OPP_FSM(py4hw.Logic):
 
         if state == 'STOP':
             if run:
-                # FIX: Latch the incoming instruction so it isn't permanently 0
                 self._latched_inst = inst
                 i = inst
                 if i in _SREG_ONLY:
                     next_state = 'DETERMINE_OUTPUT'
+                elif i in {41, 42}:          # SBRC / SBRS — operand decodes into Rr, not Rd
+                    next_state = 'FETCH_RR'
                 else:
                     next_state = 'FETCH_RD'
 
@@ -256,33 +259,34 @@ class OPP_FSM(py4hw.Logic):
 
         elif state == 'FETCH_RD':
             Mem_Instruction = 12 # RD pointer
-            Read_Write  = 0 # read opp 
-            InputSelect_Memory = 1 # FIX: Matched variable name
+            Read_Write  = 2 # read opp 
+            InputSelect_Memory = 1 
             next_state = 'WAIT_FETCH_RD'
 
         elif state == 'WAIT_FETCH_RD':
+            Read_Write  = 2 # read opp
+            Mem_Instruction = 12 # RD pointer
             if resp:
                 next_state = 'LOAD_VAL_RD_IN_BUFFER'
 
         elif state == 'LOAD_VAL_RD_IN_BUFFER':
-            WE_Buffer = 1          # FIX: Matched variable name
-            InputSelect_Buffer = 1 # FIX: Matched variable name
+            Mem_Instruction = 12
+            InputSelect_Memory = 1
+            WE_Buffer = 1          
+            InputSelect_Buffer = 1 
 
-            # Instructions needing a second byte operand
-            if i in {23,24,25,26,27,28}:      # MUL family
-                next_state = 'FETCH_RD_B2'
-
-            elif i in _RD_ONLY_WRITE:
-                next_state = 'DETERMINE_OUTPUT'
-
-            elif i in _RD_K_ALU_WRITE or i in _RD_K_NO_WRITE:
-                next_state = 'LOAD_VAL_K_IN_BUFFER'
-
-            elif i in {43,44}:                # SBIC / SBIS
-                next_state = 'FETCH_IO_REG_VAL'
-
+            if resp == 1:
+                next_state = 'LOAD_VAL_RD_IN_BUFFER'
             else:
-                next_state = 'FETCH_RR'
+                if i in _RD_ONLY_WRITE:
+                    next_state = 'DETERMINE_OUTPUT'
+                elif i in _RD_K_ALU_WRITE or i in _RD_K_NO_WRITE:
+                    next_state = 'LOAD_VAL_K_IN_BUFFER'
+                # 41, 42 removed — SBRC/SBRS no longer routed through here
+                elif i in {43, 44}:               # SBIC / SBIS
+                    next_state = 'FETCH_IO_REG_VAL'
+                else:
+                    next_state = 'FETCH_RR'
 
         # ================================================================
         # FETCH RD BYTE 1
@@ -290,7 +294,7 @@ class OPP_FSM(py4hw.Logic):
 
         elif state == 'FETCH_RD_B2':
             Mem_Instruction = 15 # RD+1 pointer
-            Read_Write  = 0 # read opp 
+            Read_Write  = 2 # read opp 
             InputSelect_Memory = 1 # FIX: Matched variable name
             next_state = 'WAIT_FETCH_RD_B2'
 
@@ -307,21 +311,33 @@ class OPP_FSM(py4hw.Logic):
 
         elif state == 'FETCH_RR':
             Mem_Instruction = 13 # RR pointer
-            Read_Write  = 0 # read opp 
-            InputSelect_Memory = 1 # FIX: Matched variable name
+            Read_Write  = 2 # read opp 
+            InputSelect_Memory = 1 
             next_state = 'WAIT_FETCH_RR'
 
         elif state == 'WAIT_FETCH_RR':
+            Mem_Instruction = 13
+            Read_Write = 2
+            InputSelect_Memory = 1
             if resp:
                 next_state = 'LOAD_VAL_RR_IN_BUFFER'
 
         elif state == 'LOAD_VAL_RR_IN_BUFFER':
-            WE_Buffer = 3          # FIX: Matched variable name
-            InputSelect_Buffer = 1 # FIX: Matched variable name
+            Mem_Instruction = 13
+            InputSelect_Memory = 1
 
-            if i in {23,24,25,26,27,28}:      # MUL family
-                next_state = 'FETCH_RR_B2'
+            if i in {41, 42}:          # SBRC / SBRS
+                WE_Buffer = 1
             else:
+                WE_Buffer = 3
+            InputSelect_Buffer = 1
+
+            # capture happens this single cycle, then drop the request
+            next_state = 'WAIT_RR_RESP_LOW'
+
+        elif state == 'WAIT_RR_RESP_LOW':
+            # Read_Write defaults to 0 here — this is what actually lets resp fall
+            if resp == 0:
                 next_state = 'DETERMINE_OUTPUT'
 
         # ================================================================
@@ -330,8 +346,8 @@ class OPP_FSM(py4hw.Logic):
 
         elif state == 'FETCH_RR_B2':
             Mem_Instruction = 16 # RR+1 pointer
-            Read_Write  = 0 # read opp 
-            InputSelect_Memory = 1 # FIX: Matched variable name
+            Read_Write  = 2 # read opp 
+            InputSelect_Memory = 1 
             next_state = 'WAIT_FETCH_RR_B2'
 
         elif state == 'WAIT_FETCH_RR_B2':
@@ -339,8 +355,8 @@ class OPP_FSM(py4hw.Logic):
                 next_state = 'LOAD_VAL_RR_IN_BUFFER_B2'
 
         elif state == 'LOAD_VAL_RR_IN_BUFFER_B2':
-            WE_Buffer = 4          # FIX: Matched variable name
-            InputSelect_Buffer = 1 # FIX: Matched variable name
+            WE_Buffer = 4         
+            InputSelect_Buffer = 1
             next_state = 'DETERMINE_OUTPUT'
 
         # ================================================================
@@ -348,20 +364,34 @@ class OPP_FSM(py4hw.Logic):
         # ================================================================
 
         elif state == 'FETCH_IO_REG_VAL':
+            Mem_Instruction = 17   # MEM_A_5bit
+            Read_Write = 2         # read
+            InputSelect_Memory = 1
             next_state = 'WAIT_FETCH_IO_REG_VAL'
 
         elif state == 'WAIT_FETCH_IO_REG_VAL':
+            Mem_Instruction = 17
+            Read_Write = 2
+            InputSelect_Memory = 1
             if resp:
                 next_state = 'LOAD_FETCH_IO_REG_TO_BUFFER'
 
         elif state == 'LOAD_FETCH_IO_REG_TO_BUFFER':
-            next_state = 'DETERMINE_OUTPUT'
+            WE_Buffer = 5     # write DATA into IOBuffer
+
+            # 4-Phase Handshake: Wait for memory to acknowledge request drop
+            if resp == 1:
+                next_state = 'LOAD_FETCH_IO_REG_TO_BUFFER'
+            else:
+                next_state = 'DETERMINE_OUTPUT'
 
         # ================================================================
         # LOAD IMMEDIATE K
         # ================================================================
 
         elif state == 'LOAD_VAL_K_IN_BUFFER':
+            WE_Buffer = 3
+            InputSelect_Buffer = 0   # select K, not DATA
             next_state = 'DETERMINE_OUTPUT'
 
         # ================================================================
@@ -402,19 +432,24 @@ class OPP_FSM(py4hw.Logic):
         elif state == 'LOAD_RESULT':
             Mem_Instruction = 12 # RD pointer
             Read_Write = 1 # Write 
-            InputSelect_Memory = 2 # FIX: Matched variable name
+            InputSelect_Memory = 2 
             next_state = 'WAIT_LOAD_RESULT'
 
         elif state == 'WAIT_LOAD_RESULT':
-            Mem_Instruction = 12 # RD pointer
-            Read_Write = 1 # Write 
-            InputSelect_Memory = 2 # FIX: Matched variable name
+            Mem_Instruction = 12
+            Read_Write = 1
+            InputSelect_Memory = 2
             if resp:
                 if i in {23,24,25,26,27,28}:
-                    next_state = 'LOAD_RESULT_B2'
+                    next_state = 'WAIT_WRITE_RESP_LOW'
                 else:
                     done = 1
                     next_state = 'STOP'
+
+        elif state == 'WAIT_WRITE_RESP_LOW':
+            # By default Read_Write = 0 here, safely dropping the write request
+            if resp == 0:
+                next_state = 'LOAD_RESULT_B2'
 
         # ================================================================
         # WRITE RESULT BYTE 1
@@ -423,11 +458,13 @@ class OPP_FSM(py4hw.Logic):
         elif state == 'LOAD_RESULT_B2':
             Mem_Instruction = 15 # RD+1 pointer
             Read_Write = 1 # Write 
-            InputSelect_Memory = 2 # FIX: Matched variable name
+            InputSelect_Memory = 2 
             next_state = 'WAIT_LOAD_RESULT_B2'
 
         elif state == 'WAIT_LOAD_RESULT_B2':
-            Read_Write = 1 # Write 
+            Mem_Instruction = 15 
+            Read_Write = 1       # Write 
+            InputSelect_Memory = 2 
             if resp:
                 done = 1
                 next_state = 'STOP'
@@ -457,6 +494,17 @@ class OPP_FSM(py4hw.Logic):
         self.done.prepare(done)
         self.WB_Addr.prepare(WB_Addr)
 
+
+        # --- AI-Friendly State & I/O Trace ---
+        if self.debug == 1:
+            state_log = (
+                f"OPP_TRACE | "
+                f"State: {self.current_state} -> {next_state} | "
+                f"Inst: {i:03} | "
+                f"MemInstr: {Mem_Instruction} WE_Buf: {WE_Buffer} | "
+                f"Resp: {resp} Done: {done}"
+            )
+            print(state_log)
+
         # Advance state
-        print(f"OPP_FSM_STATE:{self.current_state} -> {next_state}")
         self.current_state = next_state

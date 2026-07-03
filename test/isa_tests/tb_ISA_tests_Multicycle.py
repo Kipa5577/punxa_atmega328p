@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu Jun  4 12:44:04 2026
-
-@author: dcr
+ISA Tests for ATmega328P Multicycle Processor
 """
 import os
 import sys
@@ -13,6 +11,54 @@ from punxa_atmega328p.assembly import assemble_program
 from punxa_atmega328p.interactive_commands import *
 
 
+# =============================================================================
+# COMPATIBILITY WRAPPER FOR INTERACTIVE COMMANDS
+# =============================================================================
+class MulticycleCpuWrapper:
+    """
+    Wraps the multicycleProcessor to provide the interface expected by 
+    punxa_atmega328p.interactive_commands.
+    """
+    def __init__(self, cpu):
+        self._cpu = cpu
+
+    @property
+    def pc(self):
+        # Accesses the PC inside the RomHandler submodule
+        return self._cpu.rom.PC
+
+    @pc.setter
+    def pc(self, value):
+        self._cpu.rom.PC = value
+
+    @property
+    def sreg(self):
+        # Explicit property for SREG to allow direct access by regs() command
+        return self._cpu.sreg
+
+    def getCSR(self, *args, **kwargs):
+        # Extract the CSR index requested by the interactive tool
+        csr_requested = args[0] if args else None
+        
+        # CSR_INSTRET is defined in your interactive_commands/csr.py
+        if csr_requested == CSR_INSTRET:
+            # Navigate to the MainFSM inside the ControlBox
+            # If this throws an AttributeError, check if your ControlBox 
+            # uses a different name than 'fsm'
+            return self._cpu.control.fsm.instret_count
+            
+        # If the requested CSR is not the retired instruction count, 
+        # return the SREG value (as per your existing logic)
+        return self._cpu.sreg.SREG
+
+    def __getattr__(self, name):
+        # Fallback for any other attributes (e.g., .mem_if, .memory)
+        return getattr(self._cpu, name)
+
+
+# =============================================================================
+# TEST PREPARATION & EXECUTION
+# =============================================================================
 def prepareTest(file):
     global hw
     global cpu
@@ -46,12 +92,33 @@ def prepareTest(file):
     
     
     punxa.MultiplexedBus(hw, 'bus', data_p, 
-                        [(reg_p, 0x0, 0x20),
-                        (gpio_p, 0x20, 0x20), 
-                        (usart_p, 0xC0), 
-                        (mem_p, 0x100)])
+                         [(reg_p, 0x0, 0x20),
+                          (gpio_p, 0x20, 0x10),
+                          (usart_p, 0xC0), 
+                          (mem_p, 0x100)])
     
-    cpu = punxa.SingleCycleATmega328P(hw, 'cpu', ins_p, data_p, reset_address=0)
+    # CPU Control Wires for Multicycle Processor
+    interrupt_wire = py4hw.Wire(hw, 'Interrupt_Line', 1)
+    interrupt_wire.put(0)
+
+    reset_wire = py4hw.Wire(hw, 'Reset_Line', 1)
+    reset_wire.put(0)
+    
+    # Instantiate Multicycle Processor
+    actual_cpu = punxa.multicycleProcessor(
+        parent=hw, 
+        name='cpu', 
+        Interrupt=interrupt_wire, 
+        ins_mem=ins_p, 
+        memory=data_p, 
+        reset=reset_wire, 
+        reset_address=0
+    )
+    
+    # --- WRAP THE CPU ---
+    # This makes 'cpu.pc' and 'cpu.getCSR()' work seamlessly with step()
+    cpu = MulticycleCpuWrapper(actual_cpu)
+    
     reg = punxa.Ram_Memory(hw, 'reg', dw, 7, reg_p)                 # 32 B
     mem = punxa.Ram_Memory(hw, 'men', dw, 11, mem_p)                # 2048 B
     ins_mem = punxa.Ram_Memory(hw, 'ins_men', 16, 14, ins_p)        # 16 k words (of 16 bits) 
@@ -74,8 +141,7 @@ def prepareTest(file):
     import punxa_atmega328p.interactive_commands as ci
     
     ci._ci_hw = hw
-    ci._ci_cpu = cpu
-
+    ci._ci_cpu = cpu  # Pass the wrapped CPU to the interactive shell
 
     return hw, cpu, ins_mem, mem, symbols
     
@@ -83,24 +149,30 @@ def runTest(file):
     
     hw, cpu, ins_mem, mem , symbols = prepareTest(file)
     
-    step_limit = 1000
+    # Multicycle processor takes multiple clock cycles per instruction.
+    # Use a generous overall limit to catch ACTUAL infinite loops.
+    step_limit = 5000000
     step_count = 0
     
     while (cpu.pc != symbols['end']):
-        step()
+        hw.getSimulator().clk(1)
         step_count += 1 
+        
         if (step_count > step_limit):
-            raise Exception('Step count > limit')
+            # Provide helpful debug info if it actually gets stuck forever
+            raise Exception(f'Stuck in infinite loop! PC: {cpu.pc:04X} (Expected end at: {symbols["end"]:04X})')
     
     test_case = mem.readWord(symbols['test_case']-0x100)
     final_result = mem.readWord(symbols['final_result']-0x100)
     
-    print('FINAL RESULT:', final_result, '\tTest case:', test_case)
+    print('FINAL RESULT:', final_result, '\tTest case:', test_case, '\tCycles:', step_count)
     
     if (final_result == 255):
         raise Exception(f'Failed in test case {test_case}')
 
-
+# =============================================================================
+# TEST SUITE CONFIGURATION & RUNNERS
+# =============================================================================
 ex_dir = 'isa/'
 selected_prefixes = ['test_arith', 'test_bitmap', 'test_logic', 'test_ctrflow', 'test_data', 'test_mcu']
 

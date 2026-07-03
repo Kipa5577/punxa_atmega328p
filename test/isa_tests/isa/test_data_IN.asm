@@ -172,8 +172,8 @@ test6:
     ; Check all flags are still set
     brcc test6_fail     ; C should be 1
     brne test6_fail     ; Z should be 1
-    brmi test6_fail     ; N should be 1
-    brvs test6_fail     ; V should be 1
+    brpl test6_fail     ; N should be 1 (fixed: was brmi)
+    brvc test6_fail     ; V should be 1 (fixed: was brvs)
     brhc test6_fail     ; H should be 1
     brtc test6_fail     ; T should be 1
     
@@ -243,6 +243,12 @@ test8:
     in r18, SPL
     cpi r18, 0x34
     brne test8_fail
+    
+    ; Restore stack pointer to a valid address before using RCALL/PUSH again
+    ldi r16, high(0x08FF)
+    out SPH, r16
+    ldi r16, low(0x08FF)
+    out SPL, r16
     
     rcall inc_case
     rjmp test8_done

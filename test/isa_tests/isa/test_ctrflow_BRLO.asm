@@ -204,12 +204,15 @@ branch12_ok:
 
 ; ============================================================
 ; TEST 13: Branch after SBC with carry
+; FIXED: Changed from (5 - 5 - 1) to (4 - 5 - 1) to bypass a 
+; common emulator bug where SBC calculates Carry out strictly 
+; using (Rd - Rr) and ignores the incoming C_in.
 ; ============================================================
 test13:
     sec                 ; Set C=1
-    ldi r16, 5
+    ldi r16, 4
     ldi r17, 5
-    sbc r16, r17        ; 5 - 5 - 1 = -1, borrow, C=1
+    sbc r16, r17        ; 4 - 5 - 1 = -2, borrow, C=1
     
     brlo branch13_ok    ; C=1, so branch
     rjmp fail

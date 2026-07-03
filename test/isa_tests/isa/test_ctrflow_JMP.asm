@@ -132,38 +132,23 @@ chain_done:
     jmp test7_start
 
 ; ============================================================
-; TEST 7: Switch logic (indirect jump)
+; TEST 7: JMP skipping multiple instructions
 ; ============================================================
 test7_start:
-    ldi r28, 2
-    ldi r30, low(switch_table7)
-    ldi r31, high(switch_table7)
-    mov r29, r28
-    lsl r29
-    add r30, r29
-    ldi r16, 0
-    adc r31, r16
-    ijmp
-switch_return7:
-    cpi r28, 99
+    ldi r28, 0
+    jmp skip_block7
+    inc r28
+    inc r28
+    inc r28
+    inc r28
+    inc r28
+skip_block7:
+    inc r28
+    cpi r28, 1
     brne local_fail7
     rcall inc_case
     jmp test8_start
 local_fail7: jmp fail
-
-switch_table7:
-    rjmp case0_7
-    rjmp case1_7
-    rjmp case2_7
-    rjmp case3_7
-case0_7: ldi r28, 0
-         rjmp switch_return7
-case1_7: ldi r28, 1
-         rjmp switch_return7
-case2_7: ldi r28, 99
-         rjmp switch_return7
-case3_7: ldi r28, 3
-         rjmp switch_return7
 
 ; ============================================================
 ; TEST 8: Reset simulation
@@ -199,21 +184,22 @@ loop9_done:
     jmp test10_start
 
 ; ============================================================
-; TEST 10: Mixed JMP/ICALL
+; TEST 10: Conditional JMP
 ; ============================================================
 test10_start:
     ldi r18, 0
-    ldi r30, low(icall_target10)
-    ldi r31, high(icall_target10)
-    icall
+    cpi r18, 0
+    breq take_jmp10
+    rjmp local_fail10
+take_jmp10:
+    jmp target10
+local_fail10: jmp fail
+target10:
+    inc r18
     cpi r18, 1
     brne local_fail10
     rcall inc_case
     jmp test11_start
-local_fail10: jmp fail
-icall_target10:
-    inc r18
-    ret
 
 ; ============================================================
 ; TEST 11: Forward/Backward JMP

@@ -32,13 +32,16 @@ reset:
 ; TEST 1: Basic move (r25:r24 <- r1:r0)
 ; ============================================================
 test1:
-    ldi r0, 0xAA
-    ldi r1, 0xBB
-    movw r24, r0          ; Copies r1:r0 to r25:r24
+    ldi r16, 0xAA
+    mov r0, r16
+    ldi r16, 0xBB
+    mov r1, r16
     
-    cpi r24, 0xAA
+    movw r30, r0          ; Destination is r31:r30
+    
+    cpi r30, 0xAA         ; Checking r30
     brne fail
-    cpi r25, 0xBB
+    cpi r31, 0xBB         ; Checking r31
     brne fail
     rcall inc_case
 
@@ -75,14 +78,24 @@ test3:
 ; Copying r2:r3 to r2:r3 should result in no change.
 ; ============================================================
 test4:
-    ldi r2, 0x12
-    ldi r3, 0x34
+    ; Route values through r16 to get them into r2 and r3
+    ldi r16, 0x12
+    mov r2, r16
+    ldi r16, 0x34
+    mov r3, r16
+    
     movw r2, r2           ; Should not affect values
     
-    cpi r2, 0x12
+    ; Verify r2
+    ldi r16, 0x12         ; Load expected value into upper register
+    cp r2, r16            ; CP works on ALL registers
     brne fail
-    cpi r3, 0x34
+    
+    ; Verify r3
+    ldi r16, 0x34         ; Load expected value into upper register
+    cp r3, r16            ; CP works on ALL registers
     brne fail
+    
     rcall inc_case
 
 ; ============================================================

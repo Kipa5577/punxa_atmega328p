@@ -159,14 +159,12 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
 
     OP1A8A13 = ins>>10 # for lines 1,8 and 13 of the table
     OP2A10 = ins>>12 # for lines 2 and 10 of the table
-    OP3  = ((ins>>8)<<4)|(ins&0x0F)
+    #OP3  = ((ins>>8)<<4)|(ins&0x0F)
     OP4  = ((ins>>7)<<1)|((ins>>3)&0x01)
     OP5A6A12 = (ins>>8) # for lines 5,6 and 12 of the table
     OP7  = ((ins>>9)<<4)|(ins&0xF)
-    OP9  = ((ins>>7)<<4)|(ins&0x0F)
     OP11 = ins 
     OP14 = ((ins>>10)<<3)|(ins&0b111)
-    OP15 = ((ins>>9)<<1)|(ins>>3&0b1)
     OP16 = (ins>>11)
     OP17 = ((ins>>3)&0b1)|(((ins>>9)&0b1)<<1)|(((ins>>12)&0b1)<<2)|((ins>>14)<<3)
     
@@ -183,17 +181,7 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b10111: return 'OUT'
         
 
-    match OP15:
-        case 0b11111010: return 'BST'
-        case 0b11111000: return 'BLD'
-
-    match OP9: 
-        case 0b1001010001000: return 'BSET'
-        case 0b1001010011000: return 'BCLR'
-
-
     match OP5A6A12: 
-        case 0b00000010: return 'MULS'
         case 0b00000001: return 'MOVW'
         case 0b10010110: return 'ADIW'
         case 0b10010111: return 'SBIW'
@@ -202,8 +190,8 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b10011000: return 'CBI'
         case 0b10011011: return 'SBIS'
 
-    match OP3:
-        case 0b111011111111: return 'SER'
+    #match OP3:
+    #    case 0b111011111111: return 'SER'
 
     match OP7:
         case 0b10010100001: return 'NEG'
@@ -242,14 +230,14 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
 #        case 0b10010000111: return 'ELPM'
         case 0b10010000100: return 'LPMZ'
         case 0b10010000101: return 'LPMZ+'
+        case 0b1001010111101000: return 'SPM'
+        case 0b1001010111111000: return 'SPMZ+'
 
 
 
     match OP4:
-        case 0b0000001100: return 'MULSU'
         case 0b0000001101: return 'FMUL'
-        case 0b0000001110: return 'FMULS'
-        case 0b0000001111: return 'FMULSU'
+
 
 
     match OP2A10:
@@ -260,7 +248,7 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b0110: return 'ORI' ##or SBR it is the same thing
         case 0b0011: return 'CPI'
 
-        case 0b1100: return 'RJMP'
+        #case 0b1100: return 'RJMP'
         case 0b1101: return 'RCALL'
 
 
@@ -268,15 +256,15 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
     match OP1A8A13 :
         case 0b0000_10: return 'SBC'
         case 0b0000_11: return 'ADD' # Collision LSL
-        case 0b0000_11: return 'LSL' # Collision ADD
+        #case 0b0000_11: return 'LSL' # Collision ADD
         case 0b0001_01: return 'CP'
         case 0b0001_11: return 'ADC' # Collision ROL
-        case 0b0001_11: return 'ROL' # Collision ADC
+        #case 0b0001_11: return 'ROL' # Collision ADC
         case 0b0001_10: return 'SUB'
         case 0b0010_00: return 'AND' # Collision TST
-        case 0b0010_00: return 'TST' # Collision AND
+        #case 0b0010_00: return 'TST' # Collision AND
         case 0b0010_01: return 'EOR' # Collision CLR
-        case 0b0010_01: return 'CLR' # Collision EOR
+        #case 0b0010_01: return 'CLR' # Collision EOR
         case 0b0010_10: return 'OR'
         case 0b1001_11: return 'MUL'
         case 0b0000_01: return 'CPC'
@@ -307,22 +295,23 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
     
     match OP11:
         ## These instructions are use less at harware level because they default to BSET or BCLR
-        case 0b1001010000001000: return 'SEC'
-        case 0b1001010010001000: return 'CLC'
-        case 0b1001010000101000: return 'SEN'
-        case 0b1001010010101000: return 'CLN'
-        case 0b1001010000011000: return 'SEZ'
-        case 0b1001010010011000: return 'CLZ'
-        case 0b1001010001111000: return 'SEI'
-        case 0b1001010011111000: return 'CLI'
-        case 0b1001010001001000: return 'SES'
-        case 0b1001010011001000: return 'CLS'
-        case 0b1001010000111000: return 'SEV'
-        case 0b1001010010111000: return 'CLV'
-        case 0b1001010001101000: return 'SET'
-        case 0b1001010011101000: return 'CLT'
-        case 0b1001010001011000: return 'SEH'
-        case 0b1001010011011000: return 'CLH'
+        #case 0b1001010000001000: return 'SEC'
+        #case 0b1001010010001000: return 'CLC'
+        #case 0b1001010000101000: return 'SEN'
+        #case 0b1001010010101000: return 'CLN'
+        #case 0b1001010000011000: return 'SEZ'
+        #case 0b1001010010011000: return 'CLZ'
+        #case 0b1001010001111000: return 'SEI'
+        #case 0b1001010011111000: return 'CLI'
+        #case 0b1001010001001000: return 'SES'
+        #case 0b1001010011001000: return 'CLS'
+        #case 0b1001010000111000: return 'SEV'
+        #case 0b1001010010111000: return 'CLV'
+        #case 0b1001010001101000: return 'SET'
+        #case 0b1001010011101000: return 'CLT'
+        #case 0b1001010001011000: return 'SEH'
+        #case 0b1001010011011000: return 'CLH'
+
         ##
         case 0x0: return 'NOP'
         case 0b1001010110001000: return 'SLEEP'
@@ -332,7 +321,7 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b1001010100001000: return 'RET'
         case 0b1001010100011000: return 'RETI'
         case 0b1001010111101000: return'SPM'
-        case 0b1001010111001000: return 'LPM'
+        case 0x9004: return 'LPM'
 
 
     return 'invalid'
@@ -392,9 +381,4 @@ def str_to_code(instruction_str):
         'NOP': 128, 'SLEEP': 129, 'WDR': 130, 'BREAK': 131
     }
     
-    return op_codes.get(instruction_str, 0) # 0 maps to Idle/Invalid instruction
-
-
-
-
-    
+    return op_codes.get(instruction_str, 0) # 0 maps to Idle/Invalid instructions

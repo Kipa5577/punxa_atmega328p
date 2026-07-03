@@ -13,6 +13,11 @@
 ; Reset
 ; -------------------------
 reset:
+    ; Initialize stack pointer to top of internal SRAM (RAMEND = 0x08FF)
+    ldi r16, 0xFF
+    out SPL, r16
+    ldi r16, 0x08
+    out SPH, r16
     ldi r16, 0
     sts test_case, r16
     ldi r16, 1
