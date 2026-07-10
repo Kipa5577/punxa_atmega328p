@@ -4,6 +4,7 @@ from .OppFSM import *
 from .LDSTFSM import * 
 from .PopPushFSM import * 
 from .MovFSM import * 
+from .LPM import * 
 from .FSM_SELECTOR import * 
 from .FSM_OutputMerger import * 
 # =============================================================================
@@ -21,6 +22,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         * PopPush_FSM    — PUSH / POP.
         * LDST_FSM       — loads / stores / IN / OUT / SBI / CBI.
         * CallRet_FSM    — RJMP/IJMP/JMP/RCALL/ICALL/CALL/RET/RETI.
+        * LPM_FSM        — LPM / LPMZ / LPMZ+ program-memory loads.
 
     The selector's RUN_* outputs gate the `run` input of the matching FSM.
     All FSM outputs are bitwise-OR-merged: FSMs in their STOP state drive
@@ -57,6 +59,8 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
                  IFB_LOAD_PCL,
                  IFB_LOAD_PCH,
                  IFB_K_Select,
+                 IFB_LPM_req,
+                 IFB_SPM_req,
                  ):
         super().__init__(parent, name)
 
@@ -89,6 +93,8 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.LOAD_PCL               = self.addOut('LOAD_PCL',               IFB_LOAD_PCL)
         self.LOAD_PCH               = self.addOut('LOAD_PCH',               IFB_LOAD_PCH)
         self.K_Select               = self.addOut('IFB_K_Select',           IFB_K_Select)
+        self.LPM_req                = self.addOut('LPM_req',                IFB_LPM_req)
+        self.SPM_req                = self.addOut('SPM_req',                IFB_SPM_req)
 
         # ==============================================================
         # INTERNAL WIRES
@@ -99,6 +105,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_RUN_POPPUSHFSM = py4hw.Wire(self, 'w_RUN_POPPUSHFSM', 1)
         self.w_RUN_LDSTFSM    = py4hw.Wire(self, 'w_RUN_LDSTFSM',    1)
         self.w_RUN_CALLRETFSM = py4hw.Wire(self, 'w_RUN_CALLRETFSM', 1)
+        self.w_RUN_LPMFSM     = py4hw.Wire(self, 'w_RUN_LPMFSM',     1)
 
         # Merged outputs that have NO external port (still needed by the merger)
         self.WE_MEMORY  = py4hw.Wire(self, 'WE_MEMORY',  1)
@@ -125,6 +132,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_opp_WB_Addr                = py4hw.Wire(self, 'w_opp_WB_Addr',                8)
         self.w_opp_LOAD_PCL               = py4hw.Wire(self, 'w_opp_LOAD_PCL',               1)
         self.w_opp_LOAD_PCH               = py4hw.Wire(self, 'w_opp_LOAD_PCH',               1)
+        self.w_opp_K_Select                = py4hw.Wire(self, 'w_opp_K_Select',                2)
 
 
         # ── MOV FSM Wires ──
@@ -223,6 +231,34 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_callret_LOAD_PCH               = py4hw.Wire(self, 'w_callret_LOAD_PCH',               1)
         self.w_callret_K_Select               = py4hw.Wire(self, 'w_callret_K_Select',               2)
 
+        # ── LPM FSM Wires ──
+        self.w_lpm_done                   = py4hw.Wire(self, 'w_lpm_done',                   1)
+        self.w_lpm_NotExecute             = py4hw.Wire(self, 'w_lpm_NotExecute',             1)
+        self.w_lpm_LoadSelectMux          = py4hw.Wire(self, 'w_lpm_LoadSelectMux',          1)
+        self.w_lpm_LoadingMux             = py4hw.Wire(self, 'w_lpm_LoadingMux',             4)
+        self.w_lpm_Input_Select           = py4hw.Wire(self, 'w_lpm_Input_Select',           5)
+        self.w_lpm_WE                     = py4hw.Wire(self, 'w_lpm_WE',                     1)
+        self.w_lpm_Read_Write             = py4hw.Wire(self, 'w_lpm_Read_Write',             2)
+        self.w_lpm_Mem_Instruction        = py4hw.Wire(self, 'w_lpm_Mem_Instruction',        5)
+        self.w_lpm_IncDec                 = py4hw.Wire(self, 'w_lpm_IncDec',                 3)
+        self.w_lpm_write_Opperand_Buffer  = py4hw.Wire(self, 'w_lpm_write_Opperand_Buffer',  3)
+        self.w_lpm_InputSelect            = py4hw.Wire(self, 'w_lpm_InputSelect',            1)
+        self.w_lpm_Write_Enable           = py4hw.Wire(self, 'w_lpm_Write_Enable',           1)
+        self.w_lpm_Load_Z                 = py4hw.Wire(self, 'w_lpm_Load_Z',                 1)
+        self.w_lpm_Load_K                 = py4hw.Wire(self, 'w_lpm_Load_K',                 1)
+        self.w_lpm_Load_Jump              = py4hw.Wire(self, 'w_lpm_Load_Jump',              1)
+        self.w_lpm_relative_Absolute      = py4hw.Wire(self, 'w_lpm_relative_Absolute',      1)
+        self.w_lpm_Load_Byte              = py4hw.Wire(self, 'w_lpm_Load_Byte',              1)
+        self.w_lpm_Fetch_next_instruction = py4hw.Wire(self, 'w_lpm_Fetch_next_instruction', 1)
+        self.w_lpm_Fetch_Address          = py4hw.Wire(self, 'w_lpm_Fetch_Address',          1)
+        self.w_lpm_WB_Addr                = py4hw.Wire(self, 'w_lpm_WB_Addr',                8)
+        self.w_lpm_LOAD_PCL               = py4hw.Wire(self, 'w_lpm_LOAD_PCL',               1)
+        self.w_lpm_LOAD_PCH               = py4hw.Wire(self, 'w_lpm_LOAD_PCH',               1)
+        self.w_lpm_LPM_req                = py4hw.Wire(self, 'w_lpm_LPM_req',                1)
+        self.w_lpm_SPM_req                = py4hw.Wire(self, 'w_lpm_SPM_req',                1)
+
+
+
         # ==============================================================
         # FSM_SELECTOR  —  decodes Instruction while run==1 and raises
         # exactly one of the RUN_* lines.
@@ -236,6 +272,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             self.w_RUN_POPPUSHFSM,
             self.w_RUN_LDSTFSM,
             self.w_RUN_CALLRETFSM,
+            self.w_RUN_LPMFSM,
         )
 
         # ==============================================================
@@ -268,6 +305,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             WB_Addr                   = self.w_opp_WB_Addr,
             LOAD_PCL                  = self.w_opp_LOAD_PCL,
             LOAD_PCH                  = self.w_opp_LOAD_PCH,
+            K_Select                  = self.w_opp_K_Select,
         )
 
         # ==============================================================
@@ -402,6 +440,43 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         )
 
         # ==============================================================
+        # LPM_FSM  —  LPM / LPMZ / LPMZ+ program-memory loads
+        # ==============================================================
+        self.lpm_fsm = LPM_FSM(
+            self, 'LPM_FSM',
+            run                       = self.w_RUN_LPMFSM,
+            done                      = self.w_lpm_done,
+            Instruction               = self.Instruction,
+            Resp                      = self.Resp,
+            Branch                    = self.Branch,
+            Executed_Jump             = self.Executed_Jump,
+            Address_fetched           = self.Address_fetched,
+            NotExecute                = self.w_lpm_NotExecute,
+            LoadSelectMux             = self.w_lpm_LoadSelectMux,
+            LoadingMux                = self.w_lpm_LoadingMux,
+            Input_Select              = self.w_lpm_Input_Select,
+            WE                        = self.w_lpm_WE,
+            Read_Write                = self.w_lpm_Read_Write,
+            Mem_Instruction           = self.w_lpm_Mem_Instruction,
+            IncDec                    = self.w_lpm_IncDec,
+            write_Opperand_Buffer     = self.w_lpm_write_Opperand_Buffer,
+            InputSelect               = self.w_lpm_InputSelect,
+            Write_Enable              = self.w_lpm_Write_Enable,
+            Load_Z                    = self.w_lpm_Load_Z,
+            Load_K                    = self.w_lpm_Load_K,
+            Load_Jump                 = self.w_lpm_Load_Jump,
+            relative_Absolute         = self.w_lpm_relative_Absolute,
+            Load_Byte                 = self.w_lpm_Load_Byte,
+            Fetch_next_instruction    = self.w_lpm_Fetch_next_instruction,
+            Fetch_Address             = self.w_lpm_Fetch_Address,
+            LOAD_PCL                  = self.w_lpm_LOAD_PCL,
+            LOAD_PCH                  = self.w_lpm_LOAD_PCH,
+            WB_Addr                   = self.w_lpm_WB_Addr,
+            LPM_req                   = self.w_lpm_LPM_req,
+            SPM_req                   = self.w_lpm_SPM_req,
+        )
+
+        # ==============================================================
         # OUTPUT MERGER  —  OR-merges all FSM outputs
         # ==============================================================
         opp_outputs = {
@@ -425,6 +500,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             'WB_Addr':                self.w_opp_WB_Addr,
             'LOAD_PCL':               self.w_opp_LOAD_PCL,
             'LOAD_PCH':               self.w_opp_LOAD_PCH,
+            'K_Select':               self.w_opp_K_Select,
         }
 
         mov_outputs = {
@@ -520,6 +596,31 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             'K_Select':               self.w_callret_K_Select,
         }
 
+        lpm_outputs = {
+            'done':                   self.w_lpm_done,
+            'LoadSelectMux':          self.w_lpm_LoadSelectMux,
+            'LoadingMux':             self.w_lpm_LoadingMux,
+            'Input_Select':           self.w_lpm_Input_Select,
+            'WE':                     self.w_lpm_WE,
+            'Read_Write':             self.w_lpm_Read_Write,
+            'Mem_Instruction':        self.w_lpm_Mem_Instruction,
+            'IncDec':                 self.w_lpm_IncDec,
+            'WE_Buffer':              self.w_lpm_write_Opperand_Buffer,
+            'InputSelect':            self.w_lpm_InputSelect,
+            'Load_Z':                 self.w_lpm_Load_Z,
+            'Load_K':                 self.w_lpm_Load_K,
+            'Load_Jump':              self.w_lpm_Load_Jump,
+            'relative_Absolute':      self.w_lpm_relative_Absolute,
+            'Load_Byte':              self.w_lpm_Load_Byte,
+            'Fetch_next_instruction': self.w_lpm_Fetch_next_instruction,
+            'Fetch_Address':          self.w_lpm_Fetch_Address,
+            'WB_Addr':                self.w_lpm_WB_Addr,
+            'LOAD_PCL':               self.w_lpm_LOAD_PCL,
+            'LOAD_PCH':               self.w_lpm_LOAD_PCH,
+            'LPM_req':                self.w_lpm_LPM_req,
+            'SPM_req':                self.w_lpm_SPM_req,
+        }
+
 
         merged_outputs = {
             'done':                   self.done,
@@ -542,6 +643,9 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             'LOAD_PCL':               self.LOAD_PCL,
             'LOAD_PCH':               self.LOAD_PCH,
             'K_Select':               self.K_Select,
+            'LPM_req':                self.LPM_req,
+            'SPM_req':                self.SPM_req,
+            
         }
 
         self.merger = FSM_OutputMerger(
@@ -551,5 +655,6 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             poppush_outputs,
             ldst_outputs,
             callret_outputs,
+            lpm_outputs,
             merged_outputs,
         )

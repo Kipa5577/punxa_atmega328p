@@ -21,7 +21,7 @@ class control_Box(py4hw.Logic):
                  CB_Instruction_fetched,    # Handshake from RomHandler indicating a new instruction word has been fetched and is ready to decode
                  CB_Instruction_decoded,    # Handshake from Instruction_decoder indicating the decoded fields for the current instruction are valid/stable
                  CB_Executed_Jump,          # Handshake from RomHandler confirming a jump/branch/call target has been committed to the PC this cycle
-                 CB_Address_fetched,        # <--- NEW: Handshake from RomHandler confirming the 16-bit address word is ready
+                 CB_Address_fetched,        # Handshake from RomHandler confirming the 16-bit address word is ready
                  
                  # ── Outputs ──────────────────────────────────────────
                  CB_LoadSelectMux,          # To MemoryInterfaceHandler: selects which displacement/offset source feeds the address-generation MUX
@@ -44,7 +44,9 @@ class control_Box(py4hw.Logic):
                  CB_JumpWidth,              # To RomHandler: tells it how much to advance the PC for the next instruction (0 = PC+1, 1 = PC+2 for two-word instructions)
                  CB_LOAD_PCL,               # To RomHandler: enables loading the low byte of the Program Counter from PCL_LOAD_VAL (e.g. POP PC during RET)
                  CB_LOAD_PCH,               # To RomHandler: enables loading the high byte of the Program Counter from PCH_LOAD_VAL (e.g. POP PC during RET)
-                 CB_K_Select,   
+                 CB_K_Select,
+                 CB_LPM_req,                # To RomHandler: enables loading of the program memory value
+                 CB_SPM_req,                # To RomHandler: enables the storing of the value past to romHandler in to the program memory  1 = LMP | 2 = LMPZ | 3 = LMPZ+
                  ):
         super().__init__(parent, name)
 
@@ -59,7 +61,8 @@ class control_Box(py4hw.Logic):
         self.CB_Instruction_fetched = self.addIn('CB_Instruction_fetched', CB_Instruction_fetched)  # Handshake: new instruction word fetched and ready to decode
         self.CB_Instruction_decoded = self.addIn('CB_Instruction_decoded', CB_Instruction_decoded)  # Handshake: decoded instruction fields are valid/stable
         self.CB_Executed_Jump       = self.addIn('CB_Executed_Jump', CB_Executed_Jump)              # Handshake: jump/branch/call target committed to PC this cycle
-        self.CB_Address_fetched     = self.addIn('CB_Address_fetched', CB_Address_fetched)          # <--- NEW: Handshake for 16-bit address fetch
+        self.CB_Address_fetched     = self.addIn('CB_Address_fetched', CB_Address_fetched)          # Handshake for 16-bit address fetch
+
 
         self.CB_LoadSelectMux          = self.addOut('CB_LoadSelectMux', CB_LoadSelectMux)                            # Selects the displacement/offset source for address generation
         self.CB_LoadingMux             = self.addOut('CB_LoadingMux', CB_LoadingMux)                                  # Selects which internal pointer byte gets loaded
@@ -82,6 +85,8 @@ class control_Box(py4hw.Logic):
         self.CB_LOAD_PCL               = self.addOut('CB_LOAD_PCL',CB_LOAD_PCL)                                       # Enables loading the low byte of the Program Counter
         self.CB_LOAD_PCH               = self.addOut('CB_LOAD_PCH',CB_LOAD_PCH)                                       # Enables loading the high byte of the Program Counter
         self.CB_K_Select               = self.addOut('CB_K_Select',CB_K_Select)
+        self.CB_LPM_req                = self.addOut('CB_LPM_req',CB_LPM_req)
+        self.CB_SPM_req                = self.addOut('CB_SPM_req',CB_SPM_req)
 
         # ==============================================================
         # INTERNAL WIRES
@@ -105,7 +110,7 @@ class control_Box(py4hw.Logic):
             MAIN_Instruction_decoded=self.CB_Instruction_decoded,
             MAIN_DONE=self.w_done,       # Reads the internal done wire
             MAIN_RUN=self.w_run,          # Drives the internal run wire
-            MAIN_Instruction=self.CB_JumpWidth,        # instruction code (opcode), used to size JumpWidth
+            MAIN_Instruction=self.CB_Instruction,      # instruction code (opcode), used to size JumpWidth
             MAIN_JumpWidth=self.CB_JumpWidth,
             MAIN_Fetch_next_instruction=self.CB_Fetch_next_instruction
         )
@@ -140,4 +145,6 @@ class control_Box(py4hw.Logic):
             IFB_LOAD_PCL=self.CB_LOAD_PCL,
             IFB_LOAD_PCH=self.CB_LOAD_PCH,
             IFB_K_Select=self.CB_K_Select,
+            IFB_LPM_req=self.CB_LPM_req,
+            IFB_SPM_req=self.CB_SPM_req,
         )

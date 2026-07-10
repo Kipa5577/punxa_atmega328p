@@ -249,3 +249,57 @@ class ProgramMemory(py4hw.Logic):
             self.memory[self.ADRESS.get()] = self.DATA_IN
 
 
+class StackPointer(py4hw.Logic):
+    """
+    A dedicated memory-mapped component to store the Stack Pointer (SP).
+    In the ATmega328P, SPL is at I/O address 0x3D (SRAM address 0x5D)
+    and SPH is at I/O address 0x3E (SRAM address 0x5E).
+    """
+    def __init__(self, parent: py4hw.Logic, name: str, port: MemoryInterface):
+        super().__init__(parent, name)
+        
+        self.port = self.addInterfaceSink('port', port)
+        
+        # Internal registers for SPL and SPH
+        self.SPL = 0
+        self.SPH = 0
+
+    def clock(self):
+        address = self.port.address.get()
+
+        # Ensure no simultaneous read and write operations
+        assert not((self.port.read.get() == 1) and (self.port.write.get() == 1))
+        
+        # Base addresses for SP in the ATmega328P SRAM map
+        SPL_ADDR = 0x5D
+        SPH_ADDR = 0x5E
+
+        if self.port.write.get() == 1:
+            write_data = self.port.write_data.get()
+            if address == SPL_ADDR:
+                self.SPL = write_data & 0xFF
+                print(f"[{self.name}] WRITE SPL: {self.SPL:02X}")
+            elif address == SPH_ADDR:
+                self.SPH = write_data & 0xFF
+                print(f"[{self.name}] WRITE SPH: {self.SPH:02X}")
+                
+            self.port.resp.prepare(1)
+
+        elif self.port.read.get() == 1:
+            if address == SPL_ADDR:
+                self.port.read_data.prepare(self.SPL)
+                print(f"[{self.name}] READ SPL: {self.SPL:02X}")
+            elif address == SPH_ADDR:
+                self.port.read_data.prepare(self.SPH)
+                print(f"[{self.name}] READ SPH: {self.SPH:02X}")
+            else:
+                self.port.read_data.prepare(0) # Default if out of bounds
+                
+            self.port.resp.prepare(1)
+
+        else:
+            self.port.resp.prepare(0)
+            
+    # Helpers to view the full 16-bit SP value
+    def get_sp(self):
+        return (self.SPH << 8) | self.SPL

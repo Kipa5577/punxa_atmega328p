@@ -3,30 +3,21 @@ import py4hw
 STATES = [
     "STOP",
 
-    # Read stack pointer
-    "FETCH_STACK_POINTER_BEGIN_L",
-    "FETCH_STACK_POINTER_WAIT_L",
-    "LOAD_STACK_POINTER_L_IN_BUFFER",
-
-    "FETCH_STACK_POINTER_BEGIN_H",
-    "FETCH_STACK_POINTER_WAIT_H",
-    "LOAD_STACK_POINTER_H_IN_BUFFER",
-
     # Prepare return address
     "INCREMENT_STORED_PC",
 
     # Push PC
+    # NOTE: SP lives permanently inside MemoryInterfaceHandler (self.SPL/self.SPH).
+    # Any access to SRAM 0x5D/0x5E is intercepted there and redirected to those
+    # same registers, and MEM_SP addressing reads/writes them directly. There is
+    # no separate copy in SRAM to fetch into a buffer or write back afterwards
+    # (the old FETCH_STACK_POINTER_*/SAVE_DECREMENTED_SP_* dance is gone) -
+    # SP is just used directly, the way a real CPU's SP register works.
     "READ_L_BYTE_OF_PC",
     "LOAD_L_BYTE_OF_PC_TO_STACK",
 
     "READ_H_BYTE_OF_PC",
     "LOAD_H_BYTE_OF_PC_TO_STACK",
-
-    # Save decremented SP back to SRAM
-    "SAVE_DECREMENTED_SP_L",
-    "WAIT_SAVE_DECREMENTED_SP_L",
-    "SAVE_DECREMENTED_SP_H",
-    "WAIT_SAVE_DECREMENTED_SP_H",
 
     # RCALL
     "FETCH_K_OFFSET",
@@ -52,18 +43,13 @@ STATES = [
     # RET
     "FETCH_L_BYTE_OF_PC",
     "WAIT_FETCH_L_BYTE_OF_PC",
+    "LATCH_L_BYTE_OF_PC",
     "STORE_L_BYTE_OF_PC",
 
     "FETCH_H_BYTE_OF_PC",
     "WAIT_FETCH_H_BYTE_OF_PC",
+    "LATCH_H_BYTE_OF_PC",
     "STORE_H_BYTE_OF_PC",
-
-    # Restore SP
-    "LOAD_STACK_POINTER_BEGIN_L",
-    "LOAD_STACK_POINTER_WAIT_L",
-
-    "LOAD_STACK_POINTER_BEGIN_H",
-    "LOAD_STACK_POINTER_WAIT_H",
 ]
 
 OPCODE_RJMP  = 29
@@ -183,6 +169,7 @@ class CallRet_FSM(py4hw.Logic):
         self._wb_addr_val = 0
         self._pointer_update_pending = False
         self.debug = 0
+        
     def clock(self):
         # Read inputs
         inst              = self.Instruction.get()
@@ -238,139 +225,69 @@ class CallRet_FSM(py4hw.Logic):
             if run == 1:
                 self._latched_inst = inst
 
-                # FIX: Route RJMP/IJMP/JMP directly to their jump states. 
-                # Only RCALL/ICALL/CALL should push the PC.
-                if self._latched_inst in OPCODE_RET:
-                    next_state = 'FETCH_L_BYTE_OF_PC'
-                elif self._latched_inst == OPCODE_RJMP:
+                # Route RJMP/IJMP/JMP directly to their jump states.
+                # RCALL/ICALL/CALL/RET/RETI all touch the stack pointer, but SP
+                # now lives permanently inside MemoryInterfaceHandler (self.SPL/
+                # self.SPH) — any access to 0x5D/0x5E is intercepted there and
+                # redirected straight to those registers, so there's no external
+                # SRAM copy to sync from first. We go straight to the push
+                # (CALL family) or pop (RET family) using Mem_Instruction = 7
+                # (MEM_SP), which reads/writes the resident SP directly — the
+                # same "SP is just always there" model a real CPU's SP uses.
+                if self._latched_inst == OPCODE_RJMP:
                     next_state = 'FETCH_K_OFFSET'
                 elif self._latched_inst == OPCODE_IJMP:
                     next_state = 'FETCH_ADDRESS_Z_L'
                 elif self._latched_inst == OPCODE_JMP:
                     next_state = 'FETCH_ADDRESS_BYTE'
+                elif self._latched_inst in OPCODE_RET:
+                    next_state = 'FETCH_L_BYTE_OF_PC'
                 else: # RCALL, ICALL, CALL
-                    next_state = 'FETCH_STACK_POINTER_BEGIN_L'
-
-        # ------------------------------------------------
-        # Read Stack Pointer (SPL)
-        # ------------------------------------------------
-        elif state == 'FETCH_STACK_POINTER_BEGIN_L':
-            Mem_Instruction = 16 #  "Direct Address via WB_Addr"
-            IncDec = 0
-            Read_Write = 2       
-            WB_Addr = 0x5D       # SPL address
-            next_state = 'FETCH_STACK_POINTER_WAIT_L'
-
-        elif state == 'FETCH_STACK_POINTER_WAIT_L':
-            Mem_Instruction = 16 
-            IncDec = 0
-            Read_Write = 2       
-            WB_Addr = 0x5D 
-            if resp == 1:
-                next_state = 'LOAD_STACK_POINTER_L_IN_BUFFER'
-
-        elif state == 'LOAD_STACK_POINTER_L_IN_BUFFER':
-            WB_Addr = 0x5D
-            Mem_Instruction = 16 
-            IncDec = 0
-            Read_Write = 2       
-            WE_Memory = 1        # Enabling the writing to buffer
-            LoadingMux =  7      # Loading to SPL
-            next_state = 'FETCH_STACK_POINTER_BEGIN_H'
-
-        # ------------------------------------------------
-        # Read Stack Pointer (SPH)
-        # ------------------------------------------------
-        elif state == 'FETCH_STACK_POINTER_BEGIN_H':
-            Mem_Instruction = 16 
-            IncDec = 0
-            Read_Write = 2       
-            WB_Addr = 0x5E       # SPH address
-            next_state = 'FETCH_STACK_POINTER_WAIT_H'
-
-        elif state == 'FETCH_STACK_POINTER_WAIT_H':
-            Mem_Instruction = 16 
-            IncDec = 0
-            Read_Write = 2       
-            WB_Addr = 0x5E 
-            if resp == 1:
-                next_state = 'LOAD_STACK_POINTER_H_IN_BUFFER'
-
-        elif state == 'LOAD_STACK_POINTER_H_IN_BUFFER':
-            Mem_Instruction = 16 
-            IncDec = 0
-            Read_Write = 2       
-            WB_Addr = 0x5E 
-            WE_Memory = 1        # Enabling the writing to buffer
-            LoadingMux =  8      # Loading to SPH
-        
-            next_state = 'READ_L_BYTE_OF_PC'
+                    next_state = 'READ_H_BYTE_OF_PC'
 
         # ------------------------------------------------
         # CALL / RCALL / ICALL
         # ------------------------------------------------
 
-        elif state == 'READ_L_BYTE_OF_PC':
-            LoadingMux = 7 # LOAD_SPL
-
-            next_state = 'LOAD_L_BYTE_OF_PC_TO_STACK'
-
-        elif state == 'LOAD_L_BYTE_OF_PC_TO_STACK':
-            LoadingMux = 7 # LOAD_SPL
-            Read_Write = 1              # Write to memory
-            Mem_Instruction = 7        # 7 "Use Buffered SP as Address"
-            InputSelect_Memory = 14     # 14 Mux select to route PCL to memory
-            IncDec = 3                  # 3 = Post-decrement SP (standard AVR behavior for Push)
-            
-            if resp == 1:
-                next_state = 'READ_H_BYTE_OF_PC'
-
         elif state == 'READ_H_BYTE_OF_PC':
-            LoadingMux = 8 # LOAD_SPH
-
+            # Issue cycle: assert the write for PCH -> [SP] here so the
+            # request has one full cycle to be seen before we ever sample
+            # resp. IncDec only fires on this issue cycle.
+            Read_Write = 1
+            Mem_Instruction = 7
+            InputSelect_Memory = 15     # INPUT_PCH
+            IncDec = 3                  # post-decrement SP after this write
             next_state = 'LOAD_H_BYTE_OF_PC_TO_STACK'
 
         elif state == 'LOAD_H_BYTE_OF_PC_TO_STACK':
-            LoadingMux = 8 # LOAD_SPH
-            Read_Write = 1              # Write to memory
-            Mem_Instruction = 7        # 7 "Use Buffered SP as Address"
-            InputSelect_Memory = 15     # 15 Mux select to route PCH to memory
-            IncDec = 3                  # 3 = Post-decrement SP (standard AVR behavior for Push)
-            
-            if resp == 1:
-                next_state = 'SAVE_DECREMENTED_SP_L'
-
-        # ------------------------------------------------
-        # Save Decremented SP back to SRAM
-        # ------------------------------------------------
-        elif state == 'SAVE_DECREMENTED_SP_L':
+            # Wait cycle: re-assert the same transaction but hold IncDec at
+            # 0 so SP isn't decremented again on every retry while resp
+            # settles (mirrors WAIT_FETCH_L_BYTE_OF_PC below).
             Read_Write = 1
-            Mem_Instruction = 16        # Target WB_Addr
-            WB_Addr = 0x5D              # SPL address
-            InputSelect_Memory = 12     # Mux to route SPL (from MemoryInterfaceHandler) to Mem In
-            next_state = 'WAIT_SAVE_DECREMENTED_SP_L'
-
-        elif state == 'WAIT_SAVE_DECREMENTED_SP_L':
-            Read_Write = 1              
-            Mem_Instruction = 16
-            WB_Addr = 0x5D
-            InputSelect_Memory = 12     
+            Mem_Instruction = 7
+            InputSelect_Memory = 15
+            IncDec = 0
             if resp == 1:
-                next_state = 'SAVE_DECREMENTED_SP_H'
+                next_state = 'READ_L_BYTE_OF_PC'
 
-        elif state == 'SAVE_DECREMENTED_SP_H':
+        elif state == 'READ_L_BYTE_OF_PC':
+            # Issue cycle: assert the write for PCL -> [SP] here.
             Read_Write = 1
-            Mem_Instruction = 16        
-            WB_Addr = 0x5E              # SPH address
-            InputSelect_Memory = 13     # Mux to route SPH (from MemoryInterfaceHandler) to Mem In
-            next_state = 'WAIT_SAVE_DECREMENTED_SP_H'
+            Mem_Instruction = 7
+            InputSelect_Memory = 14     # INPUT_PCL
+            IncDec = 3                  # post-decrement SP after this write
+            next_state = 'LOAD_L_BYTE_OF_PC_TO_STACK'
 
-        elif state == 'WAIT_SAVE_DECREMENTED_SP_H':
-            Read_Write = 1              
-            Mem_Instruction = 16
-            WB_Addr = 0x5E
-            InputSelect_Memory = 13     
+        elif state == 'LOAD_L_BYTE_OF_PC_TO_STACK':
+            # Wait cycle: hold IncDec at 0 while polling resp.
+            Read_Write = 1
+            Mem_Instruction = 7
+            InputSelect_Memory = 14
+            IncDec = 0
             if resp == 1:
+                # PC has been pushed and SP already lives updated in
+                # MemoryInterfaceHandler's resident SPL/SPH — no separate
+                # SRAM write-back needed. Dispatch straight to the jump.
                 if i == OPCODE_RCALL:
                     next_state = 'FETCH_K_OFFSET'
                 elif i == OPCODE_ICALL:
@@ -449,9 +366,17 @@ class CallRet_FSM(py4hw.Logic):
             next_state = 'JUMP_I'
 
         elif state == 'JUMP_I':
-            Load_Jump = 1
-            relative_Absolute = 1         # Absolute jump to Z
-
+            # FIX: RomHandler's STOP-state jump logic has two independent
+            # paths: Load_Z (PC <- {ZH,ZL} from MemoryInterfaceHandler's
+            # address_ZL/address_ZH outputs) and Load_Jump+relative_Absolute
+            # (PC <- K-mux value | latched_addr_word, driven by K_select).
+            # ICALL/IJMP just spent 6 states loading the Z register into
+            # MIH's internal ZregL/ZregH — but asserting Load_Jump here
+            # takes the WRONG path: K_select defaults to 0 (K7), so this
+            # jumped using a stale/unrelated K7 offset combined with
+            # whatever latched_addr_word was left over from the last
+            # JMP/CALL/LDS/STS, landing PC on garbage instead of Z.
+            Load_Z = 1
             if executed_jump == 1:
                 done = 1
                 next_state = 'STOP'
@@ -463,12 +388,11 @@ class CallRet_FSM(py4hw.Logic):
             Fetch_Address = 1           # Get absolute 32-bit address word
             next_state = 'WAIT_ADDRESS_RECONSTRUCTION'
  
-        # Example fix for the FSM waiting for the address:
         elif state == 'WAIT_ADDRESS_RECONSTRUCTION':
             if address_fetched == 1:
                 # Fetch_Address must be driven to 0 in this state!
                 Fetch_Address = 0 
-                next_state = 'NEXT_STATE'
+                next_state = 'JUMP'
  
         elif state == 'JUMP':
             Load_Jump = 1
@@ -491,14 +415,20 @@ class CallRet_FSM(py4hw.Logic):
         elif state == 'WAIT_FETCH_L_BYTE_OF_PC':
             Read_Write = 2
             Mem_Instruction = 7
-            IncDec = 4                  
+            IncDec = 0                  
             if resp == 1:
-                next_state = 'STORE_L_BYTE_OF_PC'
+                # Drop to idle before latching — don't keep asking MIH to
+                # read again while we're about to sample its output bus.
+                next_state = 'LATCH_L_BYTE_OF_PC'
+
+        elif state == 'LATCH_L_BYTE_OF_PC':
+            # One idle cycle with no memory transaction in flight, so
+            # BusData / PCL_LOAD_VAL is guaranteed stable before we pulse
+            # Load_PCL on the next cycle.
+            next_state = 'STORE_L_BYTE_OF_PC'
  
         elif state == 'STORE_L_BYTE_OF_PC':
-            Load_PCL = 1                # Assert PCL load pin
-            Read_Write = 2              
-            Mem_Instruction = 7
+            Load_PCL = 1                # Assert PCL load pin (memory idle)
             next_state = 'FETCH_H_BYTE_OF_PC'
  
         elif state == 'FETCH_H_BYTE_OF_PC':
@@ -510,56 +440,22 @@ class CallRet_FSM(py4hw.Logic):
         elif state == 'WAIT_FETCH_H_BYTE_OF_PC':
             Read_Write = 2
             Mem_Instruction = 7
-            IncDec = 4                  
+            IncDec = 0                  
             if resp == 1:
-                next_state = 'STORE_H_BYTE_OF_PC'
+                next_state = 'LATCH_H_BYTE_OF_PC'
+
+        elif state == 'LATCH_H_BYTE_OF_PC':
+            # Same settle cycle as the L byte, before pulsing Load_PCH.
+            next_state = 'STORE_H_BYTE_OF_PC'
  
         elif state == 'STORE_H_BYTE_OF_PC':
-            Load_PCH = 1                # Assert PCH load pin
-            # Signal ROM to jump to newly restored PC.
-
-            Load_Jump = 1
-            relative_Absolute = 1       # Absolute jump to restored PC
-            Read_Write = 2              
-            Mem_Instruction = 7
-            next_state = 'LOAD_STACK_POINTER_BEGIN_L'
-
-
-        # ------------------------------------------------
-        # Restore / Save Updated Stack Pointer (For RET)
-        # ------------------------------------------------
-        elif state == 'LOAD_STACK_POINTER_BEGIN_L':
-            # Write updated SP_L back to 0x5D
-            Read_Write = 1
-            Mem_Instruction = 16        # Target WB_Addr
-            WB_Addr = 0x5D
-            InputSelect_Memory = 12     # Mux to route SP_L to Mem In
-            next_state = 'LOAD_STACK_POINTER_WAIT_L'
-
-        elif state == 'LOAD_STACK_POINTER_WAIT_L':
-            Read_Write = 1              
-            Mem_Instruction = 16
-            WB_Addr = 0x5D
-            InputSelect_Memory = 12     
-            if resp == 1:
-                next_state = 'LOAD_STACK_POINTER_BEGIN_H'
-
-        elif state == 'LOAD_STACK_POINTER_BEGIN_H':
-            # Write updated SP_H back to 0x5E
-            Read_Write = 1
-            Mem_Instruction = 16        
-            WB_Addr = 0x5E
-            InputSelect_Memory = 13     # Mux to route SP_H to Mem In
-            next_state = 'LOAD_STACK_POINTER_WAIT_H'
-
-        elif state == 'LOAD_STACK_POINTER_WAIT_H':
-            Read_Write = 1              
-            Mem_Instruction = 16
-            WB_Addr = 0x5E
-            InputSelect_Memory = 13     
-            if resp == 1:
-                next_state = 'STOP'
-                done = 1
+            # RET is a direct PC load (PCL then PCH), not a jump — RomHandler
+            # never asserts Executed_Jump for Load_PCL/Load_PCH-only loads,
+            # so we must NOT wait on it here (that caused an infinite loop).
+            # Pulse Load_PCH and finish immediately.
+            Load_PCH = 1                # Assert PCH load pin (memory idle)
+            next_state = 'STOP'
+            done = 1
 
         # ================================================================
         # Drive outputs

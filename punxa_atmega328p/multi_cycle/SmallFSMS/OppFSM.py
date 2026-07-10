@@ -58,12 +58,26 @@ _SREG_ONLY = {
     
 }
 
+# Conditional branches: BRBS / BRBC and all 18 derived mnemonics
+# (BREQ, BRNE, BRCS, ... ). These take no register operand at all —
+# they just test a single SREG flag (already resolved into the ALU's
+# `Branch` output) and, if true, apply a relative PC offset via the
+# RomHandler's K7 path (Load_K + K_select=0). No register fetch and no
+# register write-back should ever happen for these opcodes.
+_BRANCH = set(range(45, 65))
+
 # op(Rd, Rr)  — compare / test, no write-back to register file
 _RD_RR_NO_WRITE = {
     38,  # CP
     39,  # CPC
     37,  # CPSE   (also generates a skip if equal — handled in EXECUTE_ALU_OPP)
     75,  # BST    (stores bit from Rd into T flag only)
+}
+
+# I/O Bit Modifications (SBI / CBI)
+_IO_BIT_MOD = {
+    65,  # SBI
+    66,  # CBI
 }
 
 _RD_RR_ALU_WRITE = {
@@ -106,6 +120,12 @@ STATES = [
     'LOAD_VAL_K_IN_BUFFER',
     'DETERMINE_OUTPUT',
 
+    # BRBS / BRBC and derived conditional branches
+    'BRANCH_DECIDE','BRANCH_JUMP',
+
+    # WRITE BACK I/O FOR SBI / CBI
+    'WRITE_IO_REG_VAL', 'WAIT_WRITE_IO_REG_VAL',
+
     #
     'LOAD_RESULT','WAIT_LOAD_RESULT',
     'WAIT_WRITE_RESP_LOW',
@@ -113,6 +133,7 @@ STATES = [
     # THESE ARE FOR 2 BYRE RESULT INSTRUCTIONS 
     'LOAD_RESULT_B2','WAIT_LOAD_RESULT_B2',
 ]
+
 class OPP_FSM(py4hw.Logic):
     def __init__(self, parent, name,
                  # ── Logic imputs─────────────────────────────────────────
@@ -147,6 +168,7 @@ class OPP_FSM(py4hw.Logic):
                  Fetch_Address, # In the case of STS instruction to fetch the instruction 
                  LOAD_PCL,
                  LOAD_PCH,
+                 K_Select,           # 2-bit: selects K7/K12/K7_22 in RomHandler (K7 for conditional branches)
                  # Fethc_next_instruction is also used to rest the outputs of the instruction decoder and to tell it to expect a new instruction
                  # The instruction decoder also recives the instruction_fetched signal form the romHandler to tell it that it has a new instrucion in its entrance.
 
@@ -188,6 +210,7 @@ class OPP_FSM(py4hw.Logic):
 
         self.LOAD_PCL = self.addOut('LOAD_PCL',LOAD_PCL)
         self.LOAD_PCH = self.addOut('LOAD_PCH',LOAD_PCH)
+        self.K_Select = self.addOut('K_Select',K_Select)
 
         # ── FSM state ────────────────────────────────────────────────────
         self.current_state = 'STOP'
@@ -200,7 +223,7 @@ class OPP_FSM(py4hw.Logic):
         # back to its SRAM-mapped register (R26-R31) once the access
         # sequence completes.
         self._pointer_update_pending = False
-        self.debug = 1
+        self.debug = 0
 
     def clock(self):
         inst              = self.Instruction.get()
@@ -230,6 +253,7 @@ class OPP_FSM(py4hw.Logic):
         relative_Absolute = 0
         Load_Byte = 0
         Fetch_Address = 0
+        K_select = 0
 
         # --- FSM_Control ---
         done = 0
@@ -248,8 +272,12 @@ class OPP_FSM(py4hw.Logic):
                 i = inst
                 if i in _SREG_ONLY:
                     next_state = 'DETERMINE_OUTPUT'
-                elif i in {41, 42}:          # SBRC / SBRS — operand decodes into Rr, not Rd
+                elif i in _BRANCH:
+                    next_state = 'BRANCH_DECIDE'
+                elif i in {41, 42}:          
                     next_state = 'FETCH_RR'
+                elif i in _IO_BIT_MOD:
+                    next_state = 'FETCH_IO_REG_VAL'
                 else:
                     next_state = 'FETCH_RD'
 
@@ -282,7 +310,6 @@ class OPP_FSM(py4hw.Logic):
                     next_state = 'DETERMINE_OUTPUT'
                 elif i in _RD_K_ALU_WRITE or i in _RD_K_NO_WRITE:
                     next_state = 'LOAD_VAL_K_IN_BUFFER'
-                # 41, 42 removed — SBRC/SBRS no longer routed through here
                 elif i in {43, 44}:               # SBIC / SBIS
                     next_state = 'FETCH_IO_REG_VAL'
                 else:
@@ -295,7 +322,7 @@ class OPP_FSM(py4hw.Logic):
         elif state == 'FETCH_RD_B2':
             Mem_Instruction = 15 # RD+1 pointer
             Read_Write  = 2 # read opp 
-            InputSelect_Memory = 1 # FIX: Matched variable name
+            InputSelect_Memory = 1 
             next_state = 'WAIT_FETCH_RD_B2'
 
         elif state == 'WAIT_FETCH_RD_B2':
@@ -421,9 +448,41 @@ class OPP_FSM(py4hw.Logic):
             elif i in {23,24,25,26,27,28}:
                 next_state = 'LOAD_RESULT'
 
+            # Conditional branches never reach here in normal operation
+            elif i in _BRANCH:
+                done = 1
+                next_state = 'STOP'
+
+            # Route SBI and CBI to dedicated write-back path
+            elif i in _IO_BIT_MOD:
+                next_state = 'WRITE_IO_REG_VAL'
+
             # Everything else writes a single byte
             else:
                 next_state = 'LOAD_RESULT'
+
+        # ================================================================
+        # BRBS / BRBC / DERIVED CONDITIONAL BRANCHES
+        # ================================================================
+
+        elif state == 'BRANCH_DECIDE':
+            # `branch` is the ALU's resolved condition (correct SREG bit
+            # already selected via BitPos). No register/memory access
+            # of any kind is involved for a branch.
+            if branch == 1:
+                next_state = 'BRANCH_JUMP'
+            else:
+                done = 1
+                next_state = 'STOP'
+
+        elif state == 'BRANCH_JUMP':
+            # Pulse Load_K for one cycle with K_select=0 (K7 = 7-bit
+            # signed relative offset) so RomHandler applies PC += k7.
+            Load_K = 1
+            K_select = 0
+            if executed_jump == 1:
+                done = 1
+                next_state = 'STOP'
 
         # ================================================================
         # WRITE RESULT BYTE 0
@@ -470,6 +529,24 @@ class OPP_FSM(py4hw.Logic):
                 next_state = 'STOP'
 
         # ================================================================
+        # WRITE I/O REGISTER VALUE (SBI / CBI)
+        # ================================================================
+
+        elif state == 'WRITE_IO_REG_VAL':
+            Mem_Instruction = 17   # MEM_A_5bit maps directly to SRAM I/O space
+            Read_Write = 1         # write opp
+            InputSelect_Memory = 2 # 2 = INPUT_RESL (Latched ALU Result)
+            next_state = 'WAIT_WRITE_IO_REG_VAL'
+
+        elif state == 'WAIT_WRITE_IO_REG_VAL':
+            Mem_Instruction = 17
+            Read_Write = 1
+            InputSelect_Memory = 2
+            if resp:
+                done = 1
+                next_state = 'STOP'
+
+        # ================================================================
         # Drive all outputs
         # ================================================================
         self.LoadSelectMux.prepare(LoadSelectMux)
@@ -480,7 +557,6 @@ class OPP_FSM(py4hw.Logic):
         self.Mem_Instruction.prepare(Mem_Instruction)
         self.IncDec.prepare(IncDec)
         
-
         self.InputSelectBuffer.prepare(InputSelect_Buffer)
         self.WEBUFFER.prepare(WE_Buffer)
 
@@ -490,6 +566,7 @@ class OPP_FSM(py4hw.Logic):
         self.relative_Absolute.prepare(relative_Absolute)
         self.Load_Byte.prepare(Load_Byte)
         self.Fetch_Address.prepare(Fetch_Address)
+        self.K_Select.prepare(K_select)
 
         self.done.prepare(done)
         self.WB_Addr.prepare(WB_Addr)
@@ -498,11 +575,11 @@ class OPP_FSM(py4hw.Logic):
         # --- AI-Friendly State & I/O Trace ---
         if self.debug == 1:
             state_log = (
-                f"OPP_TRACE | "
-                f"State: {self.current_state} -> {next_state} | "
-                f"Inst: {i:03} | "
-                f"MemInstr: {Mem_Instruction} WE_Buf: {WE_Buffer} | "
-                f"Resp: {resp} Done: {done}"
+                f"OPP_TRACE | State: {self.current_state:30} -> {next_state:30} | Inst: {i:03}\n"
+                f"  [Memory]   MemInstr: {Mem_Instruction:<2} | RW: {Read_Write} | InputSel: {InputSelect_Memory:<2} | WE: {WE_Memory} | LoadMux: {LoadingMux:<2} | IncDec: {IncDec} | WB_Addr: {WB_Addr:<2}\n"
+                f"  [Buffer]   InputSel: {InputSelect_Buffer}  | WE: {WE_Buffer}\n"
+                f"  [ROM/Ctrl] FetchAddr: {Fetch_Address} | LoadZ: {Load_Z} | LoadK: {Load_K} | LoadJmp: {Load_Jump} | RelAbs: {relative_Absolute} | LoadByte: {Load_Byte}\n"
+                f"  [Status]   Resp: {resp} | Done: {done}"
             )
             print(state_log)
 

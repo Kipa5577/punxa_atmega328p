@@ -185,30 +185,30 @@ class LDST_FSM(py4hw.Logic):
         self.run                   = self.addIn('Run',run)
         self.done                  = self.addOut('Done',done)
         # ── Register inputs ──────────────────────────────────────────────
-        self.Instruction           = self.addIn('Instruction',           Instruction)
-        self.Resp                  = self.addIn('Resp',                  Resp)
-        self.Branch                = self.addIn('Branch',                Branch)
-        self.Executed_Jump         = self.addIn('Executed_Jump',         Executed_Jump)
+        self.Instruction           = self.addIn('Instruction', Instruction)
+        self.Resp                  = self.addIn('Resp', Resp)
+        self.Branch                = self.addIn('Branch', Branch)
+        self.Executed_Jump         = self.addIn('Executed_Jump', Executed_Jump)
 
         # ── Register outputs ─────────────────────────────────────────────
-        self.LoadSelectMux    = self.addOut('LoadSelectMux',    LoadSelectMux)
-        self.LoadingMux       = self.addOut('LoadingMux',       LoadingMux)
-        self.InputSelectMemory     = self.addOut('InputSelectMemory',     InputSelectMemory)
-        self.WEMEMORY         = self.addOut('WEMEMORY',         WEMEMORY)
-        self.Read_Write       = self.addOut('Read_Write',       Read_Write)
-        self.Mem_Instruction      = self.addOut('Mem_Instruction',      Mem_Instruction)
-        self.IncDec           = self.addOut('IncDec',           IncDec)
+        self.LoadSelectMux    = self.addOut('LoadSelectMux', LoadSelectMux)
+        self.LoadingMux       = self.addOut('LoadingMux', LoadingMux)
+        self.InputSelectMemory     = self.addOut('InputSelectMemory', InputSelectMemory)
+        self.WEMEMORY         = self.addOut('WEMEMORY', WEMEMORY)
+        self.Read_Write       = self.addOut('Read_Write', Read_Write)
+        self.Mem_Instruction      = self.addOut('Mem_Instruction', Mem_Instruction)
+        self.IncDec           = self.addOut('IncDec', IncDec)
 
         self.InputSelectBuffer =  self.addOut('InputSelectBuffer', InputSelectBuffer)
-        self.WEBUFFER         = self.addOut('WEBUFFER',         WEBUFFER)
+        self.WEBUFFER         = self.addOut('WEBUFFER', WEBUFFER)
 
-        self.Load_Z           = self.addOut('Load_Z',           Load_Z)
-        self.Load_K           = self.addOut('Load_K',           Load_K)
-        self.Load_Jump        = self.addOut('Load_Jump',        Load_Jump)
+        self.Load_Z           = self.addOut('Load_Z', Load_Z)
+        self.Load_K           = self.addOut('Load_K', Load_K)
+        self.Load_Jump        = self.addOut('Load_Jump', Load_Jump)
         self.relative_Absolute= self.addOut('relative_Absolute',relative_Absolute)
-        self.Load_Byte        = self.addOut('Load_Byte',        Load_Byte)
-        self.Fetch_next_instruction           = self.addOut('Fetch_next_instruction',           Fetch_next_instruction)
-        self.WB_Addr          = self.addOut('WB_Addr',          WB_Addr)
+        self.Load_Byte        = self.addOut('Load_Byte', Load_Byte)
+        self.Fetch_next_instruction= self.addOut('Fetch_next_instruction', Fetch_next_instruction)
+        self.WB_Addr          = self.addOut('WB_Addr', WB_Addr)
         self.Fetch_Address    = self.addOut('Fetch_Address',Fetch_Address)
 
         self.LOAD_PCL = self.addOut('LOAD_PCL',LOAD_PCL)
@@ -227,7 +227,7 @@ class LDST_FSM(py4hw.Logic):
         # back to its SRAM-mapped register (R26-R31) once the access
         # sequence completes.
         self._pointer_update_pending = False
-        self.debug = 1
+        self.debug = 0
 
 
     def clock(self):
@@ -650,7 +650,7 @@ class LDST_FSM(py4hw.Logic):
 
         elif state == 'WAIT_FETCH_VALUE_OF_A':
             Mem_Instruction = 18
-            Read_Write = 2 
+            Read_Write = 2
             InputSelect_Memory = 1
             
             if resp:
@@ -666,13 +666,13 @@ class LDST_FSM(py4hw.Logic):
         elif state == 'FETCH_VALUE_TO_A':
             Mem_Instruction = 18     # MEM_A_6bit: I/O port address
             Read_Write = 1           # write opp
-            InputSelect_Memory = 2   # data sourced from ResL (staged Rr value)
+            InputSelect_Memory = 16  # INPUT_RD_BUFFER: latched Rd value (matches STS's use of 16)
             next_state = 'WAIT_FETCH_VALUE_TO_A'
 
         elif state == 'WAIT_FETCH_VALUE_TO_A':
             Mem_Instruction = 18
             Read_Write = 1           # write opp
-            InputSelect_Memory = 2
+            InputSelect_Memory = 16
             if resp:
                 done = 1
                 next_state = 'STOP'
@@ -783,6 +783,7 @@ class LDST_FSM(py4hw.Logic):
             # The RomHandler is now outputting the 16-bit address.
             # Tell the MemoryInterfaceHandler to use it (MEM_RAM_ADDR_REG = 9)
             # and write the value stored in RdBuffer to SRAM.
+            Fetch_Address = 1
             Mem_Instruction = 9         # 9 = MEM_RAM_ADDR_REG
             Read_Write = 1              # 1 = Memory Write
             InputSelect_Memory = 16     # 16 = INPUT_RD_BUFFER (correctly latched)
@@ -866,12 +867,13 @@ class LDST_FSM(py4hw.Logic):
         # --- AI-Friendly State & I/O Trace ---
         if self.debug: #and (self.current_state != 'STOP'):
             state_log = (
-                f"LDST_TRACE | "
-                f"State: {self.current_state} -> {next_state} | "
-                f"Inst: {i:03} | "
-                f"MemInstr: {Mem_Instruction} RW: {Read_Write} | "
-                f"Resp: {resp} Done: {done}"
+                f"LDST_TRACE | State: {self.current_state:30} -> {next_state:30} | Inst: {i:03}\n"
+                f"  [Memory]   MemInstr: {Mem_Instruction:<2} | RW: {Read_Write} | InputSel: {InputSelect_Memory:<2} | WE: {WE_Memory} | LoadMux: {LoadingMux:<2} | IncDec: {IncDec} | WB_Addr: {WB_Addr:<2}\n"
+                f"  [Buffer]   InputSel: {InputSelect_Buffer}  | WE: {WE_Buffer}\n"
+                f"  [ROM/Ctrl] FetchAddr: {Fetch_Address} | LoadZ: {Load_Z} | LoadK: {Load_K} | LoadJmp: {Load_Jump} | RelAbs: {relative_Absolute} | LoadByte: {Load_Byte}\n"
+                f"  [Status]   Resp: {resp} | Done: {done}"
             )
             print(state_log)
+            
         # Advance state
         self.current_state = next_state

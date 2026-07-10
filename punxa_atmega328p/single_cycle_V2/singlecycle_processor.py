@@ -1,7 +1,12 @@
 import py4hw
-from Source.Instruction_Decoder import *  
-from Source.Memory import * 
+import punxa_atmega328p as punxa
+from punxa_atmega328p.instruction_decode import ins_to_str
+from punxa_atmega328p.instruction_decode import TWO_CYCLE_INSRUCTIONS
+from punxa_atmega328p.instruction_decode import MEMORY_INSTRUCTIONS
+from punxa_atmega328p.Memory import *
 
+from punxa_atmega328p.csr import *
+from deprecated import deprecated
 
 ## *_IO = IN and OUT instruction address
 ## *_LS =  LD LDS ST STS instruction address
@@ -20,14 +25,29 @@ from Source.Memory import *
 # interupt wires to add: INT0, INT1, PCINT0, PCINT1, PCINT2, WDT, TIMER2 COMPA, TIMER2 COMPB, TIMER2 OVF, TIMER1 CAPT, TIMER1 COMPA, TIMER1 COMPB, TIMER1 OVF, TIMER0 COMPA, TIMER0 COMPB, TIMER0 OVF, SPI/STC , USART/RX , USART/UDRE , USART/TX , ADC , EE READY , ANALOG COMP, TWI, SPM READY.
  
 
+STATES = [
+    
+    "FETCH_INSTRUCTION",
+    "WAIT_FETCH_INSTRUCTION",
+    "EXECUTE_INSTRUCTION",
+
+]
+
+
+
+
 class SingleCycleATmega328P(py4hw.Logic):
-    def __init__(self,parent, name:str , memory:MemoryInterface):#INT0,INT1,PCINT0,PCINT1,PCINT2,WDT,TIMER2_COMPA,TIMER2_COMPB,TIMER2_OVF,TIMER1_CAPT,TIMER1_COMPA,TIMER1_COMPB,TIMER1_OVF,TIMER0_COMPA,TIMER0_COMPB,TIMER0_OVF,SPI_STC,USART_RX,USART_UDRE,USART_TX,ADC,EE_READY,ANALOG_COMP,TWI,SPM_READY):
+    def __init__(self,parent, name:str , ins_mem:MemoryInterface,memory:MemoryInterface, reset_address)):#INT0,INT1,PCINT0,PCINT1,PCINT2,WDT,TIMER2_COMPA,TIMER2_COMPB,TIMER2_OVF,TIMER1_CAPT,TIMER1_COMPA,TIMER1_COMPB,TIMER1_OVF,TIMER0_COMPA,TIMER0_COMPB,TIMER0_OVF,SPI_STC,USART_RX,USART_UDRE,USART_TX,ADC,EE_READY,ANALOG_COMP,TWI,SPM_READY):
         super().__init__(parent,name)
 
-        self.mem = self.addInterfaceSource('memory',memory)
-        self.pc = 0x3F00 ##bootloarder
+        assert(ins_mem.read_data.getWidth() == 16)
+        assert(memory.read_data.getWidth() == 8)
+        
+        self.ins_mem = self.addInterfaceSource('ins', ins_mem)
+        self.mem = self.addInterfaceSource('data', memory)
+        self.pc =  #0x3F00 ##bootloarder
         self.reg = [0]*32
-        self.flash = [0]*16384
+        ##self.flash = [0]*16384
 
 
 
@@ -90,14 +110,25 @@ class SingleCycleATmega328P(py4hw.Logic):
         
         self.temp_page_buffer = [0xFFFF] * self.PAGE_SIZE_WORDS     
 
+        self.state = "FETCH_INSTRUCTION"
+
+        self.last_pc = 0
+
     def clock(self):
-        self.fetchIns()
-        if (ins_to_str(self.ins) not in MEMORY_INSTRUCTIONS) and (self.gotToGoFast == 1):
-            self.mem.read.prepare(0)
-            self.mem.write.prepare(0)
 
-        self.execute()
+        match self.state:
 
+            case "FETCH_INSTRUCTION":
+                self.ins_mem.read.prepare(1)
+                self.ins_mem.write.prepare(0)
+                self.ins_mem.address.prepare(self.pc)
+                if  self.ins_mem.resp.get() == 1:
+                    self.state = "EXECUTE_INSTRUCTION"
+                    self.ins = self.ins_mem.read_data.get()
+            case "EXECUTE_INSTRUCTION":
+                self.execute()
+                if self.last_pc != self.pc:
+                    self.state = "FETCH_INSTRUCTION"
 
 #    def HandleInterupts(self):
 
@@ -153,15 +184,6 @@ class SingleCycleATmega328P(py4hw.Logic):
             SP = ((self.SPH<<8) | (self.SPL))+2
             self.SPH = (SP>>8)&0xFF
             self.SPL = SP&0xFF
-
-
-
-    def fetchIns(self):
-        if(((self.SREG&1<<7)>>7)==1):# interruption
-                print('interruption')
-        self.pc = self.pc & 0x3FFF
-
-        self.ins =  self.flash[self.pc]
 
 
 

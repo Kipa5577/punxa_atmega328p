@@ -313,6 +313,7 @@ class VirtualGPIO(py4hw.Logic):
         return 0
 
     def clock(self):
+        # The MultiplexedBus already stripped the 0x20 offset!
         add = self.interface.address.get()
         v = self.interface.write_data.get()
 

@@ -1,24 +1,25 @@
 import py4hw
 
-
 STATES = [
     'STOP',
-    # READ STACK POINTER
-    'FETCH_STACK_POINTER_BEGIN_L','FETCH_STACK_POINTER_BEGIN_L','LOAD_STACK_POINTER_L_IN_BUFFER',
-    'FETCH_STACK_POINTER_BEGIN_H','FETCH_STACK_POINTER_BEGIN_H','LOAD_STACK_POINTER_H_IN_BUFFER',
 
-    #Pop part
+    # NOTE: SP lives permanently inside MemoryInterfaceHandler (self.SPL/self.SPH),
+    # the same way CallRetFSM's CALL/RCALL/RET paths use it. Mem_Instruction=7
+    # (MEM_SP) reads/writes through the resident SP register directly and
+    # updatePointer() adjusts it in the same cycle the access is issued - there
+    # is no separate SRAM-mapped copy at 0x5D/0x5E to fetch into a buffer or
+    # write back afterwards. The old FETCH_STACK_POINTER_*/LOAD_STACK_POINTER_*
+    # dance has been removed (it was reading/writing the wrong address anyway -
+    # MEM_WB_ADDR masks its address to 5 bits, so 0x5D/0x5E aliased onto
+    # unrelated register cells 0x1D/0x1E and clobbered SP with garbage).
+
+    # Pop part
     'FETCH_FROM_STACK_POINTER','WAIT_FETCH_FROM_STACK_POINTER',
     'LOAD_VALUE_TO_RD','WAIT_LOAD_VALUE_TO_RD',
 
-
-    #Push Part
+    # Push Part
     'FETCH_RD','WAIT_FETCH_RD',
-    'LOAD_VALUE_TO_STACK','LOAD_VALUE_TO_STACK',
-
-    # 
-    'LOAD_STACK_POINTER_BEGIN_L','LOAD_STACK_POINTER_WAIT_L',
-    'LOAD_STACK_POINTER_BEGIN_H','LOAD_STACK_POINTER_WAIT_H',
+    'LOAD_VALUE_TO_STACK','WAIT_LOAD_VALUE_TO_STACK',
 ]
 
 
@@ -103,6 +104,7 @@ class PopPush_FSM(py4hw.Logic):
         # Remember the instruction across multi-cycle sequences
         self._latched_inst = 0
         # Explicit selected address used when Mem_instruction == MEM_WB_ADDR
+        self._wb_addr_val = 0
 
         # Remember whether the pointer used a post-increment / pre-decrement
         # addressing mode and therefore needs the updated value written
@@ -148,155 +150,87 @@ class PopPush_FSM(py4hw.Logic):
         i     = self._latched_inst   # use latched opcode during multi-cycle seqs
         next_state = state           # default: stay
 
+        if state == 'STOP' and run:
+            self._latched_inst = inst
+            i = self._latched_inst
+
         # ================================================================
         # STATE MACHINE
         # ================================================================
 
         if state == 'STOP':
             if run:
-                next_state = 'FETCH_STACK_POINTER_BEGIN_L'
+                if i == 127:                 # POP
+                    next_state = 'FETCH_FROM_STACK_POINTER'
+                else:                         # PUSH
+                    next_state = 'FETCH_RD'
 
 
         # ------------------------------------------------
-        # READ STACK POINTER LOW
-        # ------------------------------------------------
-
-        elif state == 'FETCH_STACK_POINTER_BEGIN_L':
-            self._wb_addr_val = 0x5D          # SPL
-            Mem_Instruction = 14             # MEM_WB_ADDR
-            Read_Write = 0                   # read
-            next_state = 'WAIT_FETCH_STACK_POINTER_L'
-
-        elif state == 'WAIT_FETCH_STACK_POINTER_L':
-            Mem_Instruction = 14
-            Read_Write = 0
-
-            if resp:
-                next_state = 'LOAD_STACK_POINTER_L_IN_BUFFER'
-
-        elif state == 'LOAD_STACK_POINTER_L_IN_BUFFER':
-            WE = 1
-            LoadingMux = 7                   # LOAD_SPL
-            next_state = 'FETCH_STACK_POINTER_BEGIN_H'
-
-
-        # ------------------------------------------------
-        # READ STACK POINTER HIGH
-        # ------------------------------------------------
-
-        elif state == 'FETCH_STACK_POINTER_BEGIN_H':
-            self._wb_addr_val = 0x5E         # SPH
-            Mem_Instruction = 14
-            Read_Write = 0
-            next_state = 'WAIT_FETCH_STACK_POINTER_H'
-
-        elif state == 'WAIT_FETCH_STACK_POINTER_H':
-            Mem_Instruction = 14
-            Read_Write = 0
-
-            if resp:
-                next_state = 'LOAD_STACK_POINTER_H_IN_BUFFER'
-
-        elif state == 'LOAD_STACK_POINTER_H_IN_BUFFER':
-            WE = 1
-            LoadingMux = 8                   # LOAD_SPH
-
-            if inst == 127:                  # POP
-                next_state = 'FETCH_FROM_STACK_POINTER'
-            else:                            # PUSH
-                next_state = 'FETCH_RD'
-
-
-        # ------------------------------------------------
-        # POP
+        # POP  (SP++ then read [SP] - matches RET's pre-increment convention)
         # ------------------------------------------------
 
         elif state == 'FETCH_FROM_STACK_POINTER':
-            Mem_Instruction = 7              # MEM_SP
-            Read_Write = 0                   # read SRAM
-            IncDec = 1                       # post increment
+            Mem_Instruction = 7              # MEM_SP (resident SPL/SPH)
+            Read_Write = 2                   # read SRAM
+            IncDec = 4                       # pre-increment, issued ONCE
             next_state = 'WAIT_FETCH_FROM_STACK_POINTER'
 
         elif state == 'WAIT_FETCH_FROM_STACK_POINTER':
             Mem_Instruction = 7
-            Read_Write = 0
-            IncDec = 1
+            Read_Write = 2
+            IncDec = 0                       # hold steady while waiting for resp
 
             if resp:
+                WE_Memory = 1                # Latch data from SRAM into RdBuffer
+                LoadingMux = 14              # LOAD_RD_BUFFER
                 next_state = 'LOAD_VALUE_TO_RD'
 
         elif state == 'LOAD_VALUE_TO_RD':
-            Write_Enable = 1                 # Rd low
-            InputSelect = 1                  # memory data
+            Mem_Instruction = 12             # MEM_RD
+            Read_Write = 1                   # Write to Rd
+            InputSelect_Memory = 16          # INPUT_RD_BUFFER
             next_state = 'WAIT_LOAD_VALUE_TO_RD'
 
         elif state == 'WAIT_LOAD_VALUE_TO_RD':
-            next_state = 'LOAD_STACK_POINTER_BEGIN_L'
+            Mem_Instruction = 12
+            Read_Write = 1
+            InputSelect_Memory = 16
+            if resp:
+                done = 1
+                next_state = 'STOP'
 
 
         # ------------------------------------------------
-        # PUSH
+        # PUSH  (write [SP] then SP-- - matches RCALL/CALL's post-decrement convention)
         # ------------------------------------------------
 
         elif state == 'FETCH_RD':
             Mem_Instruction = 12             # MEM_RD
-            Read_Write = 0
+            Read_Write = 2                   # read Rd
             next_state = 'WAIT_FETCH_RD'
 
         elif state == 'WAIT_FETCH_RD':
             Mem_Instruction = 12
-            Read_Write = 0
+            Read_Write = 2
 
             if resp:
+                WE_Memory = 1                # Latch Rd value into RdBuffer
+                LoadingMux = 14              # LOAD_RD_BUFFER
                 next_state = 'LOAD_VALUE_TO_STACK'
 
         elif state == 'LOAD_VALUE_TO_STACK':
-            Mem_Instruction = 7              # MEM_SP
+            Mem_Instruction = 7              # MEM_SP (resident SPL/SPH)
             Read_Write = 1                   # write SRAM
-            IncDec = 2                       # pre decrement
-            Input_Select = 1                 # data from bus
-            next_state = 'LOAD_STACK_POINTER_BEGIN_L'
+            IncDec = 3                       # post-decrement, issued ONCE
+            InputSelect_Memory = 16          # INPUT_RD_BUFFER
+            next_state = 'WAIT_LOAD_VALUE_TO_STACK'
 
-        # ------------------------------------------------
-        # WRITE BACK STACK POINTER LOW
-        # ------------------------------------------------
-
-        elif state == 'LOAD_STACK_POINTER_BEGIN_L':
-            self._wb_addr_val = 0x5D
-
-            Mem_Instruction = 14             # MEM_WB_ADDR
-            Read_Write = 1                   # write
-            Input_Select = 12                # INPUT_SPL
-
-            next_state = 'LOAD_STACK_POINTER_WAIT_L'
-
-        elif state == 'LOAD_STACK_POINTER_WAIT_L':
-            Mem_Instruction = 14
+        elif state == 'WAIT_LOAD_VALUE_TO_STACK':
+            Mem_Instruction = 7
             Read_Write = 1
-            Input_Select = 12
-
-            if resp:
-                next_state = 'LOAD_STACK_POINTER_BEGIN_H'
-
-
-        # ------------------------------------------------
-        # WRITE BACK STACK POINTER HIGH
-        # ------------------------------------------------
-
-        elif state == 'LOAD_STACK_POINTER_BEGIN_H':
-            self._wb_addr_val = 0x5E
-
-            Mem_Instruction = 14
-            Read_Write = 1
-            Input_Select = 13                # INPUT_SPH
-
-            next_state = 'LOAD_STACK_POINTER_WAIT_H'
-
-        elif state == 'LOAD_STACK_POINTER_WAIT_H':
-            Mem_Instruction = 14
-            Read_Write = 1
-            Input_Select = 13
-
+            IncDec = 0                       # hold steady while waiting for resp
+            InputSelect_Memory = 16
             if resp:
                 done = 1
                 next_state = 'STOP'
@@ -324,7 +258,7 @@ class PopPush_FSM(py4hw.Logic):
 
         self.done.prepare(done)
         # Drive the explicit write-back address (used by MEM_WB_ADDR mode)
-        self.WB_Addr.prepare(WB_Addr)
+        self.WB_Addr.prepare(self._wb_addr_val)
 
         # --- AI-Friendly State & I/O Trace ---
         if self.debug and (self.current_state != 'STOP'):
@@ -339,4 +273,3 @@ class PopPush_FSM(py4hw.Logic):
         
         # Advance state
         self.current_state = next_state
-        

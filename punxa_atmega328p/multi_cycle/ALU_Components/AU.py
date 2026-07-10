@@ -2,7 +2,7 @@ import py4hw
 
 class AU(py4hw.Logic): 
     def __init__(self, parent, name: str,
-                 Cval, RegAL, RegAH, RegBL, RegBH, Operation,
+                 Cval, RegAL, RegAH, RegBL, RegBH, Operation, BitPos,
                  ResL, ResH):
         super().__init__(parent, name)
 
@@ -13,6 +13,9 @@ class AU(py4hw.Logic):
         self.RegBL = self.addIn('RegBL', RegBL)
         self.RegBH = self.addIn('RegBH', RegBH)
         self.Operation = self.addIn('Operation', Operation)
+        # 3-bit index (0-7): which bit SBI/CBI target within RegAL. Every
+        # other opcode ignores this input.
+        self.BitPos = self.addIn('BitPos', BitPos)
 
         # Outputs 
         self.ResL = self.addOut('ResL', ResL)
@@ -24,6 +27,7 @@ class AU(py4hw.Logic):
         A = self.RegAL.get()
         B = self.RegBL.get()
         C = self.Cval.get()
+        bit_pos = self.BitPos.get() & 0x7
         
         # 16-bit word concatenation for ADIW / SBIW
         word_A = A | (self.RegAH.get() << 8)
@@ -127,6 +131,12 @@ class AU(py4hw.Logic):
             
         elif op in (73, 74): # BSET / BCLR 
             pass # No arithmetic needed for flag-only operations
+
+        elif op == 65: # SBI (Set Bit in I/O Register)
+            res_l = A | (1 << bit_pos)
+
+        elif op == 66: # CBI (Clear Bit in I/O Register)
+            res_l = A & ~(1 << bit_pos)
 
         # Output the results (Masked to 8 bits to simulate hardware registers)
         self.ResL.put(res_l & 0xFF)

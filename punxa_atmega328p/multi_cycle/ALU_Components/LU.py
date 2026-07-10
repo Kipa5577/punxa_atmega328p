@@ -2,13 +2,16 @@ import py4hw
 
 class BranchUnit(py4hw.Logic):
     def __init__(self, parent, name: str, 
-                 SREG, RegisterToTest, IORegisterToTest, Bit, Operation, 
+                 SREG, RegisterToTest, RegisterB, IORegisterToTest, Bit, Operation, 
                  Skip, Branch):
         super().__init__(parent, name)
 
         # Inputs (Matches the left side of the second image)
         self.SREG = self.addIn('SREG', SREG)
         self.RegisterToTest = self.addIn('RegisterToTest', RegisterToTest)
+        # Second operand register (Rr), needed only for CPSE's Rd==Rr
+        # comparison. Every other skip/branch op ignores this input.
+        self.RegisterB = self.addIn('RegisterB', RegisterB)
         self.IORegisterToTest = self.addIn('IORegisterToTest', IORegisterToTest)
         self.Bit = self.addIn('Bit', Bit)
         self.Operation = self.addIn('Operation', Operation)
@@ -21,6 +24,7 @@ class BranchUnit(py4hw.Logic):
         # 1. Fetch current values
         sreg = self.SREG.get()
         reg = self.RegisterToTest.get()
+        reg_b = self.RegisterB.get()
         io_reg = self.IORegisterToTest.get()
         bit_idx = self.Bit.get()
         op = self.Operation.get()
@@ -55,6 +59,10 @@ class BranchUnit(py4hw.Logic):
         # SBIS - Skip if bit in I/O register is set
         elif op == 6:
             skip_out = io_bit
+
+        # CPSE - Skip if Rd == Rr (full-byte comparison, not bit-indexed)
+        elif op == 7:
+            skip_out = 1 if reg == reg_b else 0
 
         self.Skip.put(skip_out)
         self.Branch.put(branch_out)

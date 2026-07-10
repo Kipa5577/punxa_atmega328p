@@ -75,6 +75,7 @@ class Instruction_decoder(py4hw.Logic):
         # Displacement output
         self.q  = self.addOut('q', ID_q)      # 6-bit: LDD/STD (fragmented encoding)
 
+
         # --- Control Output ---
         self.Instruction_decoded = self.addOut('Instruction_decoded', ID_Instruction_decoded)
 
@@ -221,11 +222,16 @@ class Instruction_decoder(py4hw.Logic):
         #   BRBS, BRBC and all 18 derived branch instructions
         elif 45 <= code <= 64:
             out_k7 = k_7bit
+            out_b  = b_bit          # SREG flag index the branch tests (bits [2:0])
 
         # Format 7: Long Jump / Call — k[k22] (upper 6 bits from word 1)
         #   JMP, CALL
         elif code in [31, 34]:
-            out_k22 = k_22bit
+            # FIX: was `out_k22 = k_22bit`, a variable that doesn't exist
+            # elsewhere — k7_22 output was silently never driven (always 0).
+            # k_22bit already has the upper bits pre-shifted to [21:16];
+            # the k7_22 wire is 7 bits wide, so pass bits [22:16] only.
+            out_k7_22 = (k_22bit >> 16) & 0x7F
 
         # Format 8: Bit Test / Skip on Register — Rd or Rr, b[b3]
         #   SBRC, SBRS, BST (encoded in Rd position, output as Rr)

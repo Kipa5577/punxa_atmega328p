@@ -6,7 +6,6 @@ from .Instruction_decoder import *
 from .RomHandler import *
 from .MemoryInterfaceHandler import *
 from .ALU import *
-from .SREG_Logic import *
 from .OperandBuffer import *
 from .SmallFSMS.INSTRUCTION_FSM_BOX import *
 
@@ -30,7 +29,7 @@ class multicycleProcessor(py4hw.Logic):
         #CB = ControlBox
         #ALU = arithmetic logic unit
         #OB = OperandBuffer
-        #SL = SREG_Logic
+        #SL = SREG (now handled inside MemoryInterfaceHandler, wire names kept for continuity)
         # -------------------------
         # Shared wires
         # -------------------------
@@ -98,12 +97,22 @@ class multicycleProcessor(py4hw.Logic):
         self.W_Executed_Jump_CB = py4hw.Wire(self,'W_Executed_Jump',1)
         self.W_Fetch_next_instruction_CB_RH = py4hw.Wire(self,'W_Fetch_next_instruction_CB_RH',1)
         self.W_Select_K_CB_RH = py4hw.Wire(self,'W_Select_K_CB_RH',2)
+
+        self.W_WriteVal_RH_MIH = py4hw.Wire(self,'W_WriteVal_RH_MIH',8)
+        self.W_ReadVal_RH_MIH = py4hw.Wire(self,'W_ReadVal_RH_MIH',8)
+        self.W_LPM_req_CB_RH = py4hw.Wire(self,'W_LPM_req_CB_RH',1)
+        self.W_SPM_req_CB_RH = py4hw.Wire(self,'W_SPM_req_CB_RH',2)
+
+        self.W_R0_BUFFER_IN_MIH_RH = py4hw.Wire(self,'W_R0_BUFFER_IN_MIH_RH',8)
+        self.W_R1_BUFFER_IN_MIH_RH = py4hw.Wire(self,'W_R1_BUFFER_IN_MIH_RH',8)
+
+        self.W_VALUE_OUT = py4hw.Wire(self,'W_VALUE_OUT',8)
         
 
 
         # MemoryInterfaceHandler wires
         #self.w_mem_register_out = py4hw.Wire(self, 'w_mem_register_out', 8)
-        self.w_mem_incdec_MIH_CB = py4hw.Wire(self, 'w_mem_incdec_MIH_CB', 2)
+        self.w_mem_incdec_MIH_CB = py4hw.Wire(self, 'w_mem_incdec_MIH_CB', 3)
         self.w_mem_instr_MIH_CB = py4hw.Wire(self, 'w_mem_instr_MIH_CB', 5)
         #self.w_general_input = py4hw.Wire(self, 'w_general_input', 8)
         self.w_address_ZL_MIH_RH = py4hw.Wire(self,'w_address_ZL_MIH_RH',8)
@@ -151,7 +160,6 @@ class multicycleProcessor(py4hw.Logic):
             RH_Load_Jump=self.W_LOAD_JUMP_CB_RH,
             RH_relative_Absolute=self.W_Relative_Absolute_CB_RH,
             RH_Load_Byte=self.W_Load_byte_CB,
-            RH_WriteVal=self.W_OUTPUTByte0_ALU_MIH,
             RH_PCL_LOAD_VAL=self.W_PCL_LOAD_VAL_CB_RH,
             RH_PCH_LOAD_VAL=self.W_PCH_LOAD_VAL_CB_RH,
             RH_Fetch_next_instruction=self.W_Fetch_next_instruction_CB_RH,
@@ -160,7 +168,14 @@ class multicycleProcessor(py4hw.Logic):
             RH_Load_PCH=self.W_LOAD_PCH_CB_RH,
             RH_fetch_address=self.W_Fetch_Address_CB_RH,
             RH_Address_fetched=self.W_Address_fetched_RH_CB,
-            RH_reset_address=reset_address
+            RH_reset_address=reset_address,
+            #--- SPM and LPM ---
+            RH_WriteVal=self.W_WriteVal_RH_MIH,
+            RH_ReadVal=self.W_ReadVal_RH_MIH,
+            RH_LPM_req=self.W_LPM_req_CB_RH,
+            RH_SPM_req=self.W_SPM_req_CB_RH,
+            RH_R0_BUFFER_IN=self.W_R0_BUFFER_IN_MIH_RH,
+            RH_R1_BUFFER_IN=self.W_R1_BUFFER_IN_MIH_RH,
         )
 
         self.decoder = Instruction_decoder(
@@ -216,15 +231,9 @@ class multicycleProcessor(py4hw.Logic):
             CB_WB_Addr=self.W_WB_addr_CB_MIH,               
             CB_JumpWidth=self.W_JumpWidth_CB_RH,            
             CB_LOAD_PCL=self.W_LOAD_PCL_CB_RH,              
-            CB_LOAD_PCH=self.W_LOAD_PCH_CB_RH,              
-        )
-
-        self.sreg = SREG_Logic(
-            self, 'SREG_Reset',
-            SREG_In=self.W_SREG_ALU_SL,
-            eSREG_In=self.W_eSREG_ALU_SL,
-            SREG_Reset=self.reset,
-            SREG_Out=self.W_SREG_SL_ALU
+            CB_LOAD_PCH=self.W_LOAD_PCH_CB_RH,      
+            CB_LPM_req=self.W_LPM_req_CB_RH,
+            CB_SPM_req=self.W_SPM_req_CB_RH,
         )
 
         self.operand_buffer = OperandBuffer(
@@ -276,6 +285,12 @@ class multicycleProcessor(py4hw.Logic):
             K_val_Input=self.W_K8_ID_OB,
             PCL_VAL_IN=self.W_Pc_valL_RH_MIH,
             PCH_VAL_IN=self.W_Pc_valH_RH_MIH,
+            # Reuse the existing JumpWidth wire (MainFSM -> ControlBox ->
+            # RomHandler, where it is received but never read) as the PC
+            # push offset: 1 exactly when the current opcode is a 2-word
+            # instruction, which is precisely the correction the pushed
+            # return address needs for CALL (see MemoryInterfaceHandler).
+            PC_Offset=self.W_JumpWidth_CB_RH,
             Rd=self.W_RD_ID_MIH,
             Rr=self.W_RR_ID_MIH,
             WbAddr=self.W_WB_addr_CB_MIH,
@@ -289,4 +304,19 @@ class multicycleProcessor(py4hw.Logic):
             A_6bit=self.W_A6_ID_MIH,
             MIH_PCL_LOAD_VAL = self.W_PCL_LOAD_VAL_CB_RH,
             MIH_PCH_LOAD_VAL = self.W_PCH_LOAD_VAL_CB_RH,
+            #---- SREG ----
+            # ALU's flag update (SREG_VAL/eSREG_VAL) is merged directly into
+            # MemoryInterfaceHandler's internal SREG register — the same
+            # register that services IN/OUT accesses to I/O address 0x5F.
+            # This keeps flag-updates and IN/OUT-visible SREG in sync
+            # (previously they were two separate, unsynchronized registers).
+            SREG_In=self.W_SREG_ALU_SL,
+            eSREG_In=self.W_eSREG_ALU_SL,
+            SREG_Reset=self.reset,
+            SREG_Out=self.W_SREG_SL_ALU,
+            # ---- LPM SPM ----
+            R0_BUFFER_OUT= self.W_R0_BUFFER_IN_MIH_RH,
+            R1_BUFFER_OUT= self.W_R1_BUFFER_IN_MIH_RH,
+            ROM_VAL_IN=self.W_WriteVal_RH_MIH,
+            ROM_VAL_OUT=self.W_ReadVal_RH_MIH,
         )

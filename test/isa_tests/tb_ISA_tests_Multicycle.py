@@ -9,6 +9,7 @@ import py4hw
 import punxa_atmega328p as punxa
 from punxa_atmega328p.assembly import assemble_program
 from punxa_atmega328p.interactive_commands import *
+from punxa_atmega328p.Memory import *
 
 
 # =============================================================================
@@ -45,7 +46,7 @@ class MulticycleCpuWrapper:
             # Navigate to the MainFSM inside the ControlBox
             # If this throws an AttributeError, check if your ControlBox 
             # uses a different name than 'fsm'
-            return self._cpu.control.fsm.instret_count
+            return self._cpu.control.main_fsm.instret_count
             
         # If the requested CSR is not the retired instruction count, 
         # return the SREG value (as per your existing logic)
@@ -88,12 +89,14 @@ def prepareTest(file):
     gpio_p = punxa.MemoryInterface(hw, 'gpio', dw, 5)       # gpios
     reg_p = punxa.MemoryInterface(hw, 'reg', dw, 7)         # 2^5 = 32 registers + 64 I/O registers
     usart_p = punxa.MemoryInterface(hw, 'usart', dw, 3)     # 2^3 = 8 registers
+    sp_p = punxa.MemoryInterface(hw, 'sp_port', dw, 2)      # 2 addresses needed (0x5D, 0x5E)
     mem_p = punxa.MemoryInterface(hw, 'mem', dw, 11)        # 2048 bytes
     
     
     punxa.MultiplexedBus(hw, 'bus', data_p, 
                          [(reg_p, 0x0, 0x20),
-                          (gpio_p, 0x20, 0x10),
+                          (gpio_p, 0x20, 0x20),
+                          (sp_p, 0x5D, 0x02),
                           (usart_p, 0xC0), 
                           (mem_p, 0x100)])
     
@@ -124,6 +127,7 @@ def prepareTest(file):
     ins_mem = punxa.Ram_Memory(hw, 'ins_men', 16, 14, ins_p)        # 16 k words (of 16 bits) 
     usart = punxa.VirtualUSART(hw, 'usart', usart_p)
     gpio = punxa.VirtualGPIO(hw, 'gpio', gpio_p)
+    sp_component = StackPointer(hw, 'stack_pointer', sp_p)
     
     watch = []
     watch.extend(py4hw.debug.getInterfaceWires(ins_p))
@@ -151,7 +155,7 @@ def runTest(file):
     
     # Multicycle processor takes multiple clock cycles per instruction.
     # Use a generous overall limit to catch ACTUAL infinite loops.
-    step_limit = 5000000
+    step_limit = 15000
     step_count = 0
     
     while (cpu.pc != symbols['end']):

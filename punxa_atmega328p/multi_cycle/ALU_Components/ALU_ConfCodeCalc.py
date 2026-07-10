@@ -29,6 +29,20 @@ class ALU_ConfCodeCalc(py4hw.Logic):
         
         # 1. Directly command the AU component 
         arith_ctrl = inst 
+
+        # Every jump/skip-type instruction is handled entirely by
+        # BranchUnit (LU) via branch_opp below; AU must never see these on
+        # its Operation port. arith_ctrl is forced to 0 (IDLE) for all of
+        # them just before it's driven onto the wire. NOTE: SBI(65)/CBI(66)
+        # are deliberately NOT in this set -- they are real read-modify-
+        # write bit operations that AU now implements, so they must reach
+        # AU with arith_ctrl == inst.
+        _BRANCH_SKIP_INS = {
+            37,                                               # CPSE
+            41, 42, 43, 44,                                   # SBRC SBRS SBIC SBIS
+            45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56,    # BRBS/BRBC family
+            57, 58, 59, 60, 61, 62, 63, 64,
+        }
         
         # 2. Initialize Default SREG Enables (0 = Do not write)
         ien, ten, hen, sen, ven, nen, zen, cen = 0, 0, 0, 0, 0, 0, 0, 0
@@ -174,6 +188,9 @@ class ALU_ConfCodeCalc(py4hw.Logic):
 
         elif inst == 44: # SBIS
             branch_opp = 6
+
+        elif inst == 37: # CPSE - Skip if Rd == Rr
+            branch_opp = 7
         
 
         # 5. Pack Write Enables into the 8-bit eSREG signal
@@ -181,6 +198,9 @@ class ALU_ConfCodeCalc(py4hw.Logic):
         esreg_val = (ien << 7) | (ten << 6) | (hen << 5) | (sen << 4) | (ven << 3) | (nen << 2) | (zen << 1) | cen
 
         # 6. Put calculated values onto the wire components
+        # Keep AU out of the jump/skip path entirely.
+        if inst in _BRANCH_SKIP_INS:
+            arith_ctrl = 0
         self.ArithmCode.put(arith_ctrl)
         self.Copp.put(copp)
         self.Zopp.put(zopp)

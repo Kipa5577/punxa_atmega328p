@@ -214,6 +214,7 @@ class ALU(py4hw.Logic):
                     self.ImputRegB0,      # RegBL
                     self.ImputRegB1,      # RegBH
                     self.w_arith_ctrl,    # Operation
+                    self.BitPos,          # BitPos (SBI/CBI only)
                     self.w_res_l,  # ResL
                     self.w_res_H,   # ResH
                 )
@@ -222,6 +223,7 @@ class ALU(py4hw.Logic):
             self,'LU',
             self.SREG_state,
             self.ImputRegA0,
+            self.ImputRegB0,      # RegisterB (Rr), for CPSE only
             self.IOreg ,
             self.BitPos,
             self.w_branchOpp,

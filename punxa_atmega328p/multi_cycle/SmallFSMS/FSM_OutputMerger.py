@@ -11,7 +11,7 @@ class FSM_OutputMerger(py4hw.Logic):
     """
     def __init__(self, parent, name,
                  opp_outputs, mov_outputs, poppush_outputs,
-                 ldst_outputs, callret_outputs,
+                 ldst_outputs, callret_outputs, lpm_outputs,
                  merged_outputs):
         super().__init__(parent, name)
 
@@ -35,6 +35,7 @@ class FSM_OutputMerger(py4hw.Logic):
         self.opp_WB_Addr                = self.addIn('opp_WB_Addr',                opp_outputs['WB_Addr'])
         self.opp_LOAD_PCL               = self.addIn('opp_LOAD_PCL',               opp_outputs['LOAD_PCL'])
         self.opp_LOAD_PCH               = self.addIn('opp_LOAD_PCH',               opp_outputs['LOAD_PCH'])
+        self.opp_K_Select               = self.addIn('opp_K_Select',               opp_outputs['K_Select'])
 
         # --- Inputs: MOV_FSM ---
         self.mov_done                   = self.addIn('mov_done',                   mov_outputs['done'])
@@ -121,6 +122,29 @@ class FSM_OutputMerger(py4hw.Logic):
         self.callret_LOAD_PCH               = self.addIn('callret_LOAD_PCH',               callret_outputs['LOAD_PCH'])
         self.callret_K_Select               = self.addIn('callret_K_Select',               callret_outputs['K_Select'])
 
+        # --- Inputs: LPM_FSM ---
+        self.lpm_done                   = self.addIn('lpm_done',                   lpm_outputs['done'])
+        self.lpm_LoadSelectMux          = self.addIn('lpm_LoadSelectMux',          lpm_outputs['LoadSelectMux'])
+        self.lpm_LoadingMux             = self.addIn('lpm_LoadingMux',             lpm_outputs['LoadingMux'])
+        self.lpm_Input_Select           = self.addIn('lpm_Input_Select',           lpm_outputs['Input_Select'])
+        self.lpm_WE                     = self.addIn('lpm_WE',                     lpm_outputs['WE'])
+        self.lpm_Read_Write             = self.addIn('lpm_Read_Write',             lpm_outputs['Read_Write'])
+        self.lpm_Mem_Instruction        = self.addIn('lpm_Mem_Instruction',        lpm_outputs['Mem_Instruction'])
+        self.lpm_IncDec                 = self.addIn('lpm_IncDec',                 lpm_outputs['IncDec'])
+        self.lpm_write_Opperand_Buffer  = self.addIn('lpm_write_Opperand_Buffer',  lpm_outputs['WE_Buffer'])
+        self.lpm_InputSelect            = self.addIn('lpm_InputSelect',            lpm_outputs['InputSelect'])
+        self.lpm_Load_Z                 = self.addIn('lpm_Load_Z',                 lpm_outputs['Load_Z'])
+        self.lpm_Load_K                 = self.addIn('lpm_Load_K',                 lpm_outputs['Load_K'])
+        self.lpm_Load_Jump              = self.addIn('lpm_Load_Jump',              lpm_outputs['Load_Jump'])
+        self.lpm_relative_Absolute      = self.addIn('lpm_relative_Absolute',      lpm_outputs['relative_Absolute'])
+        self.lpm_Load_Byte              = self.addIn('lpm_Load_Byte',              lpm_outputs['Load_Byte'])
+        self.lpm_Fetch_Address          = self.addIn('lpm_Fetch_Address',          lpm_outputs['Fetch_Address'])
+        self.lpm_WB_Addr                = self.addIn('lpm_WB_Addr',                lpm_outputs['WB_Addr'])
+        self.lpm_LOAD_PCL               = self.addIn('lpm_LOAD_PCL',               lpm_outputs['LOAD_PCL'])
+        self.lpm_LOAD_PCH               = self.addIn('lpm_LOAD_PCH',               lpm_outputs['LOAD_PCH'])
+        self.lpm_LPM_req                = self.addIn('lpm_LPM_req',                lpm_outputs['LPM_req'])
+        self.lpm_SPM_req                = self.addIn('lpm_SPM_req',                lpm_outputs['SPM_req'])
+
         # --- Outputs ---
         self.out_done                   = self.addOut('out_done',                   merged_outputs['done'])
         self.out_LoadSelectMux          = self.addOut('out_LoadSelectMux',          merged_outputs['LoadSelectMux'])
@@ -142,46 +166,55 @@ class FSM_OutputMerger(py4hw.Logic):
         self.out_LOAD_PCL               = self.addOut('out_LOAD_PCL',               merged_outputs['LOAD_PCL'])
         self.out_LOAD_PCH               = self.addOut('out_LOAD_PCH',               merged_outputs['LOAD_PCH'])
         self.out_K_Select               = self.addOut('out_K_Select',               merged_outputs['K_Select'])
+        self.out_LPM_req                = self.addOut('out_LPM_req',                merged_outputs['LPM_req'])
+        self.out_SPM_req                = self.addOut('out_SPM_req',                merged_outputs['SPM_req'])
 
 
     def propagate(self):
         # --- Bitwise OR assignments mirroring ALU_Merger ---
-        self.out_done.put(self.opp_done.get() | self.mov_done.get() | self.poppush_done.get() | self.ldst_done.get() | self.callret_done.get())
+        self.out_done.put(self.opp_done.get() | self.mov_done.get() | self.poppush_done.get() | self.ldst_done.get() | self.callret_done.get() | self.lpm_done.get())
         
-        self.out_LoadSelectMux.put(self.opp_LoadSelectMux.get() | self.mov_LoadSelectMux.get() | self.poppush_LoadSelectMux.get() | self.ldst_LoadSelectMux.get() | self.callret_LoadSelectMux.get())
+        self.out_LoadSelectMux.put(self.opp_LoadSelectMux.get() | self.mov_LoadSelectMux.get() | self.poppush_LoadSelectMux.get() | self.ldst_LoadSelectMux.get() | self.callret_LoadSelectMux.get() | self.lpm_LoadSelectMux.get())
         
-        self.out_LoadingMux.put(self.opp_LoadingMux.get() | self.mov_LoadingMux.get() | self.poppush_LoadingMux.get() | self.ldst_LoadingMux.get() | self.callret_LoadingMux.get())
+        self.out_LoadingMux.put(self.opp_LoadingMux.get() | self.mov_LoadingMux.get() | self.poppush_LoadingMux.get() | self.ldst_LoadingMux.get() | self.callret_LoadingMux.get() | self.lpm_LoadingMux.get())
         
-        self.out_Input_Select.put(self.opp_Input_Select.get() | self.mov_Input_Select.get() | self.poppush_Input_Select.get() | self.ldst_Input_Select.get() | self.callret_Input_Select.get())
+        self.out_Input_Select.put(self.opp_Input_Select.get() | self.mov_Input_Select.get() | self.poppush_Input_Select.get() | self.ldst_Input_Select.get() | self.callret_Input_Select.get() | self.lpm_Input_Select.get())
         
-        self.out_WE.put(self.opp_WE.get() | self.mov_WE.get() | self.poppush_WE.get() | self.ldst_WE.get() | self.callret_WE.get())
+        self.out_WE.put(self.opp_WE.get() | self.mov_WE.get() | self.poppush_WE.get() | self.ldst_WE.get() | self.callret_WE.get() | self.lpm_WE.get())
         
-        self.out_Read_Write.put(self.opp_Read_Write.get() | self.mov_Read_Write.get() | self.poppush_Read_Write.get() | self.ldst_Read_Write.get() | self.callret_Read_Write.get())
+        self.out_Read_Write.put(self.opp_Read_Write.get() | self.mov_Read_Write.get() | self.poppush_Read_Write.get() | self.ldst_Read_Write.get() | self.callret_Read_Write.get() | self.lpm_Read_Write.get())
         
-        self.out_Mem_Instruction.put(self.opp_Mem_Instruction.get() | self.mov_Mem_Instruction.get() | self.poppush_Mem_Instruction.get() | self.ldst_Mem_Instruction.get() | self.callret_Mem_Instruction.get())
+        self.out_Mem_Instruction.put(self.opp_Mem_Instruction.get() | self.mov_Mem_Instruction.get() | self.poppush_Mem_Instruction.get() | self.ldst_Mem_Instruction.get() | self.callret_Mem_Instruction.get() | self.lpm_Mem_Instruction.get())
         
-        self.out_IncDec.put(self.opp_IncDec.get() | self.mov_IncDec.get() | self.poppush_IncDec.get() | self.ldst_IncDec.get() | self.callret_IncDec.get())
+        self.out_IncDec.put(self.opp_IncDec.get() | self.mov_IncDec.get() | self.poppush_IncDec.get() | self.ldst_IncDec.get() | self.callret_IncDec.get() | self.lpm_IncDec.get())
         
-        self.out_write_Opperand_Buffer.put(self.opp_write_Opperand_Buffer.get() | self.mov_write_Opperand_Buffer.get() | self.poppush_write_Opperand_Buffer.get() | self.ldst_write_Opperand_Buffer.get() | self.callret_write_Opperand_Buffer.get())
+        self.out_write_Opperand_Buffer.put(self.opp_write_Opperand_Buffer.get() | self.mov_write_Opperand_Buffer.get() | self.poppush_write_Opperand_Buffer.get() | self.ldst_write_Opperand_Buffer.get() | self.callret_write_Opperand_Buffer.get() | self.lpm_write_Opperand_Buffer.get())
         
-        self.out_InputSelect.put(self.opp_InputSelect.get() | self.mov_InputSelect.get() | self.poppush_InputSelect.get() | self.ldst_InputSelect.get() | self.callret_InputSelect.get())
+        self.out_InputSelect.put(self.opp_InputSelect.get() | self.mov_InputSelect.get() | self.poppush_InputSelect.get() | self.ldst_InputSelect.get() | self.callret_InputSelect.get() | self.lpm_InputSelect.get())
         
-        self.out_Load_Z.put(self.opp_Load_Z.get() | self.mov_Load_Z.get() | self.poppush_Load_Z.get() | self.ldst_Load_Z.get() | self.callret_Load_Z.get())
+        self.out_Load_Z.put(self.opp_Load_Z.get() | self.mov_Load_Z.get() | self.poppush_Load_Z.get() | self.ldst_Load_Z.get() | self.callret_Load_Z.get() | self.lpm_Load_Z.get())
         
-        self.out_Load_K.put(self.opp_Load_K.get() | self.mov_Load_K.get() | self.poppush_Load_K.get() | self.ldst_Load_K.get() | self.callret_Load_K.get())
+        self.out_Load_K.put(self.opp_Load_K.get() | self.mov_Load_K.get() | self.poppush_Load_K.get() | self.ldst_Load_K.get() | self.callret_Load_K.get() | self.lpm_Load_K.get())
         
-        self.out_Load_Jump.put(self.opp_Load_Jump.get() | self.mov_Load_Jump.get() | self.poppush_Load_Jump.get() | self.ldst_Load_Jump.get() | self.callret_Load_Jump.get())
+        self.out_Load_Jump.put(self.opp_Load_Jump.get() | self.mov_Load_Jump.get() | self.poppush_Load_Jump.get() | self.ldst_Load_Jump.get() | self.callret_Load_Jump.get() | self.lpm_Load_Jump.get())
         
-        self.out_relative_Absolute.put(self.opp_relative_Absolute.get() | self.mov_relative_Absolute.get() | self.poppush_relative_Absolute.get() | self.ldst_relative_Absolute.get() | self.callret_relative_Absolute.get())
+        self.out_relative_Absolute.put(self.opp_relative_Absolute.get() | self.mov_relative_Absolute.get() | self.poppush_relative_Absolute.get() | self.ldst_relative_Absolute.get() | self.callret_relative_Absolute.get() | self.lpm_relative_Absolute.get())
         
-        self.out_Load_Byte.put(self.opp_Load_Byte.get() | self.mov_Load_Byte.get() | self.poppush_Load_Byte.get() | self.ldst_Load_Byte.get() | self.callret_Load_Byte.get())
+        self.out_Load_Byte.put(self.opp_Load_Byte.get() | self.mov_Load_Byte.get() | self.poppush_Load_Byte.get() | self.ldst_Load_Byte.get() | self.callret_Load_Byte.get() | self.lpm_Load_Byte.get())
         
-        self.out_Fetch_Address.put(self.opp_Fetch_Address.get() | self.mov_Fetch_Address.get() | self.poppush_Fetch_Address.get() | self.ldst_Fetch_Address.get() | self.callret_Fetch_Address.get())
+        self.out_Fetch_Address.put(self.opp_Fetch_Address.get() | self.mov_Fetch_Address.get() | self.poppush_Fetch_Address.get() | self.ldst_Fetch_Address.get() | self.callret_Fetch_Address.get() | self.lpm_Fetch_Address.get())
         
-        self.out_WB_Addr.put(self.opp_WB_Addr.get() | self.mov_WB_Addr.get() | self.poppush_WB_Addr.get() | self.ldst_WB_Addr.get() | self.callret_WB_Addr.get())
+        self.out_WB_Addr.put(self.opp_WB_Addr.get() | self.mov_WB_Addr.get() | self.poppush_WB_Addr.get() | self.ldst_WB_Addr.get() | self.callret_WB_Addr.get() | self.lpm_WB_Addr.get())
         
-        self.out_LOAD_PCL.put(self.opp_LOAD_PCL.get() | self.mov_LOAD_PCL.get() | self.poppush_LOAD_PCL.get() | self.ldst_LOAD_PCL.get() | self.callret_LOAD_PCL.get())
+        self.out_LOAD_PCL.put(self.opp_LOAD_PCL.get() | self.mov_LOAD_PCL.get() | self.poppush_LOAD_PCL.get() | self.ldst_LOAD_PCL.get() | self.callret_LOAD_PCL.get() | self.lpm_LOAD_PCL.get())
         
-        self.out_LOAD_PCH.put(self.opp_LOAD_PCH.get() | self.mov_LOAD_PCH.get() | self.poppush_LOAD_PCH.get() | self.ldst_LOAD_PCH.get() | self.callret_LOAD_PCH.get())
+        self.out_LOAD_PCH.put(self.opp_LOAD_PCH.get() | self.mov_LOAD_PCH.get() | self.poppush_LOAD_PCH.get() | self.ldst_LOAD_PCH.get() | self.callret_LOAD_PCH.get() | self.lpm_LOAD_PCH.get())
 
-        self.out_K_Select.put(self.callret_K_Select.get())
+        # NOTE: LPM_FSM drives no K_Select output (it never selects an
+        # immediate operand), so it is intentionally excluded here — same
+        # treatment as MOV_FSM, PopPush_FSM, and LDST_FSM.
+        self.out_K_Select.put(self.opp_K_Select.get() | self.callret_K_Select.get())
+
+        self.out_LPM_req.put(self.lpm_LPM_req.get())
+
+        self.out_SPM_req.put(self.lpm_SPM_req.get())

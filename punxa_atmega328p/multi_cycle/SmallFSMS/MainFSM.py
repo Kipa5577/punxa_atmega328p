@@ -55,7 +55,7 @@ class MainFSM(py4hw.Logic):
         self._bypass_next_fetch = 0
         self._prev_instr_fetched = 0 
 
-        self.debug = 1
+        self.debug = 0
         self.instret_count = 0 
 
     def clock(self):
@@ -107,8 +107,19 @@ class MainFSM(py4hw.Logic):
                 next_state = 'EXECUTION'
 
         elif state == 'EXECUTION':
-            run = 1
-            next_state = 'WAIT_OPP_DONE'
+            # Check if this is an MCU Control instruction (NOP, SLEEP, WDR, BREAK)
+            # that takes no operands and is not routed to a sub-FSM.
+            if instruction in {128, 129, 130, 131}:
+                # Advance directly without asserting RUN
+                self.instret_count += 1
+                if skip == 1:
+                    self.skip_flag = 1
+                    self._bypass_next_fetch = 1
+                next_state = 'FETCH_INSTRUCTION'
+            else:
+                # Standard instructions: trigger a sub-FSM and wait for it
+                run = 1
+                next_state = 'WAIT_OPP_DONE'
 
         elif state == 'WAIT_OPP_DONE':
             if done == 1:
