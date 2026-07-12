@@ -6,7 +6,7 @@
 .equ final_result = 0x0101
 .equ SPH = 0x3E
 .equ SPL = 0x3D
-.equ SREG_ADDR = 0x5F
+.equ SREG_ADDR = 0x3F    ; Changed to standard I/O address for safety
 .equ GPIOR0 = 0x1E
 
 reset:
@@ -29,7 +29,7 @@ test1_start:
     sen
     cln
     brpl n_clear1
-    jmp fail
+    rjmp fail
 n_clear1:
     rcall inc_case
     rjmp test2_start
@@ -38,7 +38,7 @@ test2_start:
     cln
     cln
     brpl n_still_clear2
-    jmp fail
+    rjmp fail
 n_still_clear2:
     rcall inc_case
     rjmp test3_start
@@ -58,31 +58,31 @@ test3_start:
     cln
 
     brpl t3_ok1
-    jmp fail
+    rjmp fail
 t3_ok1:
 
-    brie t3_ok2
-    jmp fail
+    brbs 7, t3_ok2       ; FIXED: brie does not exist natively
+    rjmp fail
 t3_ok2:
 
     brts t3_ok3
-    jmp fail
+    rjmp fail
 t3_ok3:
 
     brhs t3_ok4
-    jmp fail
+    rjmp fail
 t3_ok4:
 
     brvs t3_ok5
-    jmp fail
+    rjmp fail
 t3_ok5:
 
     breq t3_ok6
-    jmp fail
+    rjmp fail
 t3_ok6:
 
     brcs t3_ok7
-    jmp fail
+    rjmp fail
 t3_ok7:
 
     rcall inc_case
@@ -99,12 +99,12 @@ test4_start:
 
     cpi r16, 0xAA
     breq t4_ok1
-    jmp fail
+    rjmp fail
 t4_ok1:
 
     cpi r17, 0xBB
     breq t4_ok2
-    jmp fail
+    rjmp fail
 t4_ok2:
 
     rcall inc_case
@@ -118,7 +118,7 @@ test5_start:
 
     cpi r17, 0xDE
     breq t5_ok
-    jmp fail
+    rjmp fail
 t5_ok:
 
     rcall inc_case
@@ -132,7 +132,7 @@ test6_start:
 
     cpi r17, 0xAD
     breq t6_ok
-    jmp fail
+    rjmp fail
 t6_ok:
 
     rcall inc_case
@@ -150,12 +150,12 @@ test7_start:
 
     cp r16, r18
     breq t7_ok1
-    jmp fail
+    rjmp fail
 t7_ok1:
 
     cp r17, r19
     breq t7_ok2
-    jmp fail
+    rjmp fail
 t7_ok2:
 
     rcall inc_case
@@ -176,27 +176,27 @@ test8_start:
 
     cpi r16, 3
     breq t8_ok
-    jmp fail
+    rjmp fail
 t8_ok:
 
     rcall inc_case
     rjmp test9_start
 
 test9_start:
+    cls                  ; FIXED: Explicitly clear S flag
     clv
     sen
-    cln
-
-    brge t9_ok1
-    jmp fail
+    cln                  ; CLN does not recalculate S
+    brge t9_ok1          ; Checks S == 0 (Validates CLN didn't alter S)
+    rjmp fail
 t9_ok1:
 
+    ses                  ; FIXED: Explicitly set S flag
     sev
     sen
-    cln
-
-    brlt t9_ok2
-    jmp fail
+    cln                  ; CLN does not recalculate S
+    brlt t9_ok2          ; Checks S == 1 (Validates CLN didn't alter S)
+    rjmp fail
 t9_ok2:
 
     rcall inc_case
@@ -209,7 +209,7 @@ test10_start:
     cln
 
     brpl t10_ok
-    jmp fail
+    rjmp fail
 t10_ok:
 
     rcall inc_case
@@ -221,7 +221,7 @@ test11_start:
     sen
 
     brmi t11_ok
-    jmp fail
+    rjmp fail
 t11_ok:
 
     rcall inc_case
@@ -231,15 +231,17 @@ test12_start:
     ldi r16, 0x80
     ldi r17, 0x01
     add r16, r17
-    cln
 
+    ; FIXED: Do ALU logic first so it doesn't overwrite our test
     cpi r16, 0x81
     breq t12_ok1
-    jmp fail
+    rjmp fail
 t12_ok1:
 
-    brpl t12_ok2
-    jmp fail
+    sen                  ; Force N = 1
+    cln                  ; Now test CLN
+    brpl t12_ok2         ; Verify N = 0
+    rjmp fail
 t12_ok2:
 
     rcall inc_case
@@ -254,7 +256,7 @@ test13_start:
     rcall cln_sub13
 
     brpl t13_ok
-    jmp fail
+    rjmp fail
 t13_ok:
 
     rcall inc_case
@@ -271,7 +273,7 @@ test14_start:
     cln
 
     brpl t14_ok
-    jmp fail
+    rjmp fail
 t14_ok:
 
     rcall inc_case
@@ -284,7 +286,7 @@ test15_start:
     cln
 
     brpl t15_ok
-    jmp fail
+    rjmp fail
 t15_ok:
 
     rcall inc_case
@@ -295,14 +297,14 @@ test16_start:
     cln
 
     brvc t16_ok1
-    jmp fail
+    rjmp fail
 t16_ok1:
 
     sev
     cln
 
     brvs t16_ok2
-    jmp fail
+    rjmp fail
 t16_ok2:
 
     rcall inc_case

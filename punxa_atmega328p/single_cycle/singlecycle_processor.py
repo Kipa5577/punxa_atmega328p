@@ -44,11 +44,6 @@ class SingleCycleATmega328P(py4hw.Logic):
         
         #  0x3F00 ##bootloarder
         
-        
-        #self.reg = [0]*32  # REGS are stored in memory
-        # self.ram = [0]*2048
-        
-        
         #self.stack_pointer  = 0x08FF ## value sould be known by using a register, I need to verify that it doesent go in to the negatives  
         self.next_cycle = False #varible to indicate that data is ready to read from ram/memeory
         self.ins = 0
@@ -75,9 +70,6 @@ class SingleCycleATmega328P(py4hw.Logic):
         self.MCUCR_addr_LS = 0x55
 
         #Stack Pointer
-        
-
-
         self.MCUSR = 0x02 # Power-on Reset  or it can be 0x02 External Reset
         self.MCUSR_addr_IO = 0x34
         self.MCUSR_addr_LS = 0x54
@@ -91,7 +83,11 @@ class SingleCycleATmega328P(py4hw.Logic):
         self.SPMCSR_addr_IO = 0x37
         self.SPMCSR_addr_LS = 0x57
 
-
+        #Warchdog Timer Configruation
+        self.WDTCSR = 0
+        self.WDTCSR_addr_LS = 0x60
+        self.WDTCSR_addr_IO = 0x40
+        self.WDG_val = 0  # Watchdog counter value
 
         self.gotToGoFast = False
 
@@ -120,13 +116,22 @@ class SingleCycleATmega328P(py4hw.Logic):
         
         while (True):
             yield from self.fetchIns()
-            # if (ins_to_str(self.ins) not in MEMORY_INSTRUCTIONS) and (self.gotToGoFast == 1):
-            #     self.mem.read.prepare(0)
-            #     self.mem.write.prepare(0)
-    
             yield from self.execute()
         
             self.csr[CSR_INSTRET] += 1
+            
+            # Watchdog Timer logic
+            if (self.WDTCSR & 0b1000):  # WDE (Watchdog System Reset Enable) is set
+                self.WDG_val += 1
+                wdp = self.WDTCSR & 0b111
+                # Threshold approximation based on WDP prescaler bits
+                threshold = 1024 * (1 << wdp) 
+                
+                if self.WDG_val > threshold:
+                    print(f"Watchdog Reset Triggered! WDG_val={self.WDG_val} > threshold={threshold}")
+                    self.WDG_val = 0
+                    self.pc = self.reset_address  # Reset PC back to reset vector
+                    
             yield
 
 
@@ -162,7 +167,28 @@ class SingleCycleATmega328P(py4hw.Logic):
             case 5: self.H = v
             case 6: self.T = v
             case 7: self.I = v
-    
+
+    def readFlashWord(self, address):
+        self.ins_mem.address.prepare(address)
+        self.ins_mem.read.prepare(1)
+        self.ins_mem.write.prepare(0)
+        yield
+        self.ins_mem.read.prepare(0)
+        self.ins_mem.write.prepare(0)
+        yield
+        return self.ins_mem.read_data.get()
+
+    def writeFlashWord(self, address, value):
+        self.ins_mem.write.prepare(1)
+        self.ins_mem.read.prepare(0)
+        self.ins_mem.address.prepare(address)
+        self.ins_mem.write_data.prepare(value)
+        yield
+        self.ins_mem.write.prepare(0)
+        while (self.ins_mem.resp.get() == 0):
+            yield
+        yield
+
     def writeByte(self, add, value):
         self.mem.write.prepare(1)
         self.mem.read.prepare(0) 
@@ -288,9 +314,10 @@ class SingleCycleATmega328P(py4hw.Logic):
                 vRd = yield from self.readByte(Rd)
                 
                 res =  vRd + vRr + self.C
-                
-                self.C = 1 if res > 0xFF else 0
+
+
                 self.H = 1 if (((vRd & 0x0F) + (vRr & 0x0F) + self.C) > 0x0F) else 0
+                self.C = 1 if res > 0xFF else 0
                 rd_sign = (vRd >> 7) & 1
                 rr_sign = (vRr >> 7) & 1
                 res_sign = ((res & 0xFF) >> 7) & 1
@@ -378,6 +405,8 @@ class SingleCycleATmega328P(py4hw.Logic):
                     self.pc += K 
                 print(f'BRBC {S}, {K:02X}\t\t({sSREG[S]} == 0)={cond}')
                 
+
+
             case 'BRBS':
                 # BRBS s, k -> 1111 00kk kkkk ksss
                 K, S =  sK7,  b3
@@ -470,49 +499,12 @@ class SingleCycleATmega328P(py4hw.Logic):
                 print('NEG R{Rd}\t\tR{Rd}={res&0xFF:02X} {self.getFlagString()}')
                 
             case 'SBR':
-                raise Exception('SBR is a psuedo instruction !!!')
-                self.K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
-                self.Rd = ((self.ins>>4) & 0xF) + 16
-                self.res =  self.reg[self.Rd] | self.K 
-
-                R7 =  ((self.res&0xFF)>>7)&0b1
-                #Z
-                if self.res == 0:
-                    self.SREG |= (1<<1)
-                else:
-                    self.SREG &= ~(1<<1)
-
-                N = (R7 == 1)
-                if N == 1 : 
-                    self.SREG |= (1<<2)
-                else:
-                    self.SREG &= ~(1<<2)
-
-                self.SREG &= ~(1<<3) #flag V to 0
-
-                #S 
-                if N == 1:
-                    self.SREG |= (1<<4)
-                else:
-                    self.SREG &= ~(1<<4)  
-
-                self.reg[self.Rd] =  self.res
-                self.pc += 1
-                self.pc += 1
-                
+                # SBR is a pseudo instruction for ORI
+                raise Exception('SBR is a pseudo instruction for ORI, use ORI instead')
+            
             case 'CBR':
-                raise Exception('CBR not reviewed')
-                self.K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
-                self.Rd = ((self.ins>>4) & 0xF)
-                self.res =  self.reg[self.Rd] & self.K 
-
-                self.testZ(self.res)
-                self.testN(self.res)
-#                self.SREG &= ~(1<<V) # flag V to 0
-                self.testS()     
-
-                self.reg[self.Rd] =  self.res 
-                self.pc += 1
+                # CBR is a pseudo instruction for ANDI with complemented K
+                raise Exception('CBR is a pseudo instruction for ANDI, use ANDI with complemented K instead')
                 
             case 'FMUL':
                 # FMUL Rd, Rr -> 0000 0011 0ddd 1rrr
@@ -554,18 +546,22 @@ class SingleCycleATmega328P(py4hw.Logic):
                 yield from self.writeByte(0, res & 0xFF)
                 
             case 'ICALL':
-                # ICALL-> 1001 0101 0001 1001
-                # Indirect call to Z
+                # ICALL -> 1001 0101 0001 1001
                 zh = yield from self.readByte(31)
                 zl = yield from self.readByte(30)
                 add = (zh << 8) | zl
+
                 ra = self.pc
-                self.SP -= 1
-                yield from self.writeByte(self.SP, ra >> 8)
-                self.SP -= 1
+
+                yield from self.writeByte(self.SP, (ra >> 8) & 0xFF)
+                self.SP = (self.SP - 1) & 0xFFFF
+
                 yield from self.writeByte(self.SP, ra & 0xFF)
+                self.SP = (self.SP - 1) & 0xFFFF
+
                 self.pc = add
-                print(f'ICALL \t\t\t[{self.SP+1:04X}]={ra>>8:02X} [{self.SP:04X}]={ra & 0xFF}')
+
+                print(f'ICALL\t\t\t[{(self.SP+2)&0xFFFF:04X}]={(ra>>8):02X} [{(self.SP+1)&0xFFFF:04X}]={ra&0xFF:02X}')
                 
             case 'IJMP':
                 # IJMP -> 1001 0100 0001 1001
@@ -604,12 +600,9 @@ class SingleCycleATmega328P(py4hw.Logic):
                 print(f'INC\t\t\t\t{self.getFlagString()}')
                 
             case 'SER':
-                raise Exception('SER not reviewed')
-                self.Rd = (self.ins>>4)&0b1111 + 16
-                self.reg[self.Rd] = 0xFF
-        
-
-                self.pc +=1 
+                # SER is a pseudo instruction for LDI Rd, 0xFF
+                raise Exception('SER is a pseudo instruction for LDI, use LDI Rd, 0xFF instead')
+            
             case 'MUL':
                 Rr, Rd = Rr5, Rd5
                 vRr = yield from self.readByte(Rr)
@@ -666,48 +659,55 @@ class SingleCycleATmega328P(py4hw.Logic):
             case 'RCALL':
                 K = py4hw.IntegerHelper.c2_to_signed(self.ins & 0xFFF, 12)
                 ra = self.pc
-                
-                self.SP -= 1
-                yield from self.writeByte(self.SP, ra >> 8)
-                self.SP -= 1
+
+                yield from self.writeByte(self.SP, (ra >> 8) & 0xFF)
+                self.SP = (self.SP - 1) & 0xFFFF
+
                 yield from self.writeByte(self.SP, ra & 0xFF)
-                
-                self.pc += K                    
-                
-                print(f'RCALL {K:03X}\t\t[{self.SP+1:04X}]={ra>>8:02X} [{self.SP:04X}]={ra & 0xFF}')
+                self.SP = (self.SP - 1) & 0xFFFF
+
+                self.pc += K
+
+                print(f'RCALL {K:03X}\t\t[{(self.SP+2)&0xFFFF:04X}]={(ra>>8):02X} [{(self.SP+1)&0xFFFF:04X}]={ra&0xFF:02X}')
                     
             
                 
             case 'CALL':
-                # add is loaded in the skip logic
                 ra = self.pc
-                self.SP -= 1
-                yield from self.writeByte(self.SP, ra >> 8)
-                self.SP -= 1
+
+                yield from self.writeByte(self.SP, (ra >> 8) & 0xFF)
+                self.SP = (self.SP - 1) & 0xFFFF
+
                 yield from self.writeByte(self.SP, ra & 0xFF)
+                self.SP = (self.SP - 1) & 0xFFFF
+
                 self.pc = add
-                print(f'CALL {add:04X}\t\t[{self.SP+1:04X}]={ra>>8:02X} [{self.SP:04X}]={ra & 0xFF}')
+
+                print(f'CALL {add:04X}\t\t[{(self.SP+2)&0xFFFF:04X}]={(ra>>8):02X} [{(self.SP+1)&0xFFFF:04X}]={ra&0xFF:02X}')
 
                         
             case 'RET':
+                self.SP = (self.SP + 1) & 0xFFFF
                 retl = yield from self.readByte(self.SP)
-                self.SP += 1
+
+                self.SP = (self.SP + 1) & 0xFFFF
                 reth = yield from self.readByte(self.SP)
-                self.SP += 1
-                
+
                 self.pc = (reth << 8) | retl
+
                 print(f'RET\t\t\t\t[{SPH_REG:04X}]={(self.SP>>8):02X} [{SPL_REG:04X}]={(self.SP & 0xFF):02X}')
                 
             case 'RETI':
-                # RETI -> 1001 0101 0001 1000
-                # Return from interrupt
+                self.SP = (self.SP + 1) & 0xFFFF
                 retl = yield from self.readByte(self.SP)
-                self.SP += 1
+
+                self.SP = (self.SP + 1) & 0xFFFF
                 reth = yield from self.readByte(self.SP)
-                self.SP += 1
+
                 self.pc = (reth << 8) | retl
                 self.I = 1
-                print(f'RET\t\t\t\t[{SPH_REG:04X}]={(self.SP>>8):02X} [{SPL_REG:04X}]={(self.SP & 0xFF):02X} {self.getFlagString()}')
+
+                print(f'RETI\t\t\t[{SPH_REG:04X}]={(self.SP>>8):02X} [{SPL_REG:04X}]={(self.SP & 0xFF):02X} {self.getFlagString()}')
                 
 
             case 'CPSE':
@@ -715,7 +715,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 Rr, Rd = Rr5, Rd5
                 vRr = yield from self.readByte(Rr)
                 vRd = yield from self.readByte(Rd)
-                self.skip = (vRd == vRd)
+                self.skip = (vRd == vRr)
                 print(f'CPSE R{Rd}, R{Rr}\t\tskip={self.skip}')
                 
             case 'CP':
@@ -737,56 +737,27 @@ class SingleCycleATmega328P(py4hw.Logic):
                 print(f'CP R{Rr}, R{Rd}\t\t{self.getFlagString()}')
                 
             case 'CPC':
-                raise Exception('CPC not reviewed')
-                self.Rr = ((self.ins>>9)&0b1)<<4|(self.ins & 0xF)
-                self.Rd = ((self.ins>>8)&0b1)<<4|((self.ins>>4) & 0xF)
-                self.res =  (self.reg[self.Rd] - self.reg[self.Rr] - (self.SREG & 0b1)) & 0xFF
+                # CPC Rd, Rr -> 0000 01rd dddd rrrr
+                # Compare with Carry
+                Rr, Rd = Rr5, Rd5
+                vRr = yield from self.readByte(Rr)
+                vRd = yield from self.readByte(Rd)
+                res = vRd - vRr - self.C
 
-                Rd7= ((self.reg[self.Rd]&0xFF)>>7)&0b1
-                Rr7= ((self.reg[self.Rr]&0xFF)>>7)&0b1
-                R7 = ((self.res&0xFF)>>7)&0b1
-                #C
-                if ((not Rd7) & Rr7 )|( Rr7 & R7)|(R7 & (not Rd7)):
-                    self.SREG |= (1<<0)
-                else:
-                    self.SREG &= ~(1<<0)
+                self.C = 1 if (vRd < (vRr + self.C)) else 0
+                self.H = 1 if ((vRd & 0x0F) < ((vRr & 0x0F) + self.C)) else 0
+                rd_sign = (vRd >> 7) & 1
+                rr_sign = (vRr >> 7) & 1
+                res_sign = ((res & 0xFF) >> 7) & 1
+                self.V = 1 if (rd_sign == 1 and rr_sign == 0 and res_sign == 0) or (rd_sign == 0 and rr_sign == 1 and res_sign == 1) else 0
+                
+                # Z flag is only cleared, never set (it's ANDed with previous Z)
+                if (res & 0xFF) != 0:
+                    self.Z = 0
+                self.N = (res >> 7) & 1
+                self.S = self.N ^ self.V
 
-                #Z 
-                if (self.res == 0) or (((self.SREG>>1)&0b1)) :
-                    self.SREG |= (1<<1)
-                else:
-                    self.SREG &= ~(1<<1)
-
-                #N
-                if R7 == 1:
-                    self.SREG |= (1<<2)
-                else:
-                    self.SREG &= ~(1<<2)
-
-                #V
-                V = ((Rd7 & (not Rr7) & (not R7)) | ((not Rd7) & Rr7 & R7))&0b1
-
-                if V == 1:
-                    self.SREG |= (1<<3)
-                else:
-                    self.SREG &= ~(1<<3)
-
-                #S
-                if V^R7:
-                    self.SREG |= (1<<4)
-                else:
-                    self.SREG &= ~(1<<4)
-
-                #H
-                Rd3= ((self.reg[self.Rd]&0xFF)>>3)&0b1
-                Rr3= ((self.reg[self.Rr]&0xFF)>>3)&0b1
-                R3 = ((self.res&0xFF)>>3)&0b1
-                if ((not Rd3) & Rr3)|(Rr3 & R3 )|(R3 & (not Rd3)):
-                    self.SREG |= (1<<5)
-                else:
-                    self.SREG &= ~(1<<5)
-
-                self.pc += 1
+                print(f'CPC R{Rd}, R{Rr}\t\t{self.getFlagString()}')
             
             case 'CPI':
                 # CPI Rd, k -> 0011 KKKK dddd KKKK
@@ -798,7 +769,7 @@ class SingleCycleATmega328P(py4hw.Logic):
 
                 self.C = 1 if (vRd < K) else 0
                 self.H =  1 if ((vRd & 0x0F) - (K & 0x0F)) < 0 else 0
-                rd_sign = (vRd >> 7) & 1      # Bit 7 of Rd
+                rd_sign = (vRd >> 7) & 1      # Bit 7 of RdB
                 rr_sign = (K >> 7) & 1      # Bit 7 of Rr
                 res_sign = (res >> 7) & 1     # Bit 7 of result
                 self.V = 1 if ((rd_sign != rr_sign) and (rd_sign != res_sign)) else 0
@@ -846,12 +817,30 @@ class SingleCycleATmega328P(py4hw.Logic):
                 v = v | (1 << b)
                 yield from self.writeByte(A + 0x20, v)
                 print(f'SBI {A:02X}, b3\t\t[{A+0x20:02X}]={v:02X}') 
+
+            case 'BRGE':
+                # BRGE k -> 1111 01kk kkkk k100
+                K = py4hw.IntegerHelper.c2_to_signed((self.ins >> 3) & 0x7F, 7)
+
+                if self.S == 0:
+                    self.pc += K
+
+                print(f'BRGE {K:+d}\t\tS={self.S}')
+
+            case 'BRLT':
+                # BRLT k -> 1111 00kk kkkk k100
+                K = py4hw.IntegerHelper.c2_to_signed((self.ins >> 3) & 0x7F, 7)
+
+                if self.S == 1:
+                    self.pc += K
+
+                print(f'BRLT {K:+d}\t\tS={self.S}')
                 
             case 'LSL': 
                 # LSL Rd -> 0000 11dd dddd dddd
                 Rd = Rd5
                 
-                vRd = yield from self.readByte(Rr)
+                vRd = yield from self.readByte(Rd)
                 
                 res = vRd + vRd
 
@@ -977,12 +966,13 @@ class SingleCycleATmega328P(py4hw.Logic):
                 K , Rd =  K8, Rd4 + 16 
                 vRd = yield from self.readByte(Rd)
                 
-                res =  vRd - K - self.C
+                old_C = self.C
+                res =  vRd - K - old_C
 
                 self.Z = 1 if (res & 0xFF) == 0 else 0
                 self.N = (res >> 7) & 1
-                self.C = 1 if vRd < K else 0
-                self.H = 1 if (vRd & 0x0F) < (K & 0x0F) else 0
+                self.C = 1 if res < 0 else 0
+                self.H = 1 if ((vRd & 0x0F) - (K & 0x0F) - old_C) < 0 else 0
                 rd_sign = (vRd >> 7) & 1
                 rr_sign = (K >> 7) & 1
                 res_sign = (res >> 7) & 1
@@ -1015,11 +1005,13 @@ class SingleCycleATmega328P(py4hw.Logic):
                 print(f'SBIW R{Rd}, {K:04X}\t\tR{Rd+1}={((res>>8) & 0xFF):02X} R{Rd}={(res & 0xFF):02X} {self.getFlagString()}')
                 
             case 'SWAP':
-                raise Exception('SWAP not reviewed')
-                self.Rd = (self.ins>>4)&0x1F
-                self.reg[self.Rd]= ((self.reg[self.Rd]&0xF)<<4) | ((self.reg[self.Rd]&0xF0)>>4)
-
-                self.pc += 1
+                # SWAP Rd -> 1001 010d dddd 0010
+                # Swap nibbles
+                Rd = Rd5
+                vRd = yield from self.readByte(Rd)
+                res = ((vRd & 0x0F) << 4) | ((vRd & 0xF0) >> 4)
+                yield from self.writeByte(Rd, res)
+                print(f'SWAP R{Rd}\t\tR{Rd}={res:02X}')
                 
             case 'BSET':
                 # BSET s -> 1001 0100 0sss 1000
@@ -1061,7 +1053,9 @@ class SingleCycleATmega328P(py4hw.Logic):
                 
             case 'MOVW':
                 # MOVW Rd, Rr -> 0000 0001 dddd rrrr
-                Rr, Rd = Rr5, Rd5
+                Rd = (Rd5 & 0x0F) * 2
+                Rr = (Rr5 & 0x0F) * 2
+
                 vRh = yield from self.readByte(Rr+1)
                 vRl = yield from self.readByte(Rr)
                     
@@ -1077,281 +1071,153 @@ class SingleCycleATmega328P(py4hw.Logic):
                 
                 print(f'LDI R{Rd}, {K:02X}\t\tR{Rd}={K:02X}')
                 
-            case 'LDX': #X
-                raise Exception('LDX not reviewed')
-                self.Rd = (self.ins>>4)&0x1F
-                self.A  = (self.reg[27]<<8)|(self.reg[26]&0xFF) #X address
-
-                if self.databyteNb == 0 :
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(1) 
-
-                    self.mem.instype.prepare(1)
-
-                    self.mem.address.prepare(self.A)
-                    self.databyteNb = 1
-                elif self.mem.resp.get() == 1:
-                    self.reg[self.Rd] = self.mem.read_data.get()
-
-                    self.mem.instype.prepare(0)
-
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(0) 
-
-                    self.pc += 1
-                    self.databyteNb = 0
-            case 'LDX+': #X+
-                raise Exception('LDX+ not reviewed')
-                self.Rd = (self.ins>>4)&0x1F
-                self.A = self.reg[26]|(self.reg[27]<<8)
-
-                if self.databyteNb == 0 :
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(1) 
-
-                    self.mem.instype.prepare(1)
-
-                    self.mem.address.prepare(self.A)
-                    self.databyteNb = 1
-
-                elif self.mem.resp.get() == 1:
-                    self.reg[self.Rd] = self.mem.read_data.get()
-
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(0) 
-                    self.A += 1 ##incrementing X
-                    self.reg[26] = self.A&0xFF 
-                    self.reg[27] = (self.A>>8)&0xFF
-
-                    self.mem.instype.prepare(0)
-
-                    self.pc += 1
-                    self.databyteNb = 0
-            case 'LD-X': #-X
-                raise Exception('LD-X not reviewed')
-                self.Rd = (self.ins>>4)&0x1F
-                self.A = (self.reg[27]<<8)|(self.reg[26]&0xFF)
-
-                if self.databyteNb == 0 :
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(1) 
-
-                    self.mem.instype.prepare(1)
-
-                    self.A -= 1 ##decrementing X
-                    self.reg[26] = self.A&0xFF 
-                    self.reg[27] = (self.A>>8)&0xFF
-
-                    self.mem.address.prepare(self.A)
-                    self.databyteNb = 1
-
-                elif self.mem.resp.get() == 1:
-                    self.reg[self.Rd] = self.mem.read_data.get()
-
-                    self.mem.instype.prepare(0)
-
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(0) 
-
-                    self.pc += 1
-                    self.databyteNb = 0
-            case 'LDY': #Y
-                raise Exception('LDY not reviewed')
-                self.Rd = (self.ins>>4)&0b11111
-                self.A = self.reg[28]|(self.reg[29]<<8)
-
-                if self.databyteNb == 0 :
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(1) 
-
-                    self.mem.instype.prepare(1)
-
-                    self.mem.address.prepare(self.A)
-                    self.databyteNb = 1
-                elif self.mem.resp.get() == 1:
-                    self.reg[self.Rd] = self.mem.read_data.get()
-
-                    self.mem.instype.prepare(0)
-
-                    self.pc += 1
-                    self.databyteNb = 0
-            case 'LDY+': #Y+
-                raise Exception('LDY+ not reviewed')
-                self.Rd = (self.ins>>4)&0b11111
-                self.A = (self.reg[28]&0xFF)|(self.reg[29]<<8)
-
-                if self.databyteNb == 0 :
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(1) 
-
-                    self.mem.instype.prepare(1)
-
-                    self.mem.address.prepare(self.A)
-                    self.databyteNb = 1
-
-                elif self.mem.resp.get() == 1:
-                    self.reg[self.Rd] = self.mem.read_data.get()
-
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(0) 
-
-                    self.mem.instype.prepare(0)
-
-                    self.A = (self.A + 1) & 0xFFFF ##incrementing Y
-                    self.reg[28] = self.A&0xFF 
-                    self.reg[29] = (self.A>>8)&0xFF
-
-                    self.pc += 1
-                    self.databyteNb = 0
-            case 'LD-Y': #-Y
-                raise Exception('LD-Y not reviewed')
-                self.Rd = (self.ins>>4)&0x1F
-                self.A = (self.reg[29]<<8)|self.reg[28]
-
-                if self.databyteNb == 0 :
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(1) 
-
-                    self.mem.instype.prepare(1)
-
-                    self.A -= 1 ##decrementing Y
-                    self.reg[28] = self.A&0xFF 
-                    self.reg[29] = (self.A>>8)&0xFF
-
-                    self.mem.address.prepare(self.A)
-                    self.databyteNb = 1
-                elif self.mem.resp.get() == 1:
-                    self.reg[self.Rd] = self.mem.read_data.get()
-
-                    self.mem.instype.prepare(0)
-
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(0) 
-
-                    self.pc += 1
-                    self.databyteNb = 0
-            case 'LDDY':#Y+q
-                raise Exception('LDDY not reviewed')
-                self.Rd = (self.ins>>4)&0x1F
-                self.q = (self.ins&0b111)|(((self.ins>>10)&0b11)<<3)|(((self.ins>>13)&0b1)<<5)
-                self.A = (((self.reg[28]&0xFF)|((self.reg[29]&0xFF)<<8))+self.q) & 0xFFFF # Y address
-                
-                if self.databyteNb == 0 :
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(1) 
-
-                    self.mem.instype.prepare(1)
-
-                    self.mem.address.prepare(self.A)
-                    self.databyteNb = 1
-
-                elif self.mem.resp.get() == 1:
-                    self.reg[self.Rd] = self.mem.read_data.get()
-
-                    self.mem.instype.prepare(0)
-
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(0) 
-
-                    self.pc += 1
-                    self.databyteNb = 0
-            case 'LDZ':#Z
-                raise Exception('LDZ not reviewed')
-                self.Rd = (self.ins>>4)&0x1F
-                self.A = (self.reg[30]&0xFF)|(self.reg[31]<<8) # A but it is a Z memory address
-
-                if self.databyteNb == 0 :
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(1) 
-
-                    self.mem.instype.prepare(1)
-
-                    self.mem.address.prepare(self.A)
-                    self.databyteNb = 1
-                elif self.mem.resp.get() == 1:
-                    self.reg[self.Rd] = self.mem.read_data.get()
-
-                    self.mem.instype.prepare(0)
-
-                    self.pc += 1
-                    self.databyteNb = 0
-            case 'LDZ+':#Z+
-                raise Exception('LDZ+ not reviewed')
-                self.Rd = (self.ins>>4)&0x1F
-                self.A = self.reg[30]|(self.reg[31]<<8)
-
-                if self.databyteNb == 0 :
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(1) 
-
-                    self.mem.instype.prepare(1)
-
-                    self.mem.address.prepare(self.A)
-                    self.databyteNb = 1
-                elif self.mem.resp.get() == 1:
-                    self.reg[self.Rd] = self.mem.read_data.get()
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(0) 
-                    self.A += 1 ##incrementing Y
-                    self.reg[30] = self.A&0xFF 
-                    self.reg[31] = (self.A>>8)&0xFF
-
-                    self.mem.instype.prepare(0)
-
-                    self.pc += 1
-                    self.databyteNb = 0
-            case 'LD-Z':#–Z
-                raise Exception('LD-Z not reviewed')
-                self.Rd = (self.ins>>4)&0x1F
-                self.A = (self.reg[30]&0xFF)|(self.reg[31]<<8)
-
-                if self.databyteNb == 0 :
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(1) 
-
-                    self.mem.instype.prepare(1)
-
-                    self.A -= 1 ##decrementing Y
-                    self.reg[30] = self.A&0xFF 
-                    self.reg[31] = (self.A>>8)&0xFF
-
-                    self.mem.address.prepare(self.A)
-                    self.databyteNb = 1
-                elif self.mem.resp.get() == 1:
-                    self.reg[self.Rd] = self.mem.read_data.get()
-
-                    self.mem.instype.prepare(0)
-
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(0) 
-
-                    self.pc += 1
-                    self.databyteNb = 0
-            case 'LDDZ':#Z+q  verify this implementation
-                raise Exception('LDDZ not reviewed')
-                self.Rd = (self.ins>>4)&0b11111
-                self.q = (self.ins&0b111)|(((self.ins>>10)&0b11)<<3)|(((self.ins>>13)&0b1)<<5)
-                self.A = ((self.reg[30]&0xFF)|((self.reg[31]&0xFF)<<8))+self.q # Y address
+            case 'LDX':
+                # LDX Rd, X -> 1001 000d dddd 1100
+                # Load indirect from X
+                Rd = Rd5
+                xl = yield from self.readByte(26)
+                xh = yield from self.readByte(27)
+                add = (xh << 8) | xl
+                v = yield from self.readByte(add)
+                yield from self.writeByte(Rd, v)
+                print(f'LDX R{Rd}, X\t\tR{Rd}={v:02X} [X]={add:04X}')
+
+            case 'LDX+':
+                # LDX+ Rd, X+ -> 1001 000d dddd 1101
+                Rd = Rd5
+                xl = yield from self.readByte(26)
+                xh = yield from self.readByte(27)
+                add = (xh << 8) | xl
+                v = yield from self.readByte(add)
+                add = (add + 1) & 0xFFFF
                 
 
-                if self.databyteNb == 0 :
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(1) 
+                yield from self.writeByte(Rd, v)
+                
+                # THEN write the updated pointer (so it wins if Rd is 26 or 27)
+                yield from self.writeByte(26, add & 0xFF)
+                yield from self.writeByte(27, (add >> 8) & 0xFF)
+                
+                print(f'LDX+ R{Rd}, X+\t\tR{Rd}={v:02X} X={add:04X}')
 
-                    self.mem.instype.prepare(1)
+            case 'LD-X':
+                # LD-X Rd, -X -> 1001 000d dddd 1110
+                # Load indirect from X with pre-decrement
+                Rd = Rd5
+                xl = yield from self.readByte(26)
+                xh = yield from self.readByte(27)
+                add = ((xh << 8) | xl) - 1
+                add = add & 0xFFFF
+                yield from self.writeByte(26, add & 0xFF)
+                yield from self.writeByte(27, (add >> 8) & 0xFF)
+                v = yield from self.readByte(add)
+                yield from self.writeByte(Rd, v)
+                print(f'LD-X R{Rd}, -X\t\tR{Rd}={v:02X} X={add:04X}')
 
-                    self.mem.address.prepare(self.A)
-                    self.databyteNb = 1
-                elif self.mem.resp.get() == 1:
-                    self.reg[self.Rd] = self.mem.read_data.get()
+            case 'LDY':
+                # LDY Rd, Y -> 1000 000d dddd 1000
+                # Load indirect from Y
+                Rd = Rd5
+                yl = yield from self.readByte(28)
+                yh = yield from self.readByte(29)
+                add = (yh << 8) | yl
+                v = yield from self.readByte(add)
+                yield from self.writeByte(Rd, v)
+                print(f'LDY R{Rd}, Y\t\tR{Rd}={v:02X} [Y]={add:04X}')
 
-                    self.mem.instype.prepare(0)
+            case 'LDY+':
+                # LDY+ Rd, Y+ -> 1001 000d dddd 1001
+                # Load indirect from Y and post-increment
+                Rd = Rd5
+                yl = yield from self.readByte(28)
+                yh = yield from self.readByte(29)
+                add = (yh << 8) | yl
+                v = yield from self.readByte(add)
+                add = (add + 1) & 0xFFFF
+                yield from self.writeByte(28, add & 0xFF)
+                yield from self.writeByte(29, (add >> 8) & 0xFF)
+                yield from self.writeByte(Rd, v)
+                print(f'LDY+ R{Rd}, Y+\t\tR{Rd}={v:02X} Y={add:04X}')
 
-                    self.mem.write.prepare(0)
-                    self.mem.read.prepare(0)
+            case 'LD-Y':
+                # LD-Y Rd, -Y -> 1001 000d dddd 1010
+                # Load indirect from Y with pre-decrement
+                Rd = Rd5
+                yl = yield from self.readByte(28)
+                yh = yield from self.readByte(29)
+                add = ((yh << 8) | yl) - 1
+                add = add & 0xFFFF
+                yield from self.writeByte(28, add & 0xFF)
+                yield from self.writeByte(29, (add >> 8) & 0xFF)
+                v = yield from self.readByte(add)
+                yield from self.writeByte(Rd, v)
+                print(f'LD-Y R{Rd}, -Y\t\tR{Rd}={v:02X} Y={add:04X}')
 
-                    self.pc += 1
-                    self.databyteNb = 0
+            case 'LDDY':
+                # LDDY Rd, Y+q -> 10q0 qq0d dddd 0qqq
+                # Load indirect from Y with displacement
+                Rd = Rd5
+                q = (self.ins & 0b111) | (((self.ins >> 10) & 0b11) << 3) | (((self.ins >> 13) & 0b1) << 5)
+                yl = yield from self.readByte(28)
+                yh = yield from self.readByte(29)
+                add = ((yh << 8) | yl) + q
+                v = yield from self.readByte(add)
+                yield from self.writeByte(Rd, v)
+                print(f'LDDY R{Rd}, Y+{q}\t\tR{Rd}={v:02X} [Y+{q}]={add:04X}')
+
+            case 'LDZ':
+                # LDZ Rd, Z -> 1000 000d dddd 0000
+                # Load indirect from Z
+                Rd = Rd5
+                zl = yield from self.readByte(30)
+                zh = yield from self.readByte(31)
+                add = (zh << 8) | zl
+                v = yield from self.readByte(add)
+                yield from self.writeByte(Rd, v)
+                print(f'LDZ R{Rd}, Z\t\tR{Rd}={v:02X} [Z]={add:04X}')
+
+            case 'LDZ+':
+                # LDZ+ Rd, Z+ -> 1001 000d dddd 0001
+                # Load indirect from Z and post-increment
+                Rd = Rd5
+                zl = yield from self.readByte(30)
+                zh = yield from self.readByte(31)
+                add = (zh << 8) | zl
+                v = yield from self.readByte(add)
+                add = (add + 1) & 0xFFFF
+                yield from self.writeByte(30, add & 0xFF)
+                yield from self.writeByte(31, (add >> 8) & 0xFF)
+                yield from self.writeByte(Rd, v)
+                print(f'LDZ+ R{Rd}, Z+\t\tR{Rd}={v:02X} Z={add:04X}')
+
+            case 'LD-Z':
+                # LD-Z Rd, -Z -> 1001 000d dddd 0010
+                # Load indirect from Z with pre-decrement
+                Rd = Rd5
+                zl = yield from self.readByte(30)
+                zh = yield from self.readByte(31)
+                add = ((zh << 8) | zl) - 1
+                add = add & 0xFFFF
+                yield from self.writeByte(30, add & 0xFF)
+                yield from self.writeByte(31, (add >> 8) & 0xFF)
+                v = yield from self.readByte(add)
+                yield from self.writeByte(Rd, v)
+                print(f'LD-Z R{Rd}, -Z\t\tR{Rd}={v:02X} Z={add:04X}')
+
+                
+            case 'LDDZ':
+                # LDDZ Rd, Z+q -> 10q0 qq0d dddd 0qqq
+                # Load indirect from Z with displacement
+                Rd = Rd5
+                q = (self.ins & 0b111) | (((self.ins >> 10) & 0b11) << 3) | (((self.ins >> 13) & 0b1) << 5)
+                zl = yield from self.readByte(30)
+                zh = yield from self.readByte(31)
+                add = ((zh << 8) | zl) + q
+                v = yield from self.readByte(add)
+                yield from self.writeByte(Rd, v)
+                print(f'LDDZ R{Rd}, Z+{q}\t\tR{Rd}={v:02X} [Z+{q}]={add:04X}')
+
+
             case 'LDS':
                 # Load direct from sram
                 Rd = Rd5
@@ -1362,306 +1228,151 @@ class SingleCycleATmega328P(py4hw.Logic):
                 
                 print(f'LDS R{Rd}, {add:04X}\tR{Rd}={v:02X}')
                 
-            case 'STX':#X
-                raise Exception('STX not reviewed')
-                self.Rr = (self.ins>>4)&0x1F
-                self.A = (self.reg[26]&0xFF)|((self.reg[27]&0xFF)<<8) #X adress
-
-                if self.databyteNb == 0:
-                    self.mem.write.prepare(1)
-                    self.mem.read.prepare(0)
-
-                    self.mem.instype.prepare(1)
-
-                    self.mem.address.prepare(self.A)
-                    self.mem.write_data.prepare(self.reg[self.Rd])
-
-                    self.databyteNb = 1
-                else:
-
-                    self.mem.write.prepare(0)
-                    self.mem.write.prepare(0)
-
-                    self.mem.instype.prepare(0)
-
-                    self.pc += 1 
-                    self.databyteNb = 0
-            case 'STX+':#X+
-                raise Exception('STX+ not reviewed')
-                self.Rr = (self.ins>>4)&0x1F
-                self.A = self.reg[26]|(self.reg[27]<<8) #X addres 
-
-                if self.databyteNb == 0:
-                    self.mem.write.prepare(1)
-                    self.mem.read.prepare(0)
-
-                    self.mem.instype.prepare(1)
-
-                    self.mem.address.prepare(self.A)
-                    self.mem.write_data.prepare(self.reg[self.Rd])
-                    
-                    self.databyteNb = 1
-                else:
-
-                    self.mem.write.prepare(0)
-                    self.mem.write.prepare(0)
-
-                    self.mem.instype.prepare(0)
-
-                    self.A += 1 ##incrementing X
-                    self.reg[26] = self.A&0xFF 
-                    self.reg[27] = (self.A>>8)&0xFF
-
-                    self.pc += 1 
-                    self.databyteNb = 0
-            case 'ST-X':#–X
-                raise Exception('ST-X not reviewed')
-                self.Rr = (self.ins>>4)&0x1F
-                self.A = self.reg[26]|(self.reg[27]<<8) #X address
-
-
-                if self.databyteNb == 0:
-                    self.mem.write.prepare(1)
-                    self.mem.read.prepare(0)
-
-                    self.A -= 1 ##decrementing X
-                    self.reg[26] = self.A&0xFF 
-                    self.reg[27] = (self.A>>8)&0xFF
-
-                    self.mem.instype.prepare(1)
-
-                    self.mem.address.prepare(self.A)
-                    self.mem.write_data.prepare(self.reg[self.Rd])
-                    
-                    self.databyteNb = 1
-                else:
-
-                    self.mem.write.prepare(0)
-                    self.mem.write.prepare(0)
-
-                    self.mem.instype.prepare(0)
-
-                    self.pc += 1 
-                    self.databyteNb = 0
-            case 'STY':#Y
-                raise Exception('STY not reviewed')
-                self.Rr = (self.ins>>4)&0x1F
-                self.A = self.reg[28]|(self.reg[29]<<8) #Y address
-
-
-                if self.databyteNb == 0:
-                    self.mem.write.prepare(1)
-                    self.mem.read.prepare(0)
-
-                    self.mem.instype.prepare(1)
-
-                    self.mem.address.prepare(self.A)
-                    self.mem.write_data.prepare(self.reg[self.Rd])
-                    
-                    self.databyteNb = 1
-                else:
-
-                    self.mem.write.prepare(0)
-                    self.mem.write.prepare(0)
-
-                    self.mem.instype.prepare(0)
-
-                    self.pc += 1 
-                    self.databyteNb = 0
-            case 'STY+':#Y+
-                raise Exception('STY+ not reviewed')
-                self.Rr = (self.ins>>4)&0x1F
-                self.A = self.reg[28]|(self.reg[29]<<8) #Y address
-
-                if self.mem.resp.get() == 0:
-                    self.mem.write.prepare(1)
-                    self.mem.read.prepare(0)
-
-                    self.mem.instype.prepare(1)
-
-                    self.mem.address.prepare(self.A)
-                    self.mem.write_data.prepare(self.reg[self.Rd])
-
-                    self.databyteNb = 1
-                    
-                else:
-
-                    self.mem.write.prepare(0)
-                    self.mem.write.prepare(0)
-
-                    self.mem.instype.prepare(0)
-
-                    self.A += 1 ##incrementing Y
-                    self.reg[28] = self.A&0xFF 
-                    self.reg[29] = (self.A>>8)&0xFF
-
-                    self.pc += 1 
-                    self.databyteNb = 0
-            case 'ST-Y':#–Y
-                raise Exception('ST-Y not reviewed')
-                self.Rr = (self.ins>>4)&0x1F
-                self.A = self.reg[28]|(self.reg[29]<<8) #Y address
-
-                if self.databyteNb == 0:
-                    self.mem.write.prepare(1)
-                    self.mem.read.prepare(0)
-
-                    self.A -= 1 ##decrementing Y
-                    self.reg[28] = self.A&0xFF 
-                    self.reg[29] = (self.A>>8)&0xFF
-
-                    self.mem.instype.prepare(1)
-
-                    self.mem.address.prepare(self.A)
-                    self.mem.write_data.prepare(self.reg[self.Rd])
-                    
-                    self.databyteNb = 1
-
-                else:
-
-                    self.mem.write.prepare(0)
-                    self.mem.write.prepare(0)
-
-                    self.mem.instype.prepare(0)
-
-                    self.pc += 1 
-                    self.databyteNb = 0
-            case 'STDY':#Y+q or STY
-                raise Exception('STDY not reviewed')
-                self.Rd = (self.ins>>4)&0x1F
-                self.q = (self.ins&0b111)|(((self.ins>>10)&0b11)<<3)|(((self.ins>>13)&0b1)<<5)
-                self.A = ((self.reg[28]&0xFF)|(self.reg[29]<<8))+self.q # Y address
-                
-                
-                if self.databyteNb == 0:
-                    self.mem.write.prepare(1)
-                    self.mem.read.prepare(0)
-
-                    self.mem.address.prepare(self.A)
-                    self.mem.write_data.prepare(self.reg[self.Rd])
-
-                    self.mem.instype.prepare(1)
-
-                    self.databyteNb = 1
-
-                else:
-
-                    self.mem.write.prepare(0)
-                    self.mem.write.prepare(0)
-
-                    self.mem.instype.prepare(0)
-
-                    self.pc += 1 
-                    self.databyteNb = 0
-            case 'STZ':#Z
-                raise Exception('STZ not reviewed')
-                self.Rr = (self.ins>>4)&0x1F
-                self.A = self.reg[30]|(self.reg[31]<<8) # Z
-
-                if self.databyteNb == 0:
-                    self.mem.write.prepare(1)
-                    self.mem.read.prepare(0)
-
-                    self.mem.instype.prepare(1)
-
-                    self.mem.address.prepare(self.A)
-                    self.mem.write_data.prepare(self.reg[self.Rd])
-
-                    self.databyteNb = 1
-                    
-                else:
-
-                    self.mem.instype.prepare(0)
-
-                    self.mem.write.prepare(0)
-                    self.mem.write.prepare(0)
-
-                    self.pc += 1 
-                    self.databyteNb = 0
-            case 'STZ+':#Z+
-                raise Exception('STZ+ not reviewed')
-                self.Rr = (self.ins>>4)&0x1F
-                self.A = self.reg[30]|(self.reg[31]<<8)
-
-                if self.databyteNb == 0:
-                    self.mem.write.prepare(1)
-                    self.mem.read.prepare(0)
-
-                    self.mem.address.prepare(self.A)
-                    self.mem.write_data.prepare(self.reg[self.Rd])
-
-                    self.mem.instype.prepare(1)
-
-                    self.databyteNb = 1
-                    
-                else:
-
-                    self.mem.write.prepare(0)
-                    self.mem.write.prepare(0)
-
-                    self.A += 1 ##incrementing Z
-                    self.reg[30] = self.A&0xFF 
-                    self.reg[31] = (self.A>>8)&0xFF
-
-                    self.mem.instype.prepare(0)
-
-                    self.pc += 1 
-                    self.databyteNb = 0
-            case 'ST-Z':#–Z
-                raise Exception('ST-Z not reviewed')
-                self.Rr = (self.ins>>4)&0b11111
-                Z = self.reg[30]&0xFF|(self.reg[31]<<8) # Z address
-
-                if self.databyteNb == 0:
-                    self.mem.write.prepare(1)
-                    self.mem.read.prepare(0)
-
-                    self.A -= 1 ##decrementing Z
-                    self.reg[30] = self.A&0xFF 
-                    self.reg[31] = (self.A>>8)&0xFF
-
-                    self.mem.address.prepare(self.A)
-                    self.mem.write_data.prepare(self.reg[self.Rd])
-
-                    self.mem.instype.prepare(1)
-
-                    self.databyteNb = 1
-
-                else:
-
-                    self.mem.write.prepare(0)
-                    self.mem.write.prepare(0)
-
-                    self.mem.instype.prepare(0)
-
-                    self.pc += 1 
-                    self.databyteNb = 0
-            case 'STDZ':#Z+q or STZ
-                raise Exception('STDZ not reviewed')
-                self.Rr = (self.ins>>4)&0x1F
-                self.q = (self.ins&0b111) | (((self.ins>>10)&0b11)<<3) | (((self.ins>>13)&0b11)<<3)
-                self.A = self.reg[30]|(self.reg[31]<<8) #named A but it is a Z address
-
-                if self.databyteNb == 0:
-                    self.mem.write.prepare(1)
-                    self.mem.read.prepare(0)
-
-                    self.mem.address.prepare(self.A+self.q)
-                    self.mem.write_data.prepare(self.reg[self.Rd])
-
-                    self.mem.instype.prepare(1)
-
-                    self.databyteNb = 1
-
-                else:
-
-                    self.mem.write.prepare(0)
-                    self.mem.write.prepare(0)
-
-                    self.mem.instype.prepare(0)
-
-                    self.pc += 1 
-                    self.databyteNb = 0
+            case 'STX':
+                # STX X, Rr -> 1001 001r rrrr 1100
+                # Store indirect to X
+                Rr = Rd5
+                xl = yield from self.readByte(26)
+                xh = yield from self.readByte(27)
+                add = (xh << 8) | xl
+                vRr = yield from self.readByte(Rr)
+                yield from self.writeByte(add, vRr)
+                print(f'STX X, R{Rr}\t\t[{add:04X}]={vRr:02X}')
+
+            case 'STX+':
+                # STX+ X+, Rr -> 1001 001r rrrr 1101
+                # Store indirect to X and post-increment
+                Rr = Rd5
+                xl = yield from self.readByte(26)
+                xh = yield from self.readByte(27)
+                add = (xh << 8) | xl
+                vRr = yield from self.readByte(Rr)
+                yield from self.writeByte(add, vRr)
+                add = (add + 1) & 0xFFFF
+                yield from self.writeByte(26, add & 0xFF)
+                yield from self.writeByte(27, (add >> 8) & 0xFF)
+                print(f'STX+ X+, R{Rr}\t\t[{add-1:04X}]={vRr:02X} X={add:04X}')
+
+            case 'ST-X':
+                # ST-X -X, Rr -> 1001 001r rrrr 1110
+                # Store indirect to X with pre-decrement
+                Rr = Rd5
+                xl = yield from self.readByte(26)
+                xh = yield from self.readByte(27)
+                add = ((xh << 8) | xl) - 1
+                add = add & 0xFFFF
+                yield from self.writeByte(26, add & 0xFF)
+                yield from self.writeByte(27, (add >> 8) & 0xFF)
+                vRr = yield from self.readByte(Rr)
+                yield from self.writeByte(add, vRr)
+                print(f'ST-X -X, R{Rr}\t\t[{add:04X}]={vRr:02X} X={add:04X}')
+
+            case 'STY':
+                # STY Y, Rr -> 1000 001r rrrr 1000
+                # Store indirect to Y
+                Rr = Rd5
+                yl = yield from self.readByte(28)
+                yh = yield from self.readByte(29)
+                add = (yh << 8) | yl
+                vRr = yield from self.readByte(Rr)
+                yield from self.writeByte(add, vRr)
+                print(f'STY Y, R{Rr}\t\t[{add:04X}]={vRr:02X}')
+
+            case 'STY+':
+                # ST Y+, Rr -> 1001 001r rrrr 1010
+                # Note: The register is in bits 4-8, which maps to Rd5 in our parser
+                Rr = Rd5 
+
+                # Read the value from the register
+                vRr = yield from self.readByte(Rr)
+
+                # Read the Y pointer (R28 and R29)
+                Y_low = yield from self.readByte(28)
+                Y_high = yield from self.readByte(29)
+                Y_ptr = (Y_high << 8) | Y_low
+
+                # Store value to memory
+                yield from self.writeByte(Y_ptr, vRr)
+
+                # Post-increment Y pointer
+                Y_ptr = (Y_ptr + 1) & 0xFFFF
+                yield from self.writeByte(28, Y_ptr & 0xFF)
+                yield from self.writeByte(29, (Y_ptr >> 8) & 0xFF)
+
+            case 'ST-Y':
+                # ST-Y -Y, Rr -> 1001 001r rrrr 1010
+                # Store indirect to Y with pre-decrement
+                Rr = Rd5
+                yl = yield from self.readByte(28)
+                yh = yield from self.readByte(29)
+                add = ((yh << 8) | yl) - 1
+                add = add & 0xFFFF
+                yield from self.writeByte(28, add & 0xFF)
+                yield from self.writeByte(29, (add >> 8) & 0xFF)
+                vRr = yield from self.readByte(Rr)
+                yield from self.writeByte(add, vRr)
+                print(f'ST-Y -Y, R{Rr}\t\t[{add:04X}]={vRr:02X} Y={add:04X}')
+
+            case 'STDY':
+                # STDY Y+q, Rr -> 10q0 qq1r rrrr 1qqq
+                Rr = (self.ins >> 4) & 0x1F     
+                q = (((self.ins >> 13) & 0b1) << 5) | (((self.ins >> 10) & 0b11) << 3) | (self.ins & 0b111)
+                yl = yield from self.readByte(28)
+                yh = yield from self.readByte(29)
+                add = (((yh << 8) | yl) + q) & 0xFFFF
+                vRr = yield from self.readByte(Rr)
+                yield from self.writeByte(add, vRr)
+                print(f'STDY Y+{q}, R{Rr}\t\t[{add:04X}]={vRr:02X}')
+
+            case 'STZ':
+                # STZ Z, Rr -> 1000 001r rrrr 0000
+                # Store indirect to Z
+                Rr = Rd5
+                zl = yield from self.readByte(30)
+                zh = yield from self.readByte(31)
+                add = (zh << 8) | zl
+                vRr = yield from self.readByte(Rr)
+                yield from self.writeByte(add, vRr)
+                print(f'STZ Z, R{Rr}\t\t[{add:04X}]={vRr:02X}')
+
+            case 'STZ+':
+                # STZ+ Z+, Rr -> 1001 001r rrrr 0001
+                # Store indirect to Z and post-increment
+                Rr = Rd5
+                zl = yield from self.readByte(30)
+                zh = yield from self.readByte(31)
+                add = (zh << 8) | zl
+                vRr = yield from self.readByte(Rr)
+                yield from self.writeByte(add, vRr)
+                add = (add + 1) & 0xFFFF
+                yield from self.writeByte(30, add & 0xFF)
+                yield from self.writeByte(31, (add >> 8) & 0xFF)
+                print(f'STZ+ Z+, R{Rr}\t\t[{add-1:04X}]={vRr:02X} Z={add:04X}')
+
+            case 'ST-Z':
+                # ST-Z -Z, Rr -> 1001 001r rrrr 0010
+                # Store indirect to Z with pre-decrement
+                Rr = Rd5
+                zl = yield from self.readByte(30)
+                zh = yield from self.readByte(31)
+                add = ((zh << 8) | zl) - 1
+                add = add & 0xFFFF
+                yield from self.writeByte(30, add & 0xFF)
+                yield from self.writeByte(31, (add >> 8) & 0xFF)
+                vRr = yield from self.readByte(Rr)
+                yield from self.writeByte(add, vRr)
+                print(f'ST-Z -Z, R{Rr}\t\t[{add:04X}]={vRr:02X} Z={add:04X}')
+
+            case 'STDZ':
+                # STDZ Z+q, Rr -> 10q0 qq1r rrrr 0qqq
+                Rr = (self.ins >> 4) & 0x1F     
+                q = (((self.ins >> 13) & 0b1) << 5) | (((self.ins >> 10) & 0b11) << 3) | (self.ins & 0b111)
+                zl = yield from self.readByte(30)
+                zh = yield from self.readByte(31)
+                add = (((zh << 8) | zl) + q) & 0xFFFF
+                vRr = yield from self.readByte(Rr)
+                yield from self.writeByte(add, vRr)
+                print(f'STDZ Z+{q}, R{Rr}\t\t[{add:04X}]={vRr:02X}')
             
             case 'STS':
                 # STS k, Rr -> 1001 001d dddd 0000 kkkk kkkk kkkk kkkk
@@ -1671,131 +1382,128 @@ class SingleCycleATmega328P(py4hw.Logic):
                 yield from self.writeByte(add, v)
                 print(f'STS {add:04X}, R{Rr}\t[{add:04X}]={v:02X}')
 
-            case 'LPM': #R0 implied
-                raise Exception('LPM not reviewed')
-                self.A = (self.reg[30]&0xFF)|((self.reg[31]&0xFF)<<8)
-
-                if(self.A&0b1 == 1 ):##high byte
-                    self.reg[1] = (self.flash[(self.A>>1)] & 0xFF00)>>8
-                else: ## low byte 
-                    self.reg[0] = (self.flash[(self.A>>1)]&0xFF)
-
-                self.pc += 1 
-            case 'LPMZ': #Z
-                raise Exception('LPMZ not reviewed')
-                self.Rd = ((self.ins>>4)&0x1F)
-                self.A = (self.reg[30]&0xFF)|((self.reg[31]&0xFF)<<8)
+            case 'LPM':
+                # LPM -> 1001 0101 1100 1000
+                # Load byte at (Z) from program memory into R0. Z is unchanged.
+                zl = yield from self.readByte(30)
+                zh = yield from self.readByte(31)
+                Z = (zh << 8) | zl
+                word = yield from self.readFlashWord(Z >> 1)
+                v = (word >> 8) & 0xFF if (Z & 1) else word & 0xFF
+                yield from self.writeByte(0, v)
+                print(f'LPM\t\t\tR0={v:02X} [Z]={Z:04X}')
 
 
-                if(self.A&0b1 == 1 ):##high byte
-                    self.reg[self.Rd] = (self.flash[(self.A>>1)] & 0xFF00)>>8
-                else: ## low byte 
-                    self.reg[self.Rd] = (self.flash[(self.A>>1)]&0xFF)
+            case 'LPMZ':
+                # LPMZ Rd, Z -> 1001 000d dddd 0100
+                # Load byte at (Z) from program memory into Rd. Z is unchanged.
+                Rd = Rd5
+                zl = yield from self.readByte(30)
+                zh = yield from self.readByte(31)
+                Z = (zh << 8) | zl
+                word = yield from self.readFlashWord(Z >> 1)
+                v = (word >> 8) & 0xFF if (Z & 1) else word & 0xFF
+                yield from self.writeByte(Rd, v)
+                print(f'LPMZ R{Rd}, Z\t\tR{Rd}={v:02X} [Z]={Z:04X}')
 
 
-                self.pc += 1
-            case 'LPMZ+': #Z+
-                raise Exception('LPMZ+ not reviewed')
-                self.Rd = ((self.ins>>4)&0x1F) 
-                self.A = (self.reg[30]&0xFF)|((self.reg[31]&0xFF)<<8)
+            case 'LPMZ+':
+                # LPMZ+ Rd, Z+ -> 1001 000d dddd 0101
+                # Load byte at (Z) from program memory into Rd, then post-increment Z.
+                Rd = Rd5
+                zl = yield from self.readByte(30)
+                zh = yield from self.readByte(31)
+                Z = (zh << 8) | zl
+                word = yield from self.readFlashWord(Z >> 1)
+                v = (word >> 8) & 0xFF if (Z & 1) else word & 0xFF
+                yield from self.writeByte(Rd, v)
+                Z = (Z + 1) & 0xFFFF
+                yield from self.writeByte(30, Z & 0xFF)
+                yield from self.writeByte(31, (Z >> 8) & 0xFF)
+                print(f'LPMZ+ R{Rd}, Z+\t\tR{Rd}={v:02X} Z={Z:04X}')
 
-                original_address = self.A
-
-                if(self.A&0b1 == 1 ):##high byte
-                    self.reg[self.Rd+1] = (self.flash[(self.A>>1)] & 0xFF00)>>8
-                else: ## low byte 
-                    self.reg[self.Rd] = (self.flash[(self.A>>1)]&0xFF)
-
-                original_address += 1 ##decrementing Z
-                self.reg[30] = original_address&0xFF 
-                self.reg[31] = (original_address>>8)&0xFF
-
-                self.pc+=1
             case 'SPM':
-                raise Exception('SPM not reviewed')
-                # must use SPMCSR
+                # SPM -> 1001 0101 1110 1000
                 SELFPRGEN = self.SPMCSR & 0b1
-                PGERS = (self.SPMCSR >> 1) & 0b1
-                PGWRT = (self.SPMCSR >> 2) & 0b1
-                BLBSET = (self.SPMCSR >> 3) & 0b1
-                RWWSRE = (self.SPMCSR >> 4) & 0b1
-                RES = (self.SPMCSR >> 5) & 0b1
-                SPMIE = (self.SPMCSR >> 7) & 0b1
+                PGERS     = (self.SPMCSR >> 1) & 0b1
+                PGWRT     = (self.SPMCSR >> 2) & 0b1
+                BLBSET    = (self.SPMCSR >> 3) & 0b1
+                SPMIE     = (self.SPMCSR >> 7) & 0b1
 
-                self.Z = (self.reg[30] & 0xFF) | ((self.reg[31] & 0xFF) << 8)
+                zl = yield from self.readByte(30)
+                zh = yield from self.readByte(31)
+                Z = (zh << 8) | zl
 
-                word_addr = self.Z >> 1
-
+                word_addr = Z >> 1
                 page_offset = word_addr % self.PAGE_SIZE_WORDS
                 page_base_addr = word_addr - page_offset
 
-                if SELFPRGEN == 1: # SPM operation is enabled
+                if SELFPRGEN == 1:
+                    if (PGERS == 1) and (PGWRT == 0):
+                        # --- PAGE ERASE: wipe the page in flash ---
+                        for i in range(self.PAGE_SIZE_WORDS):
+                            yield from self.writeFlashWord(page_base_addr + i, 0xFFFF)
 
-                    # --- 1. PAGE ERASE ---
-                    if (PGERS == 1) and (PGWRT == 0): 
-                        # Wipe the entire page in actual flash memory
+                    elif (PGERS == 0) and (PGWRT == 1):
+                        # --- PAGE WRITE: commit temp buffer into flash ---
+                        # Flash bits can only go 1 -> 0, so AND with existing content
                         for i in range(self.PAGE_SIZE_WORDS):
-                            if (page_base_addr + i) < len(self.flash):
-                                self.flash[page_base_addr + i] = 0xFFFF
-                        
-                    # --- 2. PAGE WRITE ---
-                    elif (PGERS == 0) and (PGWRT == 1): 
-                        # Commit the temporary buffer to the flash memory page
-                        for i in range(self.PAGE_SIZE_WORDS):
-                            if (page_base_addr + i) < len(self.flash):
-                                # Flash can only change bits from 1 to 0. 
-                                # A bitwise AND correctly simulates writing over existing data.
-                                self.flash[page_base_addr + i] &= self.temp_page_buffer[i]
-                        
-                        # Hardware auto-erases the temporary buffer after a Page Write
+                            existing = yield from self.readFlashWord(page_base_addr + i)
+                            new_val = existing & self.temp_page_buffer[i]
+                            yield from self.writeFlashWord(page_base_addr + i, new_val)
+                        # Hardware auto-clears the temp buffer after a page write
                         self.temp_page_buffer = [0xFFFF] * self.PAGE_SIZE_WORDS
 
-                    # --- 3. FILL TEMPORARY BUFFER ---
                     elif (PGERS == 0) and (PGWRT == 0) and (BLBSET == 0):
-                        # Load the data word from R1:R0 (R0 is LSB, R1 is MSB)
-                        data_word = (self.reg[0] & 0xFF) | ((self.reg[1] & 0xFF) << 8)
-                        
-                        # Write into the temporary buffer at the specified offset
+                        # --- FILL TEMPORARY BUFFER from R1:R0 ---
+                        r0 = yield from self.readByte(0)
+                        r1 = yield from self.readByte(1)
+                        data_word = (r1 << 8) | r0
                         self.temp_page_buffer[page_offset] = data_word
 
                     # Hardware auto-clears the SPM enable bit after execution
                     self.SPMCSR &= ~0b1
 
-                    # Trigger interrupt if enabled
                     if SPMIE == 1:
-                        print("SPM Interrupt Triggered")
+                        print('SPM Interrupt Triggered')
 
-                self.pc += 1
+                print(f'SPM\t\t\tZ={Z:04X} SPMCSR={self.SPMCSR:02X}')
+
+
 
             case 'IN':
                 # IN Rd, A -> 1011 0AAd dddd AAAA
                 Rd = Rd5
                 add = A6 + 0x20
-                
-                if (add == SPH_REG):
-                    v = self.SP >> 8
-                elif (add == SPL_REG):
-                    v = self.SP & 0xF
-                elif (add == SREG_REG):
+
+                if add == SPH_REG:
+                    v = (self.SP >> 8) & 0xFF
+                elif add == SPL_REG:
+                    v = self.SP & 0xFF
+                elif add == SREG_REG:
                     v, _ = self.getSREG()
                 else:
                     v = yield from self.readByte(add)
-                
+
                 yield from self.writeByte(Rd, v)
                 print(f'IN R{Rd}, {A6:02X}\t\tR{Rd}={v:02X}')
                 
             case 'OUT':
-                # -> 1011 1AAr rrrr AAAA
+                # OUT Rr,A -> 1011 1AAr rrrr AAAA
                 Rr = Rd5
                 add = A6 + 0x20
-                
+
                 v = yield from self.readByte(Rr)
-                
-                if (add == SPH_REG):
-                    self.SP = (v << 8) | self.SP & 0x00FF
-                elif (add == SPL_REG):
-                    self.SP = v | self.SP & 0xFF00
-                elif (add == SREG_REG):
+
+                if add == SPH_REG:
+                    self.SP = ((v & 0xFF) << 8) | (self.SP & 0x00FF)
+                    yield from self.writeByte(add, v)
+
+                elif add == SPL_REG:
+                    self.SP = (self.SP & 0xFF00) | (v & 0xFF)
+                    yield from self.writeByte(add, v)
+
+                elif add == SREG_REG:
                     self.I = (v >> 7) & 1
                     self.T = (v >> 6) & 1
                     self.H = (v >> 5) & 1
@@ -1803,44 +1511,56 @@ class SingleCycleATmega328P(py4hw.Logic):
                     self.V = (v >> 3) & 1
                     self.N = (v >> 2) & 1
                     self.Z = (v >> 1) & 1
-                    self.C = (v & 1)
+                    self.C = v & 1
+                    yield from self.writeByte(add, v)
+
                 else:
                     yield from self.writeByte(add, v)
-                
+
                 print(f'OUT {A6:02X}, R{Rr}\t\t[{add:02X}]={v:02X}')
 
             case 'PUSH':
                 # PUSH Rr → 1001 001d dddd 1111
                 Rr = Rd5
-                self.SP -= 1
+
                 vRr = yield from self.readByte(Rr)
+
+                # Store at current SP
                 yield from self.writeByte(self.SP, vRr)
-                print(f'PUSH R{Rr}\t\t[self.SP:04X]={vRr:02X}')                
+
+                oldSP = self.SP
+                self.SP = (self.SP - 1) & 0xFFFF
+
+                print(f'PUSH R{Rr}\t\t[{oldSP:04X}]={vRr:02X}')
             
             case 'POP':
                 # POP Rd → 1001 000d dddd 1111
                 Rd = Rd5
+
+                # Advance SP to the last pushed value
+                self.SP = (self.SP + 1) & 0xFFFF
+
                 vRd = yield from self.readByte(self.SP)
-                self.SP += 1
                 yield from self.writeByte(Rd, vRd)
-                print(f'POP R{Rd}\t\tR{Rd}={vRd:02X}')                
+
+                print(f'POP R{Rd}\t\tR{Rd}={vRd:02X}')             
 
             case 'NOP':
                 # NOP -> 0000 0000 0000 0000
                 print('NOP')
                 
             case 'SLEEP':
-                ##activation of SLEEP MODE
-                raise Exception('SLEEP not validated')
-                self.pc += 1
+                print('SLEEP')
             case 'WDR' :
                 ## Watchdog Reset
-                raise Exception('WDR not validated')
-                self.pc +=1
-            case 'BREAK' : 
-                ## Sould enter debug mode
-                raise Exception('BREAK not validated')
-                self.pc += 1
+                self.WDG_val = 0
+                print('WDR')
+            case 'BREAK':
+                # BREAK = 1001 0111 1001 1000
+                # If the On-Chip Debugger is enabled, this stops the CPU; otherwise
+                # it is executed as a NOP.  Since we have no OCD attached, treat as NOP.
+               
+                print('BREAK')
             case 'invalid': #basicaly a nop
                 raise Exception(f'invalid opocode: {self.ins:04X}')
                 self.pc += 1

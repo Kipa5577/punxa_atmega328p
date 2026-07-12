@@ -6,7 +6,7 @@
 .equ final_result = 0x0101
 .equ SPH = 0x3E
 .equ SPL = 0x3D
-.equ SREG_ADDR = 0x5F
+.equ SREG_ADDR = 0x3F      ; FIXED: 0x3F is the proper I/O address for SREG
 .equ GPIOR0 = 0x1E
 
 reset:
@@ -22,7 +22,8 @@ reset:
 fail:
     ldi r16, 255
     sts final_result, r16
-end: rjmp end
+end: 
+    rjmp end
 
 ; --- Test Logic with Local Trampolines ---
 
@@ -41,13 +42,26 @@ test2:
 t2_ok:
     rcall inc_case
 test3:
-    cli; clt; clh; clv; clz; clc; cln
-    sei; set; seh; sev; sez; sec
+    ; FIXED: Each instruction MUST be on its own line!
+    cli
+    clt
+    clh
+    clv
+    clz
+    clc
+    cln
+    sei
+    set
+    seh
+    sev
+    sez
+    sec
     sen
+    
     brmi t3_n
     rjmp fail
 t3_n:
-    brie t3_i
+    brbs 7, t3_i   ; FIXED: 'brie' doesn't exist. Bit 7 is the I flag.
     rjmp fail
 t3_i:
     brts t3_t
@@ -76,7 +90,8 @@ test4:
     brne t4_fail
     rcall inc_case
     rjmp test5
-t4_fail: rjmp fail
+t4_fail: 
+    rjmp fail
 test5:
     ldi r16, 0xDE
     sts 0x0200, r16
@@ -86,7 +101,8 @@ test5:
     brne t5_fail
     rcall inc_case
     rjmp test6
-t5_fail: rjmp fail
+t5_fail: 
+    rjmp fail
 test6:
     ldi r16, 0xAD
     out GPIOR0, r16
@@ -96,7 +112,8 @@ test6:
     brne t6_fail
     rcall inc_case
     rjmp test7
-t6_fail: rjmp fail
+t6_fail: 
+    rjmp fail
 test7:
     in r16, SPL
     in r17, SPH
@@ -111,7 +128,8 @@ test7:
     brne t7_fail
     rcall inc_case
     rjmp test8
-t7_fail: rjmp fail
+t7_fail: 
+    rjmp fail
 test8:
     ldi r16, 0
     sen
@@ -124,25 +142,36 @@ test8:
     brne t8_fail
     rcall inc_case
     rjmp test9
-t8_fail: rjmp fail
+t8_fail: 
+    rjmp fail
 test9:
-    clv; cln; sen
-    brlt t9_a
+    ses             ; Set Signed flag explicitly (S = 1)
+    cln             ; Clear N
+    sen             ; Set N (This should NOT affect S)
+    brlt t9_a       ; BRLT branches if S = 1. Validates S is still 1.
     rjmp fail
 t9_a:
-    sev; cln; sen
-    brge t9_ok
+    cls             ; Clear Signed flag explicitly (S = 0)
+    cln             ; Clear N
+    sen             ; Set N (This should NOT affect S)
+    brge t9_ok      ; BRGE branches if S = 0. Validates S is still 0.
     rjmp fail
 t9_ok:
     rcall inc_case
+    rjmp test10
 test10:
-    cln; sen; sen; sen
+    cln
+    sen
+    sen
+    sen
     brmi t10_ok
     rjmp fail
 t10_ok:
     rcall inc_case
 test11:
-    cln; sen; cln
+    cln
+    sen
+    cln
     brpl t11_ok
     rjmp fail
 t11_ok:
@@ -150,16 +179,23 @@ t11_ok:
 test12:
     ldi r16, 0x10
     ldi r17, 0x20
-    add r16, r17
-    sen
+    add r16, r17       ; r16 is now 0x30
+    
+    ; 1. Verify the math first (This will overwrite SREG)
     cpi r16, 0x30
     brne t12_fail
-    brmi t12_ok
+    
+    ; 2. Now run the target instruction
+    sen                ; Set the Negative flag (N = 1)
+    
+    ; 3. Verify the flag
+    brmi t12_ok        ; Branch if N = 1
     rjmp t12_fail
 t12_ok:
     rcall inc_case
     rjmp test13
-t12_fail: rjmp fail
+t12_fail: 
+    rjmp fail
 test13:
     cln
     rcall sen_sub
@@ -168,7 +204,11 @@ test13:
 t13_ok:
     rcall inc_case
 test14:
-    cln; sen; cln; sen; cln
+    cln
+    sen
+    cln
+    sen
+    cln
     brpl t14_ok
     rjmp fail
 t14_ok:
@@ -183,37 +223,44 @@ test15:
 t15_ok:
     rcall inc_case
 test16:
-    clv; sen
+    clv
+    sen
     brvc t16_a
     rjmp fail
 t16_a:
-    sev; sen
+    sev
+    sen
     brvs t16_ok
     rjmp fail
 t16_ok:
     rcall inc_case
 test17:
-    cln; sen
+    cln
+    sen
     brmi t17_ok
     rjmp fail
 t17_ok:
     rcall inc_case
 test18:
-    sec; sen
+    sec
+    sen
     brcs t18_a
     rjmp fail
 t18_a:
-    clc; sen
+    clc
+    sen
     brcc t18_ok
     rjmp fail
 t18_ok:
     rcall inc_case
 test19:
-    sez; sen
+    sez
+    sen
     breq t19_a
     rjmp fail
 t19_a:
-    clz; sen
+    clz
+    sen
     brne t19_ok
     rjmp fail
 t19_ok:
@@ -221,10 +268,19 @@ t19_ok:
 test20:
     ldi r16, 10
     ldi r17, 10
-    cp r16, r17
-    clv; sen
-    brlt t20_ok
+    cp r16, r17     ; ALU calculates S = 0
+    clv
+    sen             ; Sets N = 1, but leaves S = 0
+    
+    ; 1. Verify N was successfully set
+    brmi t20_n_ok
     rjmp fail
+t20_n_ok:
+    
+    ; 2. Verify S was NOT altered by SEN (It should still be 0)
+    brge t20_ok     ; brge checks if S = 0
+    rjmp fail
+    
 t20_ok:
     ldi r16, 1
     sts final_result, r16

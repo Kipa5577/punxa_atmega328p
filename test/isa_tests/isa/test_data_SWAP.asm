@@ -15,6 +15,10 @@
 ; Reset
 ; -------------------------
 reset:
+    ldi r16, 0xFF
+    out SPL, r16
+    ldi r16, 0x08
+    out SPH, r16
     ldi r16, 0
     sts test_case, r16
     ldi r16, 1

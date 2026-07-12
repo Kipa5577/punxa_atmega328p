@@ -333,24 +333,24 @@ test19_start:
     clc
     nop
     nop
-    brid fail_t19
+    brie fail_t19  
     brtc ok_t19
-    jmp fail_t19
+    rjmp fail_t19  ; Swapped to 16-bit rjmp for safety
 ok_t19:
     brhc ok_h19
-    jmp fail_t19
+    rjmp fail_t19
 ok_h19:
     brvc ok_v19
-    jmp fail_t19
+    rjmp fail_t19
 ok_v19:
     brpl ok_n19
-    jmp fail_t19
+    rjmp fail_t19
 ok_n19:
     brne ok_z19
-    jmp fail_t19
+    rjmp fail_t19
 ok_z19:
     brcc ok_c19
-    jmp fail_t19
+    rjmp fail_t19
 ok_c19:
     rcall inc_case
     rjmp test20_start

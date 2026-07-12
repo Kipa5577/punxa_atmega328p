@@ -27,29 +27,35 @@ test1_start:
     ldi r16, 0x42
     mov r17, r16
     cpi r17, 0x42
-    brne fail
+    breq t1_ok
+    rjmp fail
+t1_ok:
     rcall inc_case
     rjmp test2_start
 
 ; ============================================================
-; TEST 2 (NO R0 USED -> r18 instead)
+; TEST 2
 ; ============================================================
 test2_start:
     ldi r18, 0x7E
     mov r31, r18
     cpi r31, 0x7E
-    brne fail
+    breq t2_ok
+    rjmp fail
+t2_ok:
     rcall inc_case
     rjmp test3_start
 
 ; ============================================================
-; TEST 3 (NO R0 USED -> r18 instead)
+; TEST 3
 ; ============================================================
 test3_start:
     ldi r31, 0xAA
     mov r18, r31
     cpi r18, 0xAA
-    brne fail
+    breq t3_ok
+    rjmp fail
+t3_ok:
     rcall inc_case
     rjmp test4_start
 
@@ -60,7 +66,9 @@ test4_start:
     ldi r16, 0x55
     mov r16, r16
     cpi r16, 0x55
-    brne fail
+    breq t4_ok
+    rjmp fail
+t4_ok:
     rcall inc_case
     rjmp test5_start
 
@@ -71,7 +79,9 @@ test5_start:
     ldi r16, 0x00
     mov r17, r16
     cpi r17, 0x00
-    brne fail
+    breq t5_ok
+    rjmp fail
+t5_ok:
     rcall inc_case
     rjmp test6_start
 
@@ -82,7 +92,9 @@ test6_start:
     ldi r16, 0xFF
     mov r17, r16
     cpi r17, 0xFF
-    brne fail
+    breq t6_ok
+    rjmp fail
+t6_ok:
     rcall inc_case
     rjmp test7_start
 
@@ -93,14 +105,18 @@ test7_start:
     ldi r16, 0x33
     mov r17, r16
     cpi r16, 0x33
-    brne fail
+    breq t7_ok1
+    rjmp fail
+t7_ok1:
     cpi r17, 0x33
-    brne fail
+    breq t7_ok2
+    rjmp fail
+t7_ok2:
     rcall inc_case
     rjmp test8_start
 
 ; ============================================================
-; TEST 8 (FIXED: real SREG handling, not fake instructions)
+; TEST 8
 ; ============================================================
 test8_start:
     in r20, SREG
@@ -112,8 +128,9 @@ test8_start:
 
     in r21, SREG
     cpi r21, 0xFF
-    brne fail
-
+    breq t8_ok
+    rjmp fail
+t8_ok:
     rcall inc_case
     rjmp test9_start
 
@@ -128,12 +145,14 @@ test9_start:
     mov r20, r19
 
     cpi r20, 0x12
-    brne fail
+    breq t9_ok
+    rjmp fail
+t9_ok:
     rcall inc_case
     rjmp test10_start
 
 ; ============================================================
-; TEST 10 (NO R0)
+; TEST 10
 ; ============================================================
 test10_start:
     ldi r16, 0x01
@@ -154,7 +173,9 @@ test10_start:
     mov r31, r30
 
     cpi r31, 0x01
-    brne fail
+    breq t10_ok
+    rjmp fail
+t10_ok:
     rcall inc_case
     rjmp test11_start
 
@@ -167,9 +188,13 @@ test11_start:
     ldi r16, 0xCD
 
     cpi r17, 0xAB
-    brne fail
+    breq t11_ok1
+    rjmp fail
+t11_ok1:
     cpi r16, 0xCD
-    brne fail
+    breq t11_ok2
+    rjmp fail
+t11_ok2:
     rcall inc_case
     rjmp test12_start
 
@@ -182,9 +207,13 @@ test12_start:
     ldi r17, 0xAD
 
     cpi r16, 0xDE
-    brne fail
+    breq t12_ok1
+    rjmp fail
+t12_ok1:
     cpi r17, 0xAD
-    brne fail
+    breq t12_ok2
+    rjmp fail
+t12_ok2:
     rcall inc_case
     rjmp test13_start
 
@@ -200,9 +229,13 @@ test13_start:
     mov r17, r18
 
     cpi r16, 0x34
-    brne fail
+    breq t13_ok1
+    rjmp fail
+t13_ok1:
     cpi r17, 0x12
-    brne fail
+    breq t13_ok2
+    rjmp fail
+t13_ok2:
     rcall inc_case
     rjmp test14_start
 
@@ -213,13 +246,15 @@ test14_start:
     ldi r16, 0x55
     mov r17, r16
     cpi r17, 0x55
-    brne fail
-
+    breq t14_ok1
+    rjmp fail
+t14_ok1:
     ldi r16, 0xAA
     mov r17, r16
     cpi r17, 0xAA
-    brne fail
-
+    breq t14_ok2
+    rjmp fail
+t14_ok2:
     rcall inc_case
     rjmp test15_start
 
@@ -234,7 +269,9 @@ test15_start:
     pop r18
 
     cpi r18, 0xCA
-    brne fail
+    breq t15_ok
+    rjmp fail
+t15_ok:
     rcall inc_case
     rjmp test16_start
 
@@ -247,10 +284,13 @@ test16_start:
     inc r17
 
     cpi r17, 11
-    brne fail
+    breq t16_ok1
+    rjmp fail
+t16_ok1:
     cpi r16, 10
-    brne fail
-
+    breq t16_ok2
+    rjmp fail
+t16_ok2:
     rcall inc_case
     rjmp test17_start
 
@@ -261,7 +301,9 @@ test17_start:
     ldi r16, 0x01
     mov r17, r16
     cpi r17, 0x01
-    brne fail
+    breq t17_ok
+    rjmp fail
+t17_ok:
     rcall inc_case
     rjmp test18_start
 
@@ -272,7 +314,9 @@ test18_start:
     ldi r16, 0x80
     mov r17, r16
     cpi r17, 0x80
-    brne fail
+    breq t18_ok
+    rjmp fail
+t18_ok:
     rcall inc_case
     rjmp test19_start
 
@@ -284,7 +328,9 @@ test19_start:
     mov r17, r16
     call mov_sub19
     cpi r17, 0xFE
-    brne fail
+    breq t19_ok
+    rjmp fail
+t19_ok:
     rcall inc_case
     rjmp test20_start
 

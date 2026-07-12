@@ -39,6 +39,69 @@ MEMORY_INSTRUCTIONS = ['POP','PUSH','LDX','LDX+','LD-X','LDY','LDY+','LD-Y','LDZ
 TWO_CYCLE_INSRUCTIONS = ['CALL','JMP','LDS','STS']
  # I need to investigate the spm instruction
 
+
+ARITHMETIC_LOGIC_INSTRUCTIONS = [
+    'ADD', 'ADC', 'ADIW', 'SUB', 'SUBI', 'SBC', 'SBCI', 'SBIW',
+    'AND', 'ANDI', 'OR', 'ORI', 'EOR', 'COM', 'NEG', 'INC', 'DEC',
+    'MUL', 'MULS', 'MULSU', 'FMUL', 'FMULS', 'FMULSU', 'DES'
+]
+
+SHIFT_ROTATE_INSTRUCTIONS = [
+    'LSR', 'ROR', 'ASR', 'SWAP'
+]
+
+DATA_TRANSFER_INSTRUCTIONS = [
+    'MOV', 'MOVW', 'LDI', 'LDS', 
+    'LDX', 'LDX+', 'LD-X', 
+    'LDY', 'LDY+', 'LD-Y', 'LDDZ', 'LDDY',
+    'LDZ', 'LDZ+', 'LD-Z', 'STDZ', 'STDY',
+    'STS', 'STX', 'STX+', 'ST-X', 
+    'STY', 'STY+', 'ST-Y', 'STZ', 'STZ+', 'ST-Z',
+    'IN', 'OUT', 'PUSH', 'POP', 
+    'LPM', 'LPMZ', 'LPMZ+', 
+    'ELPM', 'ELPMZ', 'ELPMZ+', 
+    'SPM', 'SPMX+'
+]
+
+BIT_BIT_TEST_INSTRUCTIONS = [
+    'SBI', 'CBI', 'SBIC', 'SBIS', 'SBRC', 'SBRS', 'BST', 'BLD', 'BSET', 'BCLR'
+]
+
+# The 16 explicit Status Register (SREG) instructions mapped to hardware
+SREG_INSTRUCTIONS = [
+    'SEC', 'CLC', 'SEN', 'CLN', 'SEZ', 'CLZ', 'SEI', 'CLI',
+    'SES', 'CLS', 'SEV', 'CLV', 'SET', 'CLT', 'SEH', 'CLH'
+]
+
+BRANCH_INSTRUCTIONS = [
+    'RJMP', 'IJMP', 'EIJMP', 'JMP', 'RCALL', 'ICALL', 'EICALL', 'CALL', 
+    'RET', 'RETI', 'CPSE', 'CP', 'CPC', 'CPI', 'BRBS', 'BRBC'
+]
+
+# The 16 conditional relative branch variants mapped to hardware
+CONDITIONAL_BRANCH_INSTRUCTIONS = [
+    'BREQ', 'BRNE', 'BRCS', 'BRCC', 'BRSH', 'BRLO', 'BRMI', 'BRPL',
+    'BRGE', 'BRLT', 'BRHS', 'BRHC', 'BRTS', 'BRTC', 'BRVS', 'BRVC',
+    'BRIE', 'BRID'
+]
+
+MCU_CONTROL_INSTRUCTIONS = [
+    'NOP', 'SLEEP', 'WDR', 'BREAK', 'HALT'
+]
+
+
+ALL_AVR_INSTRUCTIONS = (
+    ARITHMETIC_LOGIC_INSTRUCTIONS +
+    SHIFT_ROTATE_INSTRUCTIONS +
+    DATA_TRANSFER_INSTRUCTIONS +
+    BIT_BIT_TEST_INSTRUCTIONS +
+    SREG_INSTRUCTIONS +
+    BRANCH_INSTRUCTIONS +
+    CONDITIONAL_BRANCH_INSTRUCTIONS +
+    MCU_CONTROL_INSTRUCTIONS
+)
+
+
 def ins_to_str(ins): # I am packing all the OP bits, keeping the order 
 
     mask_4   = 0b1111_0000_0000_0000 # used by LDI, RJMP
@@ -96,14 +159,12 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
 
     OP1A8A13 = ins>>10 # for lines 1,8 and 13 of the table
     OP2A10 = ins>>12 # for lines 2 and 10 of the table
-    OP3  = ((ins>>8)<<4)|(ins&0x0F)
+    #OP3  = ((ins>>8)<<4)|(ins&0x0F)
     OP4  = ((ins>>7)<<1)|((ins>>3)&0x01)
     OP5A6A12 = (ins>>8) # for lines 5,6 and 12 of the table
     OP7  = ((ins>>9)<<4)|(ins&0xF)
-    OP9  = ((ins>>7)<<4)|(ins&0x0F)
     OP11 = ins 
     OP14 = ((ins>>10)<<3)|(ins&0b111)
-    OP15 = ((ins>>9)<<1)|(ins>>3&0b1)
     OP16 = (ins>>11)
     OP17 = ((ins>>3)&0b1)|(((ins>>9)&0b1)<<1)|(((ins>>12)&0b1)<<2)|((ins>>14)<<3)
     
@@ -120,17 +181,7 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b10111: return 'OUT'
         
 
-    match OP15:
-        case 0b11111010: return 'BST'
-        case 0b11111000: return 'BLD'
-
-    match OP9: 
-        case 0b1001010001000: return 'BSET'
-        case 0b1001010011000: return 'BCLR'
-
-
     match OP5A6A12: 
-        case 0b00000010: return 'MULS'
         case 0b00000001: return 'MOVW'
         case 0b10010110: return 'ADIW'
         case 0b10010111: return 'SBIW'
@@ -139,8 +190,8 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b10011000: return 'CBI'
         case 0b10011011: return 'SBIS'
 
-    match OP3:
-        case 0b111011111111: return 'SER'
+    #match OP3:
+    #    case 0b111011111111: return 'SER'
 
     match OP7:
         case 0b10010100001: return 'NEG'
@@ -179,14 +230,14 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
 #        case 0b10010000111: return 'ELPM'
         case 0b10010000100: return 'LPMZ'
         case 0b10010000101: return 'LPMZ+'
+        case 0b1001010111101000: return 'SPM'
+        case 0b1001010111111000: return 'SPMZ+'
 
 
 
     match OP4:
-        case 0b0000001100: return 'MULSU'
         case 0b0000001101: return 'FMUL'
-        case 0b0000001110: return 'FMULS'
-        case 0b0000001111: return 'FMULSU'
+
 
 
     match OP2A10:
@@ -197,7 +248,7 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b0110: return 'ORI' ##or SBR it is the same thing
         case 0b0011: return 'CPI'
 
-        case 0b1100: return 'RJMP'
+        #case 0b1100: return 'RJMP'
         case 0b1101: return 'RCALL'
 
 
@@ -205,15 +256,15 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
     match OP1A8A13 :
         case 0b0000_10: return 'SBC'
         case 0b0000_11: return 'ADD' # Collision LSL
-        case 0b0000_11: return 'LSL' # Collision ADD
+        #case 0b0000_11: return 'LSL' # Collision ADD
         case 0b0001_01: return 'CP'
         case 0b0001_11: return 'ADC' # Collision ROL
-        case 0b0001_11: return 'ROL' # Collision ADC
+        #case 0b0001_11: return 'ROL' # Collision ADC
         case 0b0001_10: return 'SUB'
         case 0b0010_00: return 'AND' # Collision TST
-        case 0b0010_00: return 'TST' # Collision AND
+        #case 0b0010_00: return 'TST' # Collision AND
         case 0b0010_01: return 'EOR' # Collision CLR
-        case 0b0010_01: return 'CLR' # Collision EOR
+        #case 0b0010_01: return 'CLR' # Collision EOR
         case 0b0010_10: return 'OR'
         case 0b1001_11: return 'MUL'
         case 0b0000_01: return 'CPC'
@@ -244,22 +295,23 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
     
     match OP11:
         ## These instructions are use less at harware level because they default to BSET or BCLR
-        case 0b1001010000001000: return 'SEC'
-        case 0b1001010010001000: return 'CLC'
-        case 0b1001010000101000: return 'SEN'
-        case 0b1001010010101000: return 'CLN'
-        case 0b1001010000011000: return 'SEZ'
-        case 0b1001010010011000: return 'CLZ'
-        case 0b1001010001111000: return 'SEI'
-        case 0b1001010011111000: return 'CLI'
-        case 0b1001010001001000: return 'SES'
-        case 0b1001010011001000: return 'CLS'
-        case 0b1001010000111000: return 'SEV'
-        case 0b1001010010111000: return 'CLV'
-        case 0b1001010001101000: return 'SET'
-        case 0b1001010011101000: return 'CLT'
-        case 0b1001010001011000: return 'SEH'
-        case 0b1001010011011000: return 'CLH'
+        #case 0b1001010000001000: return 'SEC'
+        #case 0b1001010010001000: return 'CLC'
+        #case 0b1001010000101000: return 'SEN'
+        #case 0b1001010010101000: return 'CLN'
+        #case 0b1001010000011000: return 'SEZ'
+        #case 0b1001010010011000: return 'CLZ'
+        #case 0b1001010001111000: return 'SEI'
+        #case 0b1001010011111000: return 'CLI'
+        #case 0b1001010001001000: return 'SES'
+        #case 0b1001010011001000: return 'CLS'
+        #case 0b1001010000111000: return 'SEV'
+        #case 0b1001010010111000: return 'CLV'
+        #case 0b1001010001101000: return 'SET'
+        #case 0b1001010011101000: return 'CLT'
+        #case 0b1001010001011000: return 'SEH'
+        #case 0b1001010011011000: return 'CLH'
+
         ##
         case 0x0: return 'NOP'
         case 0b1001010110001000: return 'SLEEP'
@@ -269,15 +321,64 @@ def ins_to_str(ins): # I am packing all the OP bits, keeping the order
         case 0b1001010100001000: return 'RET'
         case 0b1001010100011000: return 'RETI'
         case 0b1001010111101000: return'SPM'
-        case 0b1001010111001000: return 'LPM'
+        case 0x9004: return 'LPM'
 
 
     return 'invalid'
 
 
-
-
-
-
-
+def str_to_code(instruction_str):
+    """
+    Takes an instruction string (e.g., returned from ins_to_str) 
+    and returns its uniquely assigned decimal code.
+    Returns 0 if the instruction is invalid or not found.
+    """
+    op_codes = {
+        # Arithmetic and Logic
+        'ADD': 1, 'ADC': 2, 'ADIW': 3, 'SUB': 4, 'SUBI': 5, 'SBC': 6, 'SBCI': 7, 'SBIW': 8,
+        'AND': 9, 'ANDI': 10, 'OR': 11, 'ORI': 12, 'EOR': 13, 'COM': 14, 'NEG': 15,
+        'SBR': 16, 'CBR': 17, 'INC': 18, 'DEC': 19, 'TST': 20, 'CLR': 21, 'SER': 22,
+        
+        # Multipliers
+        'MUL': 23, 'MULS': 24, 'MULSU': 25, 'FMUL': 26, 'FMULS': 27, 'FMULSU': 28,
+        
+        # Branch Instructions
+        'RJMP': 29, 'IJMP': 30, 'JMP': 31, 'RCALL': 32, 'ICALL': 33, 'CALL': 34,
+        'RET': 35, 'RETI': 36, 'CPSE': 37, 'CP': 38, 'CPC': 39, 'CPI': 40,
+        'SBRC': 41, 'SBRS': 42, 'SBIC': 43, 'SBIS': 44, 
+        'BRBS': 45, 'BRBC': 46, 'BREQ': 47, 'BRNE': 48, 'BRCS': 49, 'BRCC': 50, 
+        'BRSH': 51, 'BRLO': 52, 'BRMI': 53, 'BRPL': 54, 'BRGE': 55, 'BRLT': 56, 
+        'BRHS': 57, 'BRHC': 58, 'BRTS': 59, 'BRTC': 60, 'BRVS': 61, 'BRVC': 62, 
+        'BRIE': 63, 'BRID': 64,
+        
+        # Bit and Bit-Test Instructions
+        'SBI': 65, 'CBI': 66, 'LSL': 67, 'LSR': 68, 'ROL': 69, 'ROR': 70, 'ASR': 71,
+        'SWAP': 72, 'BSET': 73, 'BCLR': 74, 'BST': 75, 'BLD': 76,
+        'SEC': 77, 'CLC': 78, 'SEN': 79, 'CLN': 80, 'SEZ': 81, 'CLZ': 82, 
+        'SEI': 83, 'CLI': 84, 'SES': 85, 'CLS': 86, 'SEV': 87, 'CLV': 88, 
+        'SET': 89, 'CLT': 90, 'SEH': 91, 'CLH': 92,
+        
+        # Data Transfer Instructions
+        'MOV': 93, 'MOVW': 94, 'LDI': 95,
+        
+        # Memory Transfers 
+        'LDX': 96,  'LDX+': 97,  'LD-X': 98, 
+        'LDY': 99,  'LDY+': 100, 'LD-Y': 101, 'LDDY': 102,
+        'LDZ': 103, 'LDZ+': 104, 'LD-Z': 105, 'LDDZ': 106, 
+        'LDS': 107,
+        
+        'STX': 108, 'STX+': 109, 'ST-X': 110, 
+        'STY': 111, 'STY+': 112, 'ST-Y': 113, 'STDY': 114,
+        'STZ': 115, 'STZ+': 116, 'ST-Z': 117, 'STDZ': 118, 
+        'STS': 119,
+        
+        'LPM': 120, 'LPMZ': 121, 'LPMZ+': 122, 'SPM': 123,
+        
+        # I/O and Stacks
+        'IN': 124, 'OUT': 125, 'PUSH': 126, 'POP': 127,
+        
+        # MCU Control
+        'NOP': 128, 'SLEEP': 129, 'WDR': 130, 'BREAK': 131
+    }
     
+    return op_codes.get(instruction_str, 0) # 0 maps to Idle/Invalid instructions

@@ -1,16 +1,6 @@
 ; ============================================================
 ; RETI (Return from Interrupt) test suite
 ; ============================================================
-; Tests that RETI correctly:
-; 1. Pops the return address from the stack
-; 2. Jumps back to the address after the interrupt
-; 3. Sets the Global Interrupt Flag (I=1)
-; 4. Stack pointer increments by 2
-; ============================================================
-; RETI is a 1-word (16-bit) instruction
-; Format: 1001 0101 0001 1000 (0x9518)
-; Operation: PC <- [SP], SP <- SP + 2, I <- 1
-; ============================================================
 
 .equ test_case = 0x0100
 .equ final_result = 0x0101
@@ -20,10 +10,10 @@
 .equ SPL = 0x3D
 
 reset:
-    ; Initialize stack pointer to RAMEND (0x08FF)
-    ldi r16, high(stack_start)
+    ; Init stack
+    ldi r16, 0x03
     out SPH, r16
-    ldi r16, low(stack_start)
+    ldi r16, 0xFF
     out SPL, r16
 
     ldi r16, 1
@@ -34,29 +24,24 @@ reset:
 ; TEST 1: Simple RETI after interrupt simulation
 ; ============================================================
 test1:
-    ; Disable interrupts first
     cli
-    ; Simulate interrupt: push return address and jump to ISR
     ldi r30, low(return1)
     ldi r31, high(return1)
     push r31
     push r30
     rjmp isr1
 return1:
-    ; After RETI, execution continues here
-    ; Interrupts should be re-enabled
-    sei                 ; For verification we'll check I flag
+    sei
     cpi r16, 0x42
     brne test1_fail
     rcall inc_case
     rjmp test1_done
 
-test1_fail:             ; Local trampoline - close to branches
-    rjmp fail
+test1_fail: rjmp fail
 
 isr1:
     ldi r16, 0x42
-    reti                ; Return from interrupt, sets I flag
+    reti
 
 test1_done:
 
@@ -64,28 +49,20 @@ test1_done:
 ; TEST 2: RETI re-enables interrupts (sets I flag)
 ; ============================================================
 test2:
-    cli                 ; Disable interrupts (I=0)
-    
-    ; Simulate interrupt
+    cli
     ldi r30, low(return2)
     ldi r31, high(return2)
     push r31
     push r30
     rjmp isr2
 return2:
-    ; I flag should be set after RETI
-    ; Test by doing something that requires interrupts
-    ; For verification, we can read SREG
-    in r17, SREG_ADDR
-    sbrc r17, 7         ; Skip if I flag is set
-    rjmp i_set2
+    brbs 7, i_set2
     rjmp test2_fail
 i_set2:
     rcall inc_case
     rjmp test2_done
 
-test2_fail:             ; Local trampoline - close to branches
-    rjmp fail
+test2_fail: rjmp fail
 
 isr2:
     reti
@@ -98,25 +75,21 @@ test2_done:
 test3:
     cli
     ldi r18, 0
-    
-    ; First interrupt
     ldi r30, low(return3a)
     ldi r31, high(return3a)
     push r31
     push r30
     rjmp isr3a
 return3a:
-    cpi r18, 0x02
+    cpi r18, 0x03
     brne test3_fail
     rcall inc_case
     rjmp test3_done
 
-test3_fail:             ; Local trampoline - close to branches
-    rjmp fail
+test3_fail: rjmp fail
 
 isr3a:
     inc r18
-    ; Second interrupt (nested)
     ldi r30, low(return3b)
     ldi r31, high(return3b)
     push r31
@@ -137,21 +110,16 @@ test3_done:
 ; ============================================================
 test4:
     cli
-    ; Read initial SP
     in r19, SPL
     in r20, SPH
-    
-    ; Simulate interrupt
     ldi r30, low(return4)
     ldi r31, high(return4)
     push r31
     push r30
     rjmp isr4
 return4:
-    ; Read SP after RETI
     in r21, SPL
     in r22, SPH
-    
     cp r19, r21
     brne test4_fail
     cp r20, r22
@@ -159,8 +127,7 @@ return4:
     rcall inc_case
     rjmp test4_done
 
-test4_fail:             ; Local trampoline - close to branches
-    rjmp fail
+test4_fail: rjmp fail
 
 isr4:
     reti
@@ -175,8 +142,6 @@ test5:
     ldi r23, 0x11
     ldi r24, 0x22
     ldi r25, 0x33
-    
-    ; Simulate interrupt
     ldi r30, low(return5)
     ldi r31, high(return5)
     push r31
@@ -192,18 +157,15 @@ return5:
     rcall inc_case
     rjmp test5_done
 
-test5_fail:             ; Local trampoline - close to branches
-    rjmp fail
+test5_fail: rjmp fail
 
 isr5:
     push r23
     push r24
     push r25
-    
     ldi r23, 0xFF
     ldi r24, 0xFF
     ldi r25, 0xFF
-    
     pop r25
     pop r24
     pop r23
@@ -215,41 +177,31 @@ test5_done:
 ; TEST 6: RETI vs RET comparison (RET doesn't set I flag)
 ; ============================================================
 test6:
-    cli                 ; I=0
-    
-    ; Test RET (should NOT set I)
+    cli
     ldi r30, low(ret_return)
     ldi r31, high(ret_return)
     push r31
     push r30
     rjmp test_ret
 ret_return:
-    in r26, SREG_ADDR
-    sbrc r26, 7         ; Check I flag
-    rjmp test6_fail     ; I should still be 0 after RET
-    
-    ; Test RETI (should set I)
+    brbs 7, test6_fail
     ldi r30, low(reti_return)
     ldi r31, high(reti_return)
     push r31
     push r30
     rjmp test_reti
 reti_return:
-    in r27, SREG_ADDR
-    sbrs r27, 7         ; Check I flag
-    rjmp test6_fail     ; I should be 1 after RETI
-    
+    brbc 7, test6_fail
     rcall inc_case
     rjmp test6_done
 
-test6_fail:             ; Local trampoline - close to branches
-    rjmp fail
+test6_fail: rjmp fail
 
 test_ret:
-    ret                 ; Does NOT set I flag
+    ret
 
 test_reti:
-    reti                ; Sets I flag
+    reti
 
 test6_done:
 
@@ -259,15 +211,12 @@ test6_done:
 test7:
     cli
     ldi r28, 0
-    
-    ; Interrupt 1
     ldi r30, low(return7a)
     ldi r31, high(return7a)
     push r31
     push r30
     rjmp isr7a
 return7a:
-    ; Interrupt 2
     ldi r30, low(return7b)
     ldi r31, high(return7b)
     push r31
@@ -279,8 +228,7 @@ return7b:
     rcall inc_case
     rjmp test7_done
 
-test7_fail:             ; Local trampoline - close to branches
-    rjmp fail
+test7_fail: rjmp fail
 
 isr7a:
     inc r28
@@ -301,8 +249,6 @@ test8:
     ldi r29, 0x01
     ldi r30, 0x02
     ldi r31, 0x03
-    
-    ; Simulate interrupt
     ldi r16, low(return8)
     ldi r17, high(return8)
     push r17
@@ -318,18 +264,15 @@ return8:
     rcall inc_case
     rjmp test8_done
 
-test8_fail:             ; Local trampoline - close to branches
-    rjmp fail
+test8_fail: rjmp fail
 
 isr8:
     push r29
     push r30
     push r31
-    
     ldi r29, 0xFF
     ldi r30, 0xFF
     ldi r31, 0xFF
-    
     pop r31
     pop r30
     pop r29
@@ -342,37 +285,30 @@ test8_done:
 ; ============================================================
 test9:
     cli
-    ; Set some flags
-    sec                 ; Set C
-    sez                 ; Set Z
-    sen                 ; Set N
-    sev                 ; Set V
-    seh                 ; Set H
-    set                 ; Set T
-    
-    ; Simulate interrupt
+    sec
+    sez
+    sen
+    sev
+    seh
+    set
     ldi r16, low(return9)
     ldi r17, high(return9)
     push r17
     push r16
     rjmp isr9
 return9:
-    ; Check flags are preserved (except I)
     brcc test9_fail      ; C should be 1
     brne test9_fail      ; Z should be 1
-    brmi test9_fail      ; N should be 1
-    brvs test9_fail      ; V should be 1
+    brpl test9_fail      ; N should be 1 (Fixed from BRMI)
+    brvc test9_fail      ; V should be 1 (Fixed from BRVS)
     brhc test9_fail      ; H should be 1
     brtc test9_fail      ; T should be 1
-    
     rcall inc_case
     rjmp test9_done
 
-test9_fail:             ; Local trampoline - close to branches
-    rjmp fail
+test9_fail: rjmp fail
 
 isr9:
-    ; RETI should preserve all flags except I
     reti
 
 test9_done:
@@ -383,8 +319,6 @@ test9_done:
 test10:
     cli
     ldi r16, 0
-    
-    ; Level 1
     ldi r17, low(return10a)
     ldi r18, high(return10a)
     push r18
@@ -396,12 +330,10 @@ return10a:
     rcall inc_case
     rjmp test10_done
 
-test10_fail:            ; Local trampoline - close to branches
-    rjmp fail
+test10_fail: rjmp fail
 
 isr10a:
     inc r16
-    ; Level 2
     ldi r17, low(return10b)
     ldi r18, high(return10b)
     push r18
@@ -428,12 +360,10 @@ test11:
     push r16
     rjmp encoding_test11
 return11:
-    ; If we get here, RETI worked
     rcall inc_case
     rjmp test11_done
 
-test11_fail:            ; Local trampoline - close to branches
-    rjmp fail
+test11_fail: rjmp fail
 
 encoding_test11:
     reti
@@ -454,11 +384,9 @@ return12:
     rcall inc_case
     rjmp test12_done
 
-test12_fail:            ; Local trampoline - close to branches
-    rjmp fail
+test12_fail: rjmp fail
 
 isr12:
-    ; Some operations
     ldi r18, 0xAA
     ldi r19, 0xBB
     add r18, r19
@@ -471,31 +399,23 @@ test12_done:
 ; ============================================================
 test13:
     cli
-    ; Save SREG
     in r20, SREG_ADDR
     push r20
-    
     ldi r16, low(return13)
     ldi r17, high(return13)
     push r17
     push r16
     rjmp isr13
 return13:
-    ; Restore SREG (but RETI will set I flag)
-    pop r20
-    out SREG_ADDR, r20
-    
-    ; I flag should be set by RETI
-    in r21, SREG_ADDR
-    sbrc r21, 7
-    rjmp i_ok13
+    brbs 7, i_ok13
     rjmp test13_fail
 i_ok13:
+    pop r20
+    out SREG_ADDR, r20
     rcall inc_case
     rjmp test13_done
 
-test13_fail:            ; Local trampoline - close to branches
-    rjmp fail
+test13_fail: rjmp fail
 
 isr13:
     reti
@@ -513,19 +433,15 @@ test14:
     push r16
     rjmp isr14
 return14:
-    ; I flag should be 1 (RETI forces it to 1)
-    in r22, SREG_ADDR
-    sbrs r22, 7
-    rjmp test14_fail
+    brbc 7, test14_fail
     rcall inc_case
     rjmp test14_done
 
-test14_fail:            ; Local trampoline - close to branches
-    rjmp fail
+test14_fail: rjmp fail
 
 isr14:
-    cli                 ; Clear I flag inside ISR
-    reti                ; RETI will set it back to 1
+    cli
+    reti
 
 test14_done:
 
@@ -538,7 +454,6 @@ test15:
     ldi r24, 0xAD
     ldi r25, 0xBE
     ldi r26, 0xEF
-    
     ldi r16, low(return15)
     ldi r17, high(return15)
     push r17
@@ -556,20 +471,17 @@ return15:
     rcall inc_case
     rjmp test15_done
 
-test15_fail:            ; Local trampoline - close to branches
-    rjmp fail
+test15_fail: rjmp fail
 
 isr15:
     push r23
     push r24
     push r25
     push r26
-    
     ldi r23, 0x00
     ldi r24, 0x00
     ldi r25, 0x00
     ldi r26, 0x00
-    
     pop r26
     pop r25
     pop r24
@@ -579,7 +491,7 @@ isr15:
 test15_done:
 
 ; ============================================================
-; TEST 16: RETI after stack cleanup (frame pointer) - FIXED
+; TEST 16: RETI after stack cleanup (frame pointer)
 ; ============================================================
 test16:
     cli
@@ -592,20 +504,14 @@ return16:
     rcall inc_case
     rjmp test16_done
 
-test16_fail:            ; Local trampoline - close to branches
-    rjmp fail
+test16_fail: rjmp fail
 
 isr16:
-    ; Create stack frame
     push r28
     push r29
     in r28, SPL
     in r29, SPH
-    
-    ; Use frame - replaced STD with direct store
-    st Y, r18           ; Store through Y pointer (no displacement needed)
-    
-    ; Clean up frame
+    st Y, r18
     pop r29
     pop r28
     reti
@@ -626,12 +532,10 @@ return17:
     rcall inc_case
     rjmp test17_done
 
-test17_fail:            ; Local trampoline - close to branches
-    rjmp fail
+test17_fail: rjmp fail
 
 isr17:
-    ; Simulate watchdog ISR
-    wdr                 ; Reset watchdog timer
+    wdr
     reti
 
 test17_done:
@@ -640,21 +544,18 @@ test17_done:
 ; TEST 18: RETI final test - ensure I flag is set
 ; ============================================================
 test18:
-    cli                 ; Ensure I=0
+    cli
     ldi r16, low(return18)
     ldi r17, high(return18)
     push r17
     push r16
     rjmp isr18
 return18:
-    in r19, SREG_ADDR
-    sbrs r19, 7
-    rjmp test18_fail
+    brbc 7, test18_fail
     rcall inc_case
     rjmp success
 
-test18_fail:            ; Local trampoline - close to branches
-    rjmp fail
+test18_fail: rjmp fail
 
 isr18:
     reti

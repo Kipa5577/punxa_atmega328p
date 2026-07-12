@@ -15,6 +15,13 @@
 .equ SREG = 0x3F
 
 reset:
+    ; === Initialize Stack Pointer ===
+    ldi r16, 0x08        ; SPH for ATmega328P (RAMEND is typically 0x08FF)
+    out 0x3E, r16
+    ldi r16, 0xFF        ; SPL for ATmega328P
+    out 0x3D, r16
+    ; ================================
+
     ldi r16, 1
     sts test_case, r16
     sts final_result, r16

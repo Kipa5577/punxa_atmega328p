@@ -1046,7 +1046,7 @@ class USART_1(py4hw.Logic):
         
         
 class VirtualUSART(py4hw.Logic):
-    def __init__(self, parent, name, mem:MemoryInterface):
+    def __init__(self, parent, name, mem: MemoryInterface, debug: bool = False):
         super().__init__(parent, name)
         
         self.mem = self.addInterfaceSink('', mem)
@@ -1054,12 +1054,25 @@ class VirtualUSART(py4hw.Logic):
         self.status_control_B = 0
         self.status_control_C = 0
         self.console = ''
+        self.debug = debug
+        
+        # --- Track previous states for edge detection ---
+        self.prev_write = False
+        self.prev_read = False
         
     def clock(self):
         add = self.mem.address.get()
         v = self.mem.write_data.get()
         
-        if (self.mem.write.get() == 1):
+        # Capture current memory states
+        is_write = (self.mem.write.get() == 1)
+        is_read = (self.mem.read.get() == 1)
+        
+        # Detect rising edges (first clock cycle of the operation)
+        is_new_write = is_write and not self.prev_write
+        is_new_read = is_read and not self.prev_read
+        
+        if is_write:
             if (add == UCSRA_REG):
                 self.status_control_A = v
             elif (add == UCSRB_REG):
@@ -1071,16 +1084,44 @@ class VirtualUSART(py4hw.Logic):
             elif (add == UBRRL_REG):
                 self.baud_rate_l = v     
             elif (add == UDR_REG):
-                self.console += chr(v)
+                # --- EDGE DETECTION: Only append on the first cycle ---
+                if is_new_write:
+                    char = chr(v)
+                    self.console += char
+                    
+                    # --- Output directly to the terminal ---
+                    print(char, end='', flush=True) 
             else:
-                print(f'WARNING Writing to the USART: {add:04X}={v:02X}')
+                if is_new_write:
+                    print(f'\nWARNING Writing to the USART: {add:04X}={v:02X}')
                 
             self.mem.resp.prepare(1)
-        elif (self.mem.read.get() == 1):
+            
+        elif is_read:
             if (add == UCSRA_REG):
                 self.mem.read_data.prepare(self.status_control_A)
             else:
-                print(f'WARNING Reading to the USART: {add:04X}')
+                if is_new_read:
+                    print(f'\nWARNING Reading to the USART: {add:04X}')
             self.mem.resp.prepare(1)
+            
         else:
             self.mem.resp.prepare(0)
+
+        # --- AI-Friendly State & I/O Trace ---
+        if self.debug:
+            trace_log = (
+                f"\nUSART_TRACE | "
+                f"status_control_A: {self.status_control_A} | "
+                f"status_control_B: {self.status_control_B} | "
+                f"status_control_C: {self.status_control_C} | "
+                f"Console: {repr(self.console)}"
+            )
+            
+            # --- EDGE DETECTION: Only print once per read/write cycle ---
+            if is_new_write or is_new_read:
+                print(trace_log)
+                
+        # Update history for the next clock tick
+        self.prev_write = is_write
+        self.prev_read = is_read
