@@ -46,10 +46,10 @@ def prepareTest(file):
     
     
     punxa.MultiplexedBus(hw, 'bus', data_p, 
-                         [(reg_p, 0x0, 0x20),
-                          (gpio_p, 0x20, 0x10),
-                          (usart_p, 0xC0), 
-                          (mem_p, 0x100)])
+                        [(reg_p, 0x0, 0x20),
+                        (gpio_p, 0x20, 0x20), 
+                        (usart_p, 0xC0), 
+                        (mem_p, 0x100)])
     
     cpu = punxa.SingleCycleATmega328P(hw, 'cpu', ins_p, data_p, reset_address=0)
     reg = punxa.Ram_Memory(hw, 'reg', dw, 7, reg_p)                 # 32 B

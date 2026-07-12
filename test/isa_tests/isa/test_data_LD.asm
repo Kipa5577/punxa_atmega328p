@@ -6,20 +6,6 @@
 ; 2. Can load with/without displacement (LDD)
 ; 3. Can post-increment or pre-decrement pointer
 ; ============================================================
-; LD is a 1-word (16-bit) instruction
-; Formats:
-;   LD Rd, X        (1001 000d dddd 1100)
-;   LD Rd, X+       (1001 000d dddd 1101)
-;   LD Rd, -X       (1001 000d dddd 1110)
-;   LD Rd, Y        (1000 000d dddd 1000)
-;   LD Rd, Y+       (1001 000d dddd 1001)
-;   LD Rd, -Y       (1001 000d dddd 1010)
-;   LDD Rd, Y+q     (10q0 qq0d dddd 1qqq)
-;   LD Rd, Z        (1000 000d dddd 0000)
-;   LD Rd, Z+       (1001 000d dddd 0001)
-;   LD Rd, -Z       (1001 000d dddd 0010)
-;   LDD Rd, Z+q     (10q0 qq0d dddd 0qqq)
-; ============================================================
 
 .equ test_case = 0x0100
 .equ final_result = 0x0101
@@ -44,18 +30,17 @@ reset:
 ; TEST 1: LD Rd, X (load from X pointer)
 ; ============================================================
 test1_start:
-    ; Prepare test data in SRAM
     ldi r17, 0x42
     sts DATA_START, r17
     
-    ; Load X pointer
     ldi r26, low(DATA_START)
     ldi r27, high(DATA_START)
     
-    ; Load from X
     ld r16, X
     cpi r16, 0x42
-    brne fail
+    breq t1_ok
+    rjmp fail
+t1_ok:
     rcall inc_case
     rjmp test2_start
 
@@ -63,31 +48,32 @@ test1_start:
 ; TEST 2: LD Rd, X+ (load and post-increment)
 ; ============================================================
 test2_start:
-    ; Prepare test data
     ldi r17, 0xAA
     sts DATA_START, r17
     ldi r17, 0xBB
     sts DATA_START+1, r17
     
-    ; Load X pointer
     ldi r26, low(DATA_START)
     ldi r27, high(DATA_START)
     
-    ; Load with post-increment
     ld r16, X+
     cpi r16, 0xAA
-    brne fail
-    ; Verify X increased
+    breq t2_ok1
+    rjmp fail
+t2_ok1:
     cpi r26, low(DATA_START+1)
-    brne fail
+    breq t2_ok2
+    rjmp fail
+t2_ok2:
     cpi r27, high(DATA_START+1)
-    brne fail
-    
-    ; Second load
+    breq t2_ok3
+    rjmp fail
+t2_ok3:
     ld r16, X+
     cpi r16, 0xBB
-    brne fail
-    
+    breq t2_ok4
+    rjmp fail
+t2_ok4:
     rcall inc_case
     rjmp test3_start
 
@@ -95,24 +81,25 @@ test2_start:
 ; TEST 3: LD Rd, -X (pre-decrement and load)
 ; ============================================================
 test3_start:
-    ; Prepare test data
     ldi r17, 0xCC
     sts DATA_START+2, r17
     
-    ; Load X pointer to DATA_START+3
     ldi r26, low(DATA_START+3)
     ldi r27, high(DATA_START+3)
     
-    ; Pre-decrement then load
     ld r16, -X
     cpi r16, 0xCC
-    brne fail
-    ; Verify X decreased
+    breq t3_ok1
+    rjmp fail
+t3_ok1:
     cpi r26, low(DATA_START+2)
-    brne fail
+    breq t3_ok2
+    rjmp fail
+t3_ok2:
     cpi r27, high(DATA_START+2)
-    brne fail
-    
+    breq t3_ok3
+    rjmp fail
+t3_ok3:
     rcall inc_case
     rjmp test4_start
 
@@ -120,19 +107,17 @@ test3_start:
 ; TEST 4: LD Rd, Y (load from Y pointer)
 ; ============================================================
 test4_start:
-    ; Prepare test data
     ldi r17, 0x5A
     sts DATA_START, r17
     
-    ; Load Y pointer
     ldi r28, low(DATA_START)
     ldi r29, high(DATA_START)
     
-    ; Load from Y
     ld r16, Y
     cpi r16, 0x5A
-    brne fail
-    
+    breq t4_ok
+    rjmp fail
+t4_ok:
     rcall inc_case
     rjmp test5_start
 
@@ -140,27 +125,28 @@ test4_start:
 ; TEST 5: LD Rd, Y+ (load and post-increment)
 ; ============================================================
 test5_start:
-    ; Prepare test data
     ldi r17, 0x11
     sts DATA_START, r17
     ldi r17, 0x22
     sts DATA_START+1, r17
     
-    ; Load Y pointer
     ldi r28, low(DATA_START)
     ldi r29, high(DATA_START)
     
-    ; Load with post-increment
     ld r16, Y+
     cpi r16, 0x11
-    brne fail
+    breq t5_ok1
+    rjmp fail
+t5_ok1:
     cpi r28, low(DATA_START+1)
-    brne fail
-    
+    breq t5_ok2
+    rjmp fail
+t5_ok2:
     ld r16, Y+
     cpi r16, 0x22
-    brne fail
-    
+    breq t5_ok3
+    rjmp fail
+t5_ok3:
     rcall inc_case
     rjmp test6_start
 
@@ -168,21 +154,21 @@ test5_start:
 ; TEST 6: LD Rd, -Y (pre-decrement and load)
 ; ============================================================
 test6_start:
-    ; Prepare test data
     ldi r17, 0xDD
     sts DATA_START+2, r17
     
-    ; Load Y pointer to DATA_START+3
     ldi r28, low(DATA_START+3)
     ldi r29, high(DATA_START+3)
     
-    ; Pre-decrement then load
     ld r16, -Y
     cpi r16, 0xDD
-    brne fail
+    breq t6_ok1
+    rjmp fail
+t6_ok1:
     cpi r28, low(DATA_START+2)
-    brne fail
-    
+    breq t6_ok2
+    rjmp fail
+t6_ok2:
     rcall inc_case
     rjmp test7_start
 
@@ -190,19 +176,17 @@ test6_start:
 ; TEST 7: LD Rd, Z (load from Z pointer)
 ; ============================================================
 test7_start:
-    ; Prepare test data
     ldi r17, 0x3C
     sts DATA_START, r17
     
-    ; Load Z pointer
     ldi r30, low(DATA_START)
     ldi r31, high(DATA_START)
     
-    ; Load from Z
     ld r16, Z
     cpi r16, 0x3C
-    brne fail
-    
+    breq t7_ok
+    rjmp fail
+t7_ok:
     rcall inc_case
     rjmp test8_start
 
@@ -210,27 +194,28 @@ test7_start:
 ; TEST 8: LD Rd, Z+ (load and post-increment)
 ; ============================================================
 test8_start:
-    ; Prepare test data
     ldi r17, 0x77
     sts DATA_START, r17
     ldi r17, 0x88
     sts DATA_START+1, r17
     
-    ; Load Z pointer
     ldi r30, low(DATA_START)
     ldi r31, high(DATA_START)
     
-    ; Load with post-increment
     ld r16, Z+
     cpi r16, 0x77
-    brne fail
+    breq t8_ok1
+    rjmp fail
+t8_ok1:
     cpi r30, low(DATA_START+1)
-    brne fail
-    
+    breq t8_ok2
+    rjmp fail
+t8_ok2:
     ld r16, Z+
     cpi r16, 0x88
-    brne fail
-    
+    breq t8_ok3
+    rjmp fail
+t8_ok3:
     rcall inc_case
     rjmp test9_start
 
@@ -238,21 +223,21 @@ test8_start:
 ; TEST 9: LD Rd, -Z (pre-decrement and load)
 ; ============================================================
 test9_start:
-    ; Prepare test data
     ldi r17, 0xEE
     sts DATA_START+2, r17
     
-    ; Load Z pointer to DATA_START+3
     ldi r30, low(DATA_START+3)
     ldi r31, high(DATA_START+3)
     
-    ; Pre-decrement then load
     ld r16, -Z
     cpi r16, 0xEE
-    brne fail
+    breq t9_ok1
+    rjmp fail
+t9_ok1:
     cpi r30, low(DATA_START+2)
-    brne fail
-    
+    breq t9_ok2
+    rjmp fail
+t9_ok2:
     rcall inc_case
     rjmp test10_start
 
@@ -260,7 +245,6 @@ test9_start:
 ; TEST 10: LDD Rd, Y+q (load with displacement)
 ; ============================================================
 test10_start:
-    ; Prepare test data array
     ldi r17, 0x01
     sts DATA_START, r17
     ldi r17, 0x02
@@ -272,27 +256,34 @@ test10_start:
     ldi r17, 0x05
     sts DATA_START+4, r17
     
-    ; Load Y pointer to base
     ldi r28, low(DATA_START)
     ldi r29, high(DATA_START)
     
-    ; Load with displacements
     ldd r16, Y+0
     cpi r16, 0x01
-    brne fail
+    breq t10_ok1
+    rjmp fail
+t10_ok1:
     ldd r16, Y+1
     cpi r16, 0x02
-    brne fail
+    breq t10_ok2
+    rjmp fail
+t10_ok2:
     ldd r16, Y+2
     cpi r16, 0x03
-    brne fail
+    breq t10_ok3
+    rjmp fail
+t10_ok3:
     ldd r16, Y+3
     cpi r16, 0x04
-    brne fail
+    breq t10_ok4
+    rjmp fail
+t10_ok4:
     ldd r16, Y+4
     cpi r16, 0x05
-    brne fail
-    
+    breq t10_ok5
+    rjmp fail
+t10_ok5:
     rcall inc_case
     rjmp test11_start
 
@@ -300,24 +291,24 @@ test10_start:
 ; TEST 11: LDD Rd, Z+q (load with displacement)
 ; ============================================================
 test11_start:
-    ; Prepare test data
     ldi r17, 0x10
     sts DATA_START, r17
     ldi r17, 0x20
     sts DATA_START+1, r17
     
-    ; Load Z pointer to base
     ldi r30, low(DATA_START)
     ldi r31, high(DATA_START)
     
-    ; Load with displacements
     ldd r16, Z+0
     cpi r16, 0x10
-    brne fail
+    breq t11_ok1
+    rjmp fail
+t11_ok1:
     ldd r16, Z+1
     cpi r16, 0x20
-    brne fail
-    
+    breq t11_ok2
+    rjmp fail
+t11_ok2:
     rcall inc_case
     rjmp test12_start
 
@@ -325,27 +316,34 @@ test11_start:
 ; TEST 12: LD to different registers (R0-R31)
 ; ============================================================
 test12_start:
-    ; Prepare test data
     ldi r17, 0xAB
     sts DATA_START, r17
     
-    ; Load X pointer
     ldi r26, low(DATA_START)
     ldi r27, high(DATA_START)
     
-    ; Test loading to various registers
+    ; Test loading into R0
     ld r0, X
-    cpi r0, 0xAB
-    brne fail
+    mov r16, r0            ; Move R0 to R16 (CPI cannot use R0)
+    cpi r16, 0xAB
+    breq t12_ok1
+    rjmp fail
     
+t12_ok1:
+    ; Test loading into R16
     ld r16, X
     cpi r16, 0xAB
-    brne fail
+    breq t12_ok2
+    rjmp fail
     
+t12_ok2:
+    ; Test loading into R31
     ld r31, X
     cpi r31, 0xAB
-    brne fail
+    breq t12_ok3
+    rjmp fail
     
+t12_ok3:
     rcall inc_case
     rjmp test13_start
 
@@ -353,55 +351,65 @@ test12_start:
 ; TEST 13: LD does not modify flags
 ; ============================================================
 test13_start:
-    ; Set flags
-    sec                 ; C=1
-    sez                 ; Z=1
-    sen                 ; N=1
-    sev                 ; V=1
-    seh                 ; H=1
-    set                 ; T=1
+    sec
+    sez
+    sen
+    sev
+    seh
+    set
     
-    ; Load data
     ldi r26, low(DATA_START)
     ldi r27, high(DATA_START)
     ld r16, X
     
-    ; Check all flags preserved
-    brcc fail
-    brne fail
-    brmi fail
-    brvs fail
-    brhc fail
-    brtc fail
-    
+    brcs t13_ok1       ; If C is still 1 (good), go to next check
+    rjmp fail           ; If C was cleared (bad), fail
+t13_ok1:
+    breq t13_ok2       ; If Z is still 1 (good), go to next check
+    rjmp fail
+t13_ok2:
+    brmi t13_ok3       ; If N is still 1 (good), go to next check
+    rjmp fail
+t13_ok3:
+    brvs t13_ok4       ; If V is still 1 (good), go to next check
+    rjmp fail
+t13_ok4:
+    brhs t13_ok5       ; If H is still 1 (good), go to next check
+    rjmp fail
+t13_ok5:
+    brts t13_ok        ; If T is still 1 (good), go to final ok
+    rjmp fail
+t13_ok:
     rcall inc_case
-    rjmp test14_start
 
 ; ============================================================
 ; TEST 14: LD with pointer crossing page boundary
 ; ============================================================
 test14_start:
-    ; Prepare data at page boundary
     ldi r17, 0xFF
     sts 0x02FF, r17
     
-    ; Load X pointer to 0x02FF
     ldi r26, 0xFF
     ldi r27, 0x02
     
     ld r16, X
     cpi r16, 0xFF
-    brne fail
-    
-    ; Test post-increment across boundary
+    breq t14_ok1
+    rjmp fail
+t14_ok1:
     ld r16, X+
     cpi r16, 0xFF
-    brne fail
+    breq t14_ok2
+    rjmp fail
+t14_ok2:
     cpi r26, 0x00
-    brne fail
+    breq t14_ok3
+    rjmp fail
+t14_ok3:
     cpi r27, 0x03
-    brne fail
-    
+    breq t14_ok4
+    rjmp fail
+t14_ok4:
     rcall inc_case
     rjmp test15_start
 
@@ -409,19 +417,17 @@ test14_start:
 ; TEST 15: LDD with maximum displacement (63)
 ; ============================================================
 test15_start:
-    ; Prepare data at offset 63
     ldi r17, 0x63
     sts DATA_START+63, r17
     
-    ; Load Y pointer to base
     ldi r28, low(DATA_START)
     ldi r29, high(DATA_START)
     
-    ; Load with maximum displacement
     ldd r16, Y+63
     cpi r16, 0x63
-    brne fail
-    
+    breq t15_ok
+    rjmp fail
+t15_ok:
     rcall inc_case
     rjmp test16_start
 
@@ -429,13 +435,11 @@ test15_start:
 ; TEST 16: LD inside loop (string copy simulation)
 ; ============================================================
 test16_start:
-    ; Setup source and destination
-    ldi r26, low(DATA_START)      ; X = source
+    ldi r26, low(DATA_START)
     ldi r27, high(DATA_START)
-    ldi r28, low(DATA_START+32)   ; Y = destination
+    ldi r28, low(DATA_START+32)
     ldi r29, high(DATA_START+32)
     
-    ; Prepare source data
     ldi r16, 1
     sts DATA_START, r16
     ldi r16, 2
@@ -445,7 +449,6 @@ test16_start:
     ldi r16, 4
     sts DATA_START+3, r16
     
-    ; Copy 4 bytes
     ldi r18, 4
 copy_loop:
     ld r16, X+
@@ -453,22 +456,28 @@ copy_loop:
     dec r18
     brne copy_loop
     
-    ; Verify destination
     ldi r28, low(DATA_START+32)
     ldi r29, high(DATA_START+32)
     ld r16, Y+
     cpi r16, 1
-    brne fail
+    breq t16_ok1
+    rjmp fail
+t16_ok1:
     ld r16, Y+
     cpi r16, 2
-    brne fail
+    breq t16_ok2
+    rjmp fail
+t16_ok2:
     ld r16, Y+
     cpi r16, 3
-    brne fail
+    breq t16_ok3
+    rjmp fail
+t16_ok3:
     ld r16, Y+
     cpi r16, 4
-    brne fail
-    
+    breq t16_ok4
+    rjmp fail
+t16_ok4:
     rcall inc_case
     rjmp success
 

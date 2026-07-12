@@ -6,7 +6,7 @@
 .equ final_result = 0x0101
 .equ SPH = 0x3E
 .equ SPL = 0x3D
-.equ SREG_ADDR = 0x5F
+.equ SREG_ADDR = 0x3F      ; FIXED: I/O memory address instead of SRAM address
 .equ GPIOR0 = 0x1E
 
 reset:
@@ -28,7 +28,7 @@ test1_start:
     in r16, SREG_ADDR
     sbrs r16, 7
     rjmp i_clear1
-    jmp fail
+    rjmp fail
 i_clear1:
     rcall inc_case
     rjmp test2_start
@@ -42,7 +42,7 @@ test2_start:
     in r16, SREG_ADDR
     sbrs r16, 7
     rjmp i_still_clear2
-    jmp fail
+    rjmp fail
 i_still_clear2:
     rcall inc_case
     rjmp test3_start
@@ -62,31 +62,31 @@ test3_start:
     in r16, SREG_ADDR
     sbrs r16, 7
     rjmp i_ok3
-    jmp fail
+    rjmp fail
 
 i_ok3:
     brcs test3_c_ok
-    jmp fail
+    rjmp fail
 test3_c_ok:
 
     breq test3_z_ok
-    jmp fail
+    rjmp fail
 test3_z_ok:
 
-    brpl test3_n_ok
-    jmp fail
+    brmi test3_n_ok        ; FIXED: Branch if Minus (N=1)
+    rjmp fail
 test3_n_ok:
 
-    brvc test3_v_ok
-    jmp fail
+    brvs test3_v_ok        ; FIXED: Branch if Overflow Set (V=1)
+    rjmp fail
 test3_v_ok:
 
     brhs test3_h_ok
-    jmp fail
+    rjmp fail
 test3_h_ok:
 
     brts test3_t_ok
-    jmp fail
+    rjmp fail
 test3_t_ok:
 
     rcall inc_case
@@ -104,22 +104,22 @@ test4_start:
 
     cpi r16, 0xAA
     breq test4_r16_ok
-    jmp fail
+    rjmp fail
 test4_r16_ok:
 
     cpi r17, 0xBB
     breq test4_r17_ok
-    jmp fail
+    rjmp fail
 test4_r17_ok:
 
     cpi r18, 0xCC
     breq test4_r18_ok
-    jmp fail
+    rjmp fail
 test4_r18_ok:
 
     cpi r19, 0xDD
     breq test4_r19_ok
-    jmp fail
+    rjmp fail
 test4_r19_ok:
 
     rcall inc_case
@@ -133,7 +133,7 @@ test5_start:
 
     cpi r17, 0xDE
     breq test5_ok
-    jmp fail
+    rjmp fail
 test5_ok:
 
     rcall inc_case
@@ -147,7 +147,7 @@ test6_start:
 
     cpi r17, 0xAD
     breq test6_ok
-    jmp fail
+    rjmp fail
 test6_ok:
 
     rcall inc_case
@@ -167,12 +167,12 @@ test7_start:
 
     cp r16, r18
     breq test7_spl_ok
-    jmp fail
+    rjmp fail
 test7_spl_ok:
 
     cp r17, r19
     breq test7_sph_ok
-    jmp fail
+    rjmp fail
 test7_sph_ok:
 
     rcall inc_case
@@ -188,7 +188,7 @@ test8_start:
     in r18, SREG_ADDR
     sbrs r18, 7
     rjmp critical_ok8
-    jmp fail
+    rjmp fail
 critical_ok8:
     rcall inc_case
     rjmp test9_start
@@ -200,7 +200,7 @@ test9_start:
     in r16, SREG_ADDR
     sbrs r16, 7
     rjmp final_clear9
-    jmp fail
+    rjmp fail
 final_clear9:
     rcall inc_case
     rjmp test10_start
@@ -213,7 +213,7 @@ test10_start:
     in r16, SREG_ADDR
     sbrs r16, 7
     rjmp multi_clear_ok10
-    jmp fail
+    rjmp fail
 multi_clear_ok10:
     rcall inc_case
     rjmp test11_start
@@ -229,7 +229,7 @@ test11_start:
 
     cpi r16, 3
     breq test11_ok
-    jmp fail
+    rjmp fail
 test11_ok:
 
     rcall inc_case
@@ -241,7 +241,7 @@ test12_start:
     in r16, SREG_ADDR
     sbrs r16, 7
     rjmp masked_ok12
-    jmp fail
+    rjmp fail
 masked_ok12:
     rcall inc_case
     rjmp test13_start
@@ -256,23 +256,23 @@ test13_start:
     cli
 
     brmi n_ok13
-    jmp fail
+    rjmp fail
 n_ok13:
 
     brvs v_ok13
-    jmp fail
+    rjmp fail
 v_ok13:
 
     brcc c_ok13
-    jmp fail
+    rjmp fail
 c_ok13:
 
     brne z_ok13
-    jmp fail
+    rjmp fail
 z_ok13:
 
     brhs h_ok13
-    jmp fail
+    rjmp fail
 h_ok13:
 
     rcall inc_case
@@ -284,7 +284,7 @@ test14_start:
     in r16, SREG_ADDR
     sbrs r16, 7
     rjmp sub_ok14
-    jmp fail
+    rjmp fail
 sub_ok14:
     rcall inc_case
     rjmp test15_start
@@ -301,7 +301,7 @@ test15_start:
     in r17, SREG_ADDR
     sbrs r17, 7
     rjmp pop_no_restore15
-    jmp fail
+    rjmp fail
 pop_no_restore15:
     rcall inc_case
     rjmp test16_start
@@ -315,7 +315,7 @@ test16_start:
     in r16, SREG_ADDR
     sbrs r16, 7
     rjmp toggle_ok16
-    jmp fail
+    rjmp fail
 toggle_ok16:
     rcall inc_case
     rjmp test17_start
@@ -329,7 +329,7 @@ test17_start:
     in r16, SREG_ADDR
     sbrs r16, 7
     rjmp encode_ok17
-    jmp fail
+    rjmp fail
 encode_ok17:
     rcall inc_case
     rjmp test18_start
@@ -340,7 +340,7 @@ test18_start:
     in r16, SREG_ADDR
     sbrs r16, 7
     rjmp isr_masked18
-    jmp fail
+    rjmp fail
 isr_masked18:
     rcall inc_case
     rjmp test19_start
@@ -351,7 +351,7 @@ test19_start:
     in r16, SREG_ADDR
     sbrs r16, 7
     rjmp sleep_ok19
-    jmp fail
+    rjmp fail
 sleep_ok19:
     rcall inc_case
     rjmp test20_start
@@ -363,7 +363,7 @@ test20_start:
     cli
 
     brlt s_ok20
-    jmp fail
+    rjmp fail
 s_ok20:
 
     ldi r16, 0x10
@@ -371,7 +371,7 @@ s_ok20:
     cli
 
     brge s_zero_ok20
-    jmp fail
+    rjmp fail
 s_zero_ok20:
 
     rcall inc_case

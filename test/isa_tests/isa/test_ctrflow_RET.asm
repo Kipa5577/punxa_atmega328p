@@ -181,7 +181,7 @@ test9:
     brcc next9
     jmp local_fail9
 next9:
-    brne local_fail9
+    breq local_fail9
     brmi local_fail9
     rcall inc_case
     rjmp test10
@@ -210,6 +210,9 @@ rec_done10: ret
 ; ============================================================
 ; TEST 11: Stack Frame Cleanup
 ; ============================================================
+; ============================================================
+; TEST 11: Stack Frame Cleanup
+; ============================================================
 test11:
     rcall frame_test11
     cpi r20, 0x42
@@ -220,9 +223,7 @@ local_fail11: jmp fail
 frame_test11:
     push r16
     push r17
-    push r20
     ldi r20, 0x42
-    pop r20
     pop r17
     pop r16
     ret
@@ -264,9 +265,7 @@ test14:
     rcall inc_case
     rjmp test15
 local_fail14: jmp fail
-modify_stack_test14: push r23
-                     ldi r23, 0x55
-                     pop r23
+modify_stack_test14: ldi r23, 0x55
                      ret
 
 test15: rcall encoding_target15

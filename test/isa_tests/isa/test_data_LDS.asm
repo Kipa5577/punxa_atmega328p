@@ -1,17 +1,6 @@
 ; ============================================================
 ; LDS (Load Direct from Data Space) test suite
 ; ============================================================
-; Tests that LDS correctly:
-; 1. Loads data from any SRAM address (0x0000-0x08FF)
-; 2. Works with all registers R0-R31
-; 3. Does not modify any flags
-; ============================================================
-; LDS is a 2-word (32-bit) instruction
-; Format: Word1: 1001 000d dddd 0000
-;         Word2: kkkk kkkk kkkk kkkk (16-bit address)
-; Operation: Rd <- [k]
-; Range: Full 64KB data space (2KB SRAM on ATmega328P)
-; ============================================================
 
 .equ test_case = 0x0100
 .equ final_result = 0x0101
@@ -21,7 +10,6 @@
 .equ EXT_ADDR = 0x08FF
 
 reset:
-    ; Initialize stack pointer
     ldi r16, high(0x08FF)
     out SPH, r16
     ldi r16, low(0x08FF)
@@ -37,14 +25,14 @@ reset:
 ; TEST 1: LDS to R16 from low SRAM address
 ; ============================================================
 test1_start:
-    ; Prepare test data
     ldi r16, 0x42
     sts DATA_START, r16
     
-    ; Load using LDS
     lds r17, DATA_START
     cpi r17, 0x42
-    brne fail
+    breq t1_ok
+    rjmp fail
+t1_ok:
     rcall inc_case
     rjmp test2_start
 
@@ -57,7 +45,9 @@ test2_start:
     
     lds r0, DATA_START+1
     cpi r0, 0xAA
-    brne fail
+    breq t2_ok
+    rjmp fail
+t2_ok:
     rcall inc_case
     rjmp test3_start
 
@@ -70,7 +60,9 @@ test3_start:
     
     lds r31, DATA_START+2
     cpi r31, 0xBB
-    brne fail
+    breq t3_ok
+    rjmp fail
+t3_ok:
     rcall inc_case
     rjmp test4_start
 
@@ -83,20 +75,24 @@ test4_start:
     
     lds r17, EXT_ADDR
     cpi r17, 0xCC
-    brne fail
+    breq t4_ok
+    rjmp fail
+t4_ok:
     rcall inc_case
     rjmp test5_start
 
 ; ============================================================
-; TEST 5: LDS from minimum SRAM address (0x0100)
+; TEST 5: LDS from minimum safe SRAM address
 ; ============================================================
 test5_start:
     ldi r16, 0xDD
-    sts 0x0100, r16
+    sts 0x0102, r16       ; FIXED: Changed from 0x0100 to avoid overwriting test_case
     
-    lds r17, 0x0100
+    lds r17, 0x0102
     cpi r17, 0xDD
-    brne fail
+    breq t5_ok
+    rjmp fail
+t5_ok:
     rcall inc_case
     rjmp test6_start
 
@@ -109,7 +105,9 @@ test6_start:
     
     lds r17, DATA_START+3
     cpi r17, 0x00
-    brne fail
+    breq t6_ok
+    rjmp fail
+t6_ok:
     rcall inc_case
     rjmp test7_start
 
@@ -122,7 +120,9 @@ test7_start:
     
     lds r17, DATA_START+4
     cpi r17, 0xFF
-    brne fail
+    breq t7_ok
+    rjmp fail
+t7_ok:
     rcall inc_case
     rjmp test8_start
 
@@ -130,25 +130,33 @@ test7_start:
 ; TEST 8: LDS does not modify flags
 ; ============================================================
 test8_start:
-    ; Set all flags
-    sec                 ; C=1
-    sez                 ; Z=1
-    sen                 ; N=1
-    sev                 ; V=1
-    seh                 ; H=1
-    set                 ; T=1
+    sec
+    sez
+    sen
+    sev
+    seh
+    set
     
-    ; LDS should preserve flags
     lds r16, DATA_START+4
     
-    ; Verify all flags still set
-    brcc fail
-    brne fail
-    brmi fail
-    brvs fail
-    brhc fail
-    brtc fail
-    
+    brcs t8_pass1         ; FIXED: Changed to Branch if Set
+    rjmp fail
+t8_pass1:
+    breq t8_pass2         ; FIXED: Changed to Branch if Set
+    rjmp fail
+t8_pass2:
+    brmi t8_pass3         
+    rjmp fail
+t8_pass3:
+    brvs t8_pass4         
+    rjmp fail
+t8_pass4:
+    brhs t8_pass5         ; FIXED: Changed to Branch if Set
+    rjmp fail
+t8_pass5:
+    brts t8_ok            ; FIXED: Changed to Branch if Set
+    rjmp fail
+t8_ok:
     rcall inc_case
     rjmp test9_start
 
@@ -165,9 +173,13 @@ test9_start:
     lds r18, DATA_START+6
     
     cpi r17, 0x11
-    brne fail
+    breq t9_ok1
+    rjmp fail
+t9_ok1:
     cpi r18, 0x22
-    brne fail
+    breq t9_ok2
+    rjmp fail
+t9_ok2:
     rcall inc_case
     rjmp test10_start
 
@@ -181,12 +193,14 @@ test10_start:
     lds r17, DATA_START+7
     inc r17
     cpi r17, 0x11
-    brne fail
-    
-    ; Verify SRAM unchanged
+    breq t10_ok1
+    rjmp fail
+t10_ok1:
     lds r18, DATA_START+7
     cpi r18, 0x10
-    brne fail
+    breq t10_ok2
+    rjmp fail
+t10_ok2:
     rcall inc_case
     rjmp test11_start
 
@@ -199,13 +213,17 @@ test11_start:
     ldi r16, 0x88
     sts DATA_START+9, r16
     
-    lds r26, DATA_START+8   ; X low byte
-    lds r27, DATA_START+9   ; X high byte
+    lds r26, DATA_START+8
+    lds r27, DATA_START+9
     
     cpi r26, 0x99
-    brne fail
+    breq t11_ok1
+    rjmp fail
+t11_ok1:
     cpi r27, 0x88
-    brne fail
+    breq t11_ok2
+    rjmp fail
+t11_ok2:
     rcall inc_case
     rjmp test12_start
 
@@ -221,11 +239,17 @@ test12_start:
     lds r19, DATA_START+10
     
     cpi r17, 0x77
-    brne fail
+    breq t12_ok1
+    rjmp fail
+t12_ok1:
     cpi r18, 0x77
-    brne fail
+    breq t12_ok2
+    rjmp fail
+t12_ok2:
     cpi r19, 0x77
-    brne fail
+    breq t12_ok3
+    rjmp fail
+t12_ok3:
     rcall inc_case
     rjmp test13_start
 
@@ -233,13 +257,14 @@ test12_start:
 ; TEST 13: LDS from I/O space address (0x20-0x5F mapping)
 ; ============================================================
 test13_start:
-    ; GPIOR0 is at I/O 0x1E, SRAM 0x3E
     ldi r16, 0x5A
-    sts 0x003E, r16     ; Write via SRAM address
+    sts 0x003E, r16
     
-    lds r17, 0x003E     ; Read via LDS
+    lds r17, 0x003E
     cpi r17, 0x5A
-    brne fail
+    breq t13_ok
+    rjmp fail
+t13_ok:
     rcall inc_case
     rjmp test14_start
 
@@ -256,15 +281,16 @@ test14_start:
     
     lds r18, DATA_START+12
     cpi r18, 0x13
-    brne fail
+    breq t14_ok
+    rjmp fail
+t14_ok:
     rcall inc_case
     rjmp test15_start
 
 ; ============================================================
-; TEST 15: LDS within a loop (array read)
+; TEST 15: LDS within a loop (array read attempt)
 ; ============================================================
 test15_start:
-    ; Initialize array
     ldi r16, 1
     sts DATA_START+16, r16
     ldi r16, 2
@@ -279,14 +305,16 @@ test15_start:
     ldi r22, 16
     
 test15_loop:
-    lds r23, DATA_START+16
+    lds r23, DATA_START+16 ; Note: LDS is an absolute address. It reads '1' four times.
     add r20, r23
     inc r22
     dec r21
     brne test15_loop
     
-    cpi r20, 10         ; 1+2+3+4 = 10
-    brne fail
+    cpi r20, 4            ; FIXED: 4 iterations * 1 = 4. 
+    breq t15_ok
+    rjmp fail
+t15_ok:
     rcall inc_case
     rjmp test16_start
 
@@ -303,9 +331,13 @@ test16_start:
     lds r18, 0x0300
     
     cpi r17, 0xAB
-    brne fail
+    breq t16_ok1
+    rjmp fail
+t16_ok1:
     cpi r18, 0xCD
-    brne fail
+    breq t16_ok2
+    rjmp fail
+t16_ok2:
     rcall inc_case
     rjmp test17_start
 
@@ -321,11 +353,17 @@ test17_start:
     lds r31, DATA_START+20
     
     cpi r0, 0xAA
-    brne fail
+    breq t17_ok1
+    rjmp fail
+t17_ok1:
     cpi r16, 0xAA
-    brne fail
+    breq t17_ok2
+    rjmp fail
+t17_ok2:
     cpi r31, 0xAA
-    brne fail
+    breq t17_ok3
+    rjmp fail
+t17_ok3:
     rcall inc_case
     rjmp test18_start
 
@@ -345,11 +383,17 @@ test18_start:
     lds r19, DATA_START+34
     
     cpi r17, 0x55
-    brne fail
+    breq t18_ok1
+    rjmp fail
+t18_ok1:
     cpi r18, 0xAA
-    brne fail
+    breq t18_ok2
+    rjmp fail
+t18_ok2:
     cpi r19, 0x55
-    brne fail
+    breq t18_ok3
+    rjmp fail
+t18_ok3:
     rcall inc_case
     rjmp test19_start
 
@@ -372,7 +416,9 @@ test19_start:
     add r17, r19
     
     cpi r17, 60
-    brne fail
+    breq t19_ok
+    rjmp fail
+t19_ok:
     rcall inc_case
     rjmp test20_start
 

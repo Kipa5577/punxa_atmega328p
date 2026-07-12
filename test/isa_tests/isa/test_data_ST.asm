@@ -45,18 +45,17 @@ reset:
 ; TEST 1: ST X, Rr (store through X pointer)
 ; ============================================================
 test1_start:
-    ; Load X pointer to test location
     ldi r26, low(DATA_START)
     ldi r27, high(DATA_START)
     
-    ; Store value
     ldi r16, 0x42
     st X, r16
     
-    ; Verify by loading back
     ld r17, X
     cpi r17, 0x42
-    brne fail
+    breq t1_ok
+    rjmp fail
+t1_ok:
     rcall inc_case
     rjmp test2_start
 
@@ -64,33 +63,34 @@ test1_start:
 ; TEST 2: ST X+, Rr (store and post-increment)
 ; ============================================================
 test2_start:
-    ; Load X pointer
     ldi r26, low(DATA_START)
     ldi r27, high(DATA_START)
     
-    ; Store with post-increment
     ldi r16, 0xAA
     st X+, r16
-    ; Store next value
     ldi r16, 0xBB
     st X+, r16
     
-    ; Verify X pointer incremented
     cpi r26, low(DATA_START+2)
-    brne fail
+    breq t2_ok1
+    rjmp fail
+t2_ok1:
     cpi r27, high(DATA_START+2)
-    brne fail
-    
-    ; Verify data
+    breq t2_ok2
+    rjmp fail
+t2_ok2:
     ldi r26, low(DATA_START)
     ldi r27, high(DATA_START)
     ld r17, X+
     cpi r17, 0xAA
-    brne fail
+    breq t2_ok3
+    rjmp fail
+t2_ok3:
     ld r17, X+
     cpi r17, 0xBB
-    brne fail
-    
+    breq t2_ok4
+    rjmp fail
+t2_ok4:
     rcall inc_case
     rjmp test3_start
 
@@ -98,27 +98,27 @@ test2_start:
 ; TEST 3: ST -X, Rr (pre-decrement and store)
 ; ============================================================
 test3_start:
-    ; Load X pointer to DATA_START+2
     ldi r26, low(DATA_START+2)
     ldi r27, high(DATA_START+2)
     
-    ; Pre-decrement then store
     ldi r16, 0xCC
     st -X, r16
     
-    ; Verify X pointer decremented
     cpi r26, low(DATA_START+1)
-    brne fail
+    breq t3_ok1
+    rjmp fail
+t3_ok1:
     cpi r27, high(DATA_START+1)
-    brne fail
-    
-    ; Verify data at DATA_START+1
+    breq t3_ok2
+    rjmp fail
+t3_ok2:
     ldi r26, low(DATA_START+1)
     ldi r27, high(DATA_START+1)
     ld r17, X
     cpi r17, 0xCC
-    brne fail
-    
+    breq t3_ok3
+    rjmp fail
+t3_ok3:
     rcall inc_case
     rjmp test4_start
 
@@ -126,17 +126,17 @@ test3_start:
 ; TEST 4: ST Y, Rr (store through Y pointer)
 ; ============================================================
 test4_start:
-    ; Load Y pointer
     ldi r28, low(DATA_START)
     ldi r29, high(DATA_START)
     
     ldi r16, 0x5A
     st Y, r16
     
-    ; Verify
     ld r17, Y
     cpi r17, 0x5A
-    brne fail
+    breq t4_ok
+    rjmp fail
+t4_ok:
     rcall inc_case
     rjmp test5_start
 
@@ -152,20 +152,22 @@ test5_start:
     ldi r16, 0x22
     st Y+, r16
     
-    ; Verify Y pointer
     cpi r28, low(DATA_START+2)
-    brne fail
-    
-    ; Verify data
+    breq t5_ok1
+    rjmp fail
+t5_ok1:
     ldi r28, low(DATA_START)
     ldi r29, high(DATA_START)
     ld r17, Y+
     cpi r17, 0x11
-    brne fail
+    breq t5_ok2
+    rjmp fail
+t5_ok2:
     ld r17, Y+
     cpi r17, 0x22
-    brne fail
-    
+    breq t5_ok3
+    rjmp fail
+t5_ok3:
     rcall inc_case
     rjmp test6_start
 
@@ -180,14 +182,16 @@ test6_start:
     st -Y, r16
     
     cpi r28, low(DATA_START+1)
-    brne fail
-    
+    breq t6_ok1
+    rjmp fail
+t6_ok1:
     ldi r28, low(DATA_START+1)
     ldi r29, high(DATA_START+1)
     ld r17, Y
     cpi r17, 0xDD
-    brne fail
-    
+    breq t6_ok2
+    rjmp fail
+t6_ok2:
     rcall inc_case
     rjmp test7_start
 
@@ -203,7 +207,9 @@ test7_start:
     
     ld r17, Z
     cpi r17, 0x3C
-    brne fail
+    breq t7_ok
+    rjmp fail
+t7_ok:
     rcall inc_case
     rjmp test8_start
 
@@ -220,17 +226,21 @@ test8_start:
     st Z+, r16
     
     cpi r30, low(DATA_START+2)
-    brne fail
-    
+    breq t8_ok1
+    rjmp fail
+t8_ok1:
     ldi r30, low(DATA_START)
     ldi r31, high(DATA_START)
     ld r17, Z+
     cpi r17, 0x77
-    brne fail
+    breq t8_ok2
+    rjmp fail
+t8_ok2:
     ld r17, Z+
     cpi r17, 0x88
-    brne fail
-    
+    breq t8_ok3
+    rjmp fail
+t8_ok3:
     rcall inc_case
     rjmp test9_start
 
@@ -245,14 +255,16 @@ test9_start:
     st -Z, r16
     
     cpi r30, low(DATA_START+1)
-    brne fail
-    
+    breq t9_ok1
+    rjmp fail
+t9_ok1:
     ldi r30, low(DATA_START+1)
     ldi r31, high(DATA_START+1)
     ld r17, Z
     cpi r17, 0xEE
-    brne fail
-    
+    breq t9_ok2
+    rjmp fail
+t9_ok2:
     rcall inc_case
     rjmp test10_start
 
@@ -263,7 +275,6 @@ test10_start:
     ldi r28, low(DATA_START)
     ldi r29, high(DATA_START)
     
-    ; Store with various displacements
     ldi r16, 0x01
     std Y+0, r16
     ldi r16, 0x02
@@ -275,23 +286,31 @@ test10_start:
     ldi r16, 0x05
     std Y+4, r16
     
-    ; Verify
     ldd r17, Y+0
     cpi r17, 0x01
-    brne fail
+    breq t10_ok1
+    rjmp fail
+t10_ok1:
     ldd r17, Y+1
     cpi r17, 0x02
-    brne fail
+    breq t10_ok2
+    rjmp fail
+t10_ok2:
     ldd r17, Y+2
     cpi r17, 0x03
-    brne fail
+    breq t10_ok3
+    rjmp fail
+t10_ok3:
     ldd r17, Y+3
     cpi r17, 0x04
-    brne fail
+    breq t10_ok4
+    rjmp fail
+t10_ok4:
     ldd r17, Y+4
     cpi r17, 0x05
-    brne fail
-    
+    breq t10_ok5
+    rjmp fail
+t10_ok5:
     rcall inc_case
     rjmp test11_start
 
@@ -309,11 +328,14 @@ test11_start:
     
     ldd r17, Z+0
     cpi r17, 0x10
-    brne fail
+    breq t11_ok1
+    rjmp fail
+t11_ok1:
     ldd r17, Z+1
     cpi r17, 0x20
-    brne fail
-    
+    breq t11_ok2
+    rjmp fail
+t11_ok2:
     rcall inc_case
     rjmp test12_start
 
@@ -324,27 +346,31 @@ test12_start:
     ldi r26, low(DATA_START+16)
     ldi r27, high(DATA_START+16)
     
-    ; Store from various registers
-    ldi r0, 0xAB
+    ldi r16, 0xAB
+    mov r0, r16
     st X+, r0
     ldi r16, 0xCD
     st X+, r16
     ldi r31, 0xEF
     st X+, r31
     
-    ; Verify
     ldi r26, low(DATA_START+16)
     ldi r27, high(DATA_START+16)
     ld r17, X+
     cpi r17, 0xAB
-    brne fail
+    breq t12_ok1
+    rjmp fail
+t12_ok1:
     ld r17, X+
     cpi r17, 0xCD
-    brne fail
+    breq t12_ok2
+    rjmp fail
+t12_ok2:
     ld r17, X+
     cpi r17, 0xEF
-    brne fail
-    
+    breq t12_ok3
+    rjmp fail
+t12_ok3:
     rcall inc_case
     rjmp test13_start
 
@@ -358,9 +384,10 @@ test13_start:
     ldi r16, 0x55
     st X, r16
     
-    cpi r16, 0x55      ; Source unchanged
-    brne fail
-    
+    cpi r16, 0x55
+    breq t13_ok
+    rjmp fail
+t13_ok:
     rcall inc_case
     rjmp test14_start
 
@@ -371,25 +398,34 @@ test14_start:
     ldi r26, low(DATA_START)
     ldi r27, high(DATA_START)
     
-    ; Set all flags
-    sec                 ; C=1
-    sez                 ; Z=1
-    sen                 ; N=1
-    sev                 ; V=1
-    seh                 ; H=1
-    set                 ; T=1
+    sec
+    sez
+    sen
+    sev
+    seh
+    set
     
     ldi r16, 0xAA
     st X, r16
     
-    ; Verify all flags still set
-    brcc fail
-    brne fail
-    brmi fail
-    brvs fail
-    brhc fail
-    brtc fail
-    
+    brcs t14_pass1
+    rjmp fail
+t14_pass1:
+    breq t14_pass2
+    rjmp fail
+t14_pass2:
+    brmi t14_pass3
+    rjmp fail
+t14_pass3:
+    brvs t14_pass4
+    rjmp fail
+t14_pass4:
+    brhs t14_pass5
+    rjmp fail
+t14_pass5:
+    brts t14_ok
+    rjmp fail
+t14_ok:
     rcall inc_case
     rjmp test15_start
 
@@ -403,11 +439,11 @@ test15_start:
     ldi r16, 0x63
     std Y+63, r16
     
-    ; Verify
     ldd r17, Y+63
     cpi r17, 0x63
-    brne fail
-    
+    breq t15_ok
+    rjmp fail
+t15_ok:
     rcall inc_case
     rjmp test16_start
 
@@ -426,7 +462,6 @@ fill_loop:
     dec r17
     brne fill_loop
     
-    ; Verify first 10 values
     ldi r26, low(DATA_START+32)
     ldi r27, high(DATA_START+32)
     ldi r17, 0
@@ -434,7 +469,9 @@ fill_loop:
 verify_loop:
     ld r19, X+
     cp r17, r19
-    brne fail
+    breq t16_vok
+    rjmp fail
+t16_vok:
     inc r17
     dec r18
     brne verify_loop
@@ -452,17 +489,20 @@ test17_start:
     st X+, r16
     
     cpi r26, 0x00
-    brne fail
+    breq t17_ok1
+    rjmp fail
+t17_ok1:
     cpi r27, 0x03
-    brne fail
-    
-    ; Verify data at 0x02FF (should be 0xAA)
+    breq t17_ok2
+    rjmp fail
+t17_ok2:
     ldi r26, 0xFF
     ldi r27, 0x02
     ld r17, X
     cpi r17, 0xAA
-    brne fail
-    
+    breq t17_ok3
+    rjmp fail
+t17_ok3:
     rcall inc_case
     rjmp test18_start
 
@@ -478,27 +518,27 @@ test18_start:
     
     ld r17, X
     cpi r17, 0xDE
-    brne fail
-    
+    breq t18_ok
+    rjmp fail
+t18_ok:
     rcall inc_case
     rjmp test19_start
 
 ; ============================================================
-; TEST 19: STD with negative displacement (simulated via address calc)
+; TEST 19: STD with displacement
 ; ============================================================
 test19_start:
     ldi r28, low(DATA_START+60)
     ldi r29, high(DATA_START+60)
     
-    ; Store at offset 5 from base
     ldi r16, 0x99
     std Y+5, r16
     
-    ; Read back using base + 5
     ldd r17, Y+5
     cpi r17, 0x99
-    brne fail
-    
+    breq t19_ok
+    rjmp fail
+t19_ok:
     rcall inc_case
     rjmp test20_start
 
@@ -506,35 +546,36 @@ test19_start:
 ; TEST 20: Multiple ST operations with different pointers
 ; ============================================================
 test20_start:
-    ; Store using X
     ldi r26, low(DATA_START+80)
     ldi r27, high(DATA_START+80)
     ldi r16, 0xAA
     st X, r16
     
-    ; Store using Y
     ldi r28, low(DATA_START+81)
     ldi r29, high(DATA_START+81)
     ldi r16, 0xBB
     st Y, r16
     
-    ; Store using Z
     ldi r30, low(DATA_START+82)
     ldi r31, high(DATA_START+82)
     ldi r16, 0xCC
     st Z, r16
     
-    ; Verify all three
     lds r17, DATA_START+80
     cpi r17, 0xAA
-    brne fail
+    breq t20_ok1
+    rjmp fail
+t20_ok1:
     lds r17, DATA_START+81
     cpi r17, 0xBB
-    brne fail
+    breq t20_ok2
+    rjmp fail
+t20_ok2:
     lds r17, DATA_START+82
     cpi r17, 0xCC
-    brne fail
-    
+    breq t20_ok3
+    rjmp fail
+t20_ok3:
     rcall inc_case
     rjmp success
 

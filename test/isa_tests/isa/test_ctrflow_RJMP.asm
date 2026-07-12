@@ -16,12 +16,12 @@ reset:
     ldi r16, 1
     sts test_case, r16
     sts final_result, r16
-    rjmp test1_start
+    rjmp test1
 
 ; ============================================================
-; TEST 1: Simple RJMP
+; TEST 1: Simple forward RJMP
 ; ============================================================
-test1_start:
+test1:
     ldi r16, 0
     rjmp target1
     rjmp local_fail1
@@ -30,16 +30,16 @@ target1:
     cpi r16, 1
     brne local_fail1
     rcall inc_case
-    rjmp test2_start
-local_fail1: jmp fail
+    rjmp test2
+local_fail1: rjmp fail
 
 ; ============================================================
-; TEST 2: Forward/Backward RJMP
+; TEST 2: Forward then backward RJMP
 ; ============================================================
-test2_start:
+test2:
     ldi r17, 0
     rjmp forward2
-local_fail2: jmp fail
+local_fail2: rjmp fail
 forward2:
     inc r17
     rjmp backward2
@@ -48,12 +48,12 @@ backward2:
     cpi r17, 2
     brne local_fail2
     rcall inc_case
-    rjmp test3_start
+    rjmp test3
 
 ; ============================================================
-; TEST 3: Verify stack neutrality
+; TEST 3: Verify RJMP does NOT affect stack
 ; ============================================================
-test3_start:
+test3:
     in r18, SPL
     in r19, SPH
     rjmp stack_check3
@@ -65,8 +65,8 @@ stack_return3:
     cp r19, r21
     brne local_fail3
     rcall inc_case
-    rjmp test4_start
-local_fail3: jmp fail
+    rjmp test4
+local_fail3: rjmp fail
 
 stack_check3:
     in r22, SPL
@@ -78,9 +78,9 @@ stack_check3:
     rjmp stack_return3
 
 ; ============================================================
-; TEST 4: Tight Loop
+; TEST 4: RJMP out of loop
 ; ============================================================
-test4_start:
+test4:
     ldi r24, 0
     ldi r25, 5
 loop4:
@@ -92,16 +92,16 @@ loop4_done:
     cpi r24, 5
     brne local_fail4
     rcall inc_case
-    rjmp test5_start
-local_fail4: jmp fail
+    rjmp test5
+local_fail4: rjmp fail
 
 ; ============================================================
-; TEST 5: Self-loop
+; TEST 5: Conditional exit from self-loop via RJMP
 ; ============================================================
-test5_start:
+test5:
     ldi r26, 0
     rjmp loop5_entry
-local_fail5: jmp fail
+local_fail5: rjmp fail
 loop5_entry:
     inc r26
     cpi r26, 1
@@ -109,176 +109,198 @@ loop5_entry:
     rjmp loop5_entry
 loop5_done:
     rcall inc_case
-    rjmp test6_start
+    rjmp test6
 
 ; ============================================================
-; TEST 6-9: Chain and Range
+; TEST 6: RJMP chain
 ; ============================================================
-test6_start:
+test6:
     ldi r27, 0
-    rjmp chain1
-local_fail6: jmp fail
-chain1: inc r27
-        rjmp chain2
-chain2: inc r27
-        rjmp chain3
-chain3: inc r27
-        rjmp chain_done
-chain_done:
+    rjmp chain6_1
+local_fail6: rjmp fail
+chain6_1: inc r27
+         rjmp chain6_2
+chain6_2: inc r27
+         rjmp chain6_3
+chain6_3: inc r27
+         rjmp chain6_done
+chain6_done:
     cpi r27, 3
     brne local_fail6
     rcall inc_case
-    rjmp test7_start
+    rjmp test7
 
-test7_start:
-    ldi r28, 2
-    ldi r30, low(jump_table7)
-    ldi r31, high(jump_table7)
-    mov r29, r28
-    lsl r29
-    add r30, r29
-    ldi r16, 0
-    adc r31, r16
-    ijmp
-switch_return7:
-    cpi r28, 99
+; ============================================================
+; TEST 7: RJMP to far target
+; ============================================================
+test7:
+    ldi r28, 0
+    rjmp far_target7
+local_fail7: rjmp fail
+far_target7:
+    inc r28
+    cpi r28, 1
     brne local_fail7
     rcall inc_case
-    rjmp test8_start
-local_fail7: jmp fail
-jump_table7:
-    rjmp case0_7
-    rjmp case1_7
-    rjmp case2_7
-    rjmp case3_7
-case0_7: ldi r28, 0
-         rjmp switch_return7
-case1_7: ldi r28, 1
-         rjmp switch_return7
-case2_7: ldi r28, 99
-         rjmp switch_return7
-case3_7: ldi r28, 3
-         rjmp switch_return7
+    rjmp test8
 
-test8_start:
+; ============================================================
+; TEST 8: RJMP forward then backward
+; ============================================================
+test8:
     ldi r29, 0
-    rjmp range_target8
-local_fail8: jmp fail
-range_target8:
+    rjmp forward8
+local_fail8: rjmp fail
+forward8:
     inc r29
-    cpi r29, 1
+    rjmp backward8
+backward8:
+    inc r29
+    cpi r29, 2
     brne local_fail8
     rcall inc_case
-    rjmp test9_start
-
-test9_start:
-    ldi r30, 0
-    rjmp forward9
-local_fail9: jmp fail
-forward9:
-    inc r30
-    rjmp backward9
-backward9:
-    inc r30
-    cpi r30, 2
-    brne local_fail9
-    rcall inc_case
-    rjmp test10_start
+    rjmp test9
 
 ; ============================================================
-; TEST 10-16: Mixed Jump Types, Loops, and Skips
+; TEST 9: RJMP skip instruction
 ; ============================================================
-test10_start:
-    ldi r31, 0
-    ldi r30, low(icall_target10)
-    ldi r31, high(icall_target10)
-    icall
-    cpi r31, 1
-    brne local_fail10
-    rcall inc_case
-    rjmp test11_start
-local_fail10: jmp fail
-icall_target10:
-    inc r31
-    ret
-
-test11_start:
+test9:
     ldi r16, 0
-    rjmp relative_target11
-local_fail11: jmp fail
-relative_target11:
+    rjmp skip_inc9
+    inc r16          ; This should be skipped
+skip_inc9:
     inc r16
     cpi r16, 1
-    brne local_fail11
+    brne local_fail9
     rcall inc_case
-    rjmp test12_start
+    rjmp test10
+local_fail9: rjmp fail
 
-test12_start:
+; ============================================================
+; TEST 10: RJMP 3-level nesting
+; ============================================================
+test10:
     ldi r17, 0
-    rjmp start_chain12
-local_fail12: jmp fail
-start_chain12: inc r17
-               rjmp middle_chain12
-middle_chain12: inc r17
-                rjmp end_chain12
-end_chain12: inc r17
-             cpi r17, 3
-             brne local_fail12
-             rcall inc_case
-             rjmp test13_start
+    rjmp level1_10
+local_fail10: rjmp fail
+level1_10: inc r17
+           rjmp level2_10
+level2_10: inc r17
+           rjmp level3_10
+level3_10: inc r17
+           rjmp level_done10
+level_done10:
+    cpi r17, 3
+    brne local_fail10
+    rcall inc_case
+    rjmp test11
 
-test13_start:
-    ldi r18, 0
-    ldi r19, 10
-loop13:
-    inc r18
-    dec r19
-    brne loop13
-    rjmp loop13_done
-loop13_done:
-    cpi r18, 10
+; ============================================================
+; TEST 11: RJMP tail call pattern
+; ============================================================
+test11:
+    ldi r18, 1
+    rjmp tail_target11
+    rjmp fail           ; This should never execute
+tail_target11:
+    cpi r18, 1
+    brne local_fail11   ; ← Local label within range
+    rcall inc_case
+    rjmp test12
+local_fail11: rjmp fail  ; ← RJMP has ±2047 word range
+
+; ============================================================
+; TEST 12: RJMP loop with counter
+; ============================================================
+test12:
+    ldi r19, 0
+    ldi r20, 10
+loop12:
+    inc r19
+    dec r20
+    brne loop12
+    rjmp loop12_done
+loop12_done:
+    cpi r19, 10
+    brne local_fail12
+    rcall inc_case
+    rjmp test13
+local_fail12: rjmp fail
+
+; ============================================================
+; TEST 13: Multiple RJMP skips
+; ============================================================
+test13:
+    ldi r21, 0
+    rjmp skip_block13
+    inc r21
+    inc r21
+    inc r21
+skip_block13:
+    inc r21
+    cpi r21, 1
     brne local_fail13
     rcall inc_case
-    rjmp test14_start
-local_fail13: jmp fail
+    rjmp test14
+local_fail13: rjmp fail
 
-test14_start:
-    ldi r20, 0
-    rjmp skip_inc14
-    inc r20
-skip_inc14:
-    inc r20
-    cpi r20, 1
+; ============================================================
+; TEST 14: RJMP to immediate next instruction
+; ============================================================
+test14:
+    ldi r22, 0
+    rjmp next14
+next14:
+    inc r22
+    cpi r22, 1
     brne local_fail14
     rcall inc_case
-    rjmp test15_start
-local_fail14: jmp fail
+    rjmp test15
+local_fail14: rjmp fail
 
-test15_start:
-    ldi r21, 0
-    rjmp level1_15
-local_fail15: jmp fail
-level1_15: inc r21
-           rjmp level2_15
-level2_15: inc r21
-           rjmp level3_15
-level3_15: inc r21
-           rjmp level_done15
-level_done15:
-    cpi r21, 3
+; ============================================================
+; TEST 15: Long backward RJMP
+; ============================================================
+test15:
+    rjmp forward15
+local_fail15: rjmp fail
+; Padding to create distance
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+backward_target15:
+    ldi r23, 42
+    rjmp check15
+forward15:
+    ldi r23, 0
+    rjmp backward_target15
+check15:
+    cpi r23, 42
     brne local_fail15
     rcall inc_case
-    rjmp test16_start
+    rjmp test16
 
-test16_start:
-    ldi r22, 1
-    rjmp tail_target16
-    rjmp fail
-tail_target16:
-    cpi r22, 1
-    brne fail
+; ============================================================
+; TEST 16: RJMP in conditional structure
+; ============================================================
+test16:
+    ldi r24, 5
+    cpi r24, 5
+    breq take_branch16
+    rjmp local_fail16
+take_branch16:
+    cpi r24, 5
+    brne local_fail16
     rcall inc_case
     rjmp success
+local_fail16: rjmp fail
 
 ; ============================================================
 ; SUCCESS / FAILURE logic
