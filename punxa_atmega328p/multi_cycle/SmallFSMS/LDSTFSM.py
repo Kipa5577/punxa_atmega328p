@@ -93,6 +93,7 @@ STATES = [
 
     # Getting the address ALWAYS EXECUTED (skipped entirely for LDI)
     'FETCH_ADDRESS_XYZ_BEGIN_L', 'WAIT_FETCH_ADDRESS_XYZ_L', 'LOAD_ADDRESS_XYZ_L_IN_BUFFER',
+    'SETTLE_XYZ_H',
     'FETCH_ADDRESS_XYZ_BEGIN_H', 'WAIT_FETCH_ADDRESS_XYZ_H', 'LOAD_ADDRESS_XYZ_H_IN_BUFFER',
 
     # LDI – Rd <- K (immediate), enters here directly from STOP
@@ -227,6 +228,17 @@ class LDST_FSM(py4hw.Logic):
         # back to its SRAM-mapped register (R26-R31) once the access
         # sequence completes.
         self._pointer_update_pending = False
+        # Edge-detect flag for the high-byte pointer read (FETCH/WAIT_
+        # ADDRESS_XYZ_H): set once we've genuinely observed Resp go low
+        # during THIS read, so a subsequent Resp=1 can be trusted as this
+        # read's real completion rather than a stale Resp=1 left over
+        # from the low-byte read that ran immediately beforehand.
+        self._h_saw_resp_low = False
+        # Deferred post-increment flag for LD X+/Y+/Z+ (applied only once
+        # the pointer read completes, so the address stays stable during
+        # the access), and the Mem_Instruction held during that read.
+        self._deferred_post_inc = False
+        self._ptr_mem_instruction = 0
         self.debug = 0
 
 
@@ -343,8 +355,21 @@ class LDST_FSM(py4hw.Logic):
                 LoadingMux = 3   # LOAD_YL
             elif inst in _Z_POINTER:
                 LoadingMux = 5   # LOAD_ZL
-            next_state = 'FETCH_ADDRESS_XYZ_BEGIN_H'
+            next_state = 'SETTLE_XYZ_H'
 
+        # One idle cycle between the low-byte pointer read and the
+        # high-byte pointer read. MemoryInterfaceHandler's Resp/bus data
+        # for the just-completed low-byte read (WAIT_FETCH_ADDRESS_XYZ_L)
+        # is still settling when LOAD_ADDRESS_XYZ_L_IN_BUFFER runs, so
+        # starting the new high-byte read (a different WB_Addr) right on
+        # its heels would sample stale Resp/bus data left over from the
+        # low-byte read instead of waiting for the real high-byte value
+        # (e.g. reading ZH would silently latch ZL's value again).
+        elif state == 'SETTLE_XYZ_H':
+            Mem_Instruction = 0
+            Read_Write = 0
+            InputSelect_Memory = 0
+            next_state = 'FETCH_ADDRESS_XYZ_BEGIN_H'
 
         # ------------------------------------------------
         # FETCH ADDRESS XYZ HIGH
@@ -365,6 +390,10 @@ class LDST_FSM(py4hw.Logic):
             Mem_Instruction = 14     # MEM_WB_ADDR
             Read_Write = 2 # Read
             InputSelect_Memory = 1 # RECIVE VALUE FROM MEMORY
+            # Reset the edge-detect flag: this is a brand new read, so any
+            # Resp=1 sampled before we've seen Resp go low again must be
+            # discarded as a holdover from the low-byte read.
+            self._h_saw_resp_low = False
             next_state = 'WAIT_FETCH_ADDRESS_XYZ_H'
 
         elif state == 'WAIT_FETCH_ADDRESS_XYZ_H':
@@ -372,7 +401,16 @@ class LDST_FSM(py4hw.Logic):
             Mem_Instruction = 14
             Read_Write = 2 # Read
             InputSelect_Memory = 1 # RECIVE VALUE FROM MEMORY
-            if resp:
+            if not resp:
+                # Genuinely see Resp deassert for THIS read before trusting
+                # a later Resp=1 as its real completion. Without this, a
+                # Resp=1 left over from the low-byte read that immediately
+                # precedes this high-byte read can look like this read
+                # finishing on its very first cycle, latching the low
+                # byte's stale bus data as the high byte (e.g. ZH reading
+                # back ZL's value).
+                self._h_saw_resp_low = True
+            elif self._h_saw_resp_low:
                 next_state = 'LOAD_ADDRESS_XYZ_H_IN_BUFFER'
 
         elif state == 'LOAD_ADDRESS_XYZ_H_IN_BUFFER':
@@ -433,29 +471,39 @@ class LDST_FSM(py4hw.Logic):
         elif state == 'FETCH_ADDRESS_XYZ_POINTER':
 
             self._pointer_update_pending = False
+            # Post-increment must NOT be applied while the read is still in
+            # flight: updatePointer fires the first cycle IncDec is seen,
+            # which would change X/Y/Z (and therefore the driven address)
+            # mid-read. Defer it to the completion cycle instead.
+            self._deferred_post_inc = False
+            # Edge-detect reset: this state is entered one cycle after the
+            # high-pointer-byte read completed (Resp may still be 1 from
+            # it), so any Resp=1 sampled before Resp has gone low again
+            # belongs to that previous read and must be ignored.
+            self._h_saw_resp_low = False
 
             if i in _X_POINTER:
                 if i == 96:   # LDX
                     Mem_Instruction = 1  # X pointer
                 elif i == 97:  # LDX+
-                    Mem_Instruction = 2  # X pointer
-                    IncDec = 1            # POST INCREMENT
+                    Mem_Instruction = 1  # X pointer (post-inc deferred)
+                    self._deferred_post_inc = True
                     self._pointer_update_pending = True
                 elif i == 98:  # LD-X
                     Mem_Instruction = 1  # X pointer
-                    IncDec = 2            # PRE DECREMENT
+                    IncDec = 2            # PRE DECREMENT (applies once here)
                     self._pointer_update_pending = True
 
             elif i in _Y_POINTER:
                 if i == 99:    # LDY
                     Mem_Instruction = 3  # Y pointer
                 elif i == 100:  # LDY+
-                    Mem_Instruction = 4  # Y pointer
-                    IncDec = 1            # POST INCREMENT
+                    Mem_Instruction = 3  # Y pointer (post-inc deferred)
+                    self._deferred_post_inc = True
                     self._pointer_update_pending = True
                 elif i == 101:  # LD-Y
                     Mem_Instruction = 3  # Y pointer
-                    IncDec = 2            # PRE DECREMENT
+                    IncDec = 2            # PRE DECREMENT (applies once here)
                     self._pointer_update_pending = True
                 elif i == 102:  # LDDY (LDD Y+q)
                     Mem_Instruction = 10  # MEM_Y_Q
@@ -464,15 +512,22 @@ class LDST_FSM(py4hw.Logic):
                 if i == 103:    # LDZ
                     Mem_Instruction = 5  # Z pointer
                 elif i == 104:  # LDZ+
-                    Mem_Instruction = 6  # Z pointer
-                    IncDec = 1            # POST INCREMENT
+                    Mem_Instruction = 5  # Z pointer (post-inc deferred)
+                    self._deferred_post_inc = True
                     self._pointer_update_pending = True
                 elif i == 105:  # LD-Z
                     Mem_Instruction = 5  # Z pointer
-                    IncDec = 2            # PRE DECREMENT
+                    IncDec = 2            # PRE DECREMENT (applies once here)
                     self._pointer_update_pending = True
                 elif i == 106:  # LDDZ (LDD Z+q)
                     Mem_Instruction = 11  # MEM_Z_Q
+
+            # Remember which Mem_Instruction to keep driving during the
+            # wait so the read address stays stable for the whole access.
+            # NOTE: pre-decrement already updated the pointer this cycle,
+            # so holding the plain pointer instruction (IncDec=0) during
+            # the wait resolves to the same (decremented) address.
+            self._ptr_mem_instruction = Mem_Instruction
 
             Read_Write = 2 # Read
             InputSelect_Memory = 1  # Fetching value from dataBus
@@ -481,12 +536,27 @@ class LDST_FSM(py4hw.Logic):
 
 
         elif state == 'WAIT_ADDRESS_XYZ_POINTER':
+            # HOLD the read: keep driving the same pointer address for the
+            # entire access. Previously Mem_Instruction fell back to 0
+            # here, so the memory interface was actually addressing
+            # location 0 while "waiting" — the genuine data at Y+q/Z+q
+            # could never arrive.
+            Mem_Instruction = self._ptr_mem_instruction
             Read_Write = 2 
             InputSelect_Memory = 1  
-            
-            if resp:
+
+            if not resp:
+                # Resp genuinely deasserted for THIS read: any later
+                # Resp=1 is really ours (see edge-detect note above).
+                self._h_saw_resp_low = True
+            elif self._h_saw_resp_low:
                 WE_Memory = 1            # [FIX]: Latch data into RdBuffer
                 LoadingMux = 14          # [FIX]: Select LOAD_RD_BUFFER
+                if self._deferred_post_inc:
+                    # Apply the post-increment exactly once, now that the
+                    # read has completed at the ORIGINAL address.
+                    IncDec = 1
+                    self._deferred_post_inc = False
                 next_state = 'LOAD_VALUE_TO_RD'
 
         elif state == 'LOAD_VALUE_TO_RD':
@@ -521,6 +591,15 @@ class LDST_FSM(py4hw.Logic):
             Mem_Instruction = 12     # RD pointer: read the source register
             Read_Write = 2           # read the source register value
             InputSelect_Memory = 1
+            # Edge-detect reset: for X/Y/Z pointer stores this state is
+            # entered right after the high-pointer-byte read completed
+            # (LOAD_ADDRESS_XYZ_H_IN_BUFFER is a single cycle), so the
+            # memory interface's registered Resp may still be 1 from that
+            # read. Any Resp=1 sampled before we've seen Resp go low again
+            # belongs to the previous read and must be ignored, or we'd
+            # latch the pointer high byte into RD_BUFFER as the "source
+            # register value" and store it to memory.
+            self._h_saw_resp_low = False
 
             next_state = 'WAIT_FETCH_VALUE_OF_RD'
 
@@ -528,11 +607,21 @@ class LDST_FSM(py4hw.Logic):
             Mem_Instruction = 12
             Read_Write = 2  # Read
             InputSelect_Memory = 1
-            if resp:
+            if not resp:
+                # Resp deasserted: any later Resp=1 is genuinely ours.
+                self._h_saw_resp_low = True
+            elif self._h_saw_resp_low:
                 # FIX: Send both STS (119) and OUT (_IO_WRITE) to the latch state
                 if i == 119 or i in _IO_WRITE: 
                     next_state = 'LATCH_RD_TO_BUFFER'
                 elif i in _STORE_MEM:
+                    # Latch the fetched Rd/Rr value into RD_BUFFER right
+                    # now, while Bus data is valid (resp==1 this cycle).
+                    # Without this, LOAD_VALUE_TO_MEMORY has nothing but
+                    # stale ALU ResL data to write, since this path (unlike
+                    # STS/OUT above) never visits LATCH_RD_TO_BUFFER.
+                    WE_Memory = 1
+                    LoadingMux = 14
                     next_state = 'LOAD_VALUE_TO_MEMORY'
 
 
@@ -560,72 +649,73 @@ class LDST_FSM(py4hw.Logic):
         elif state == 'LOAD_VALUE_TO_MEMORY':
 
             self._pointer_update_pending = False
+            # Post-increment must be applied exactly ONCE per instruction.
+            # updatePointer() in MemoryInterfaceHandler fires every cycle
+            # IncDec is asserted, and this state's signals are held for
+            # LOAD + WAIT cycles — driving IncDec continuously bumps the
+            # pointer multiple times per store (st X+ was advancing X by 2+)
+            # and shifts the write address mid-transaction. Defer the
+            # post-increment to the completion cycle instead.
+            self._deferred_post_inc = False
 
             if i in _X_POINTER:
-                if i == 108:    # STX
-                    Mem_Instruction = 1
-                elif i == 109:  # STX+
-                    Mem_Instruction = 1
-                    IncDec = 1
+                Mem_Instruction = 1
+                if i == 109:    # STX+ (post-inc deferred)
+                    self._deferred_post_inc = True
                     self._pointer_update_pending = True
                 elif i == 110:  # ST-X
-                    Mem_Instruction = 1
-                    IncDec = 2
+                    IncDec = 2  # PRE DECREMENT (applies once, this cycle only)
                     self._pointer_update_pending = True
             elif i in _Y_POINTER:
-                if i == 111:    # STY
-                    Mem_Instruction = 3
-                elif i == 112:  # STY+
-                    Mem_Instruction = 3
-                    IncDec = 1
+                Mem_Instruction = 10 if i == 114 else 3  # STDY uses MEM_Y_Q
+                if i == 112:    # STY+ (post-inc deferred)
+                    self._deferred_post_inc = True
                     self._pointer_update_pending = True
                 elif i == 113:  # ST-Y
-                    Mem_Instruction = 3
-                    IncDec = 2
+                    IncDec = 2  # PRE DECREMENT (applies once, this cycle only)
                     self._pointer_update_pending = True
-                elif i == 114:  # STDY (STD Y+q)
-                    Mem_Instruction = 10  # MEM_Y_Q
             elif i in _Z_POINTER:
-                if i == 115:    # STZ
-                    Mem_Instruction = 5
-                elif i == 116:  # STZ+
-                    Mem_Instruction = 5
-                    IncDec = 1
+                Mem_Instruction = 11 if i == 118 else 5  # STDZ uses MEM_Z_Q
+                if i == 116:    # STZ+ (post-inc deferred)
+                    self._deferred_post_inc = True
                     self._pointer_update_pending = True
                 elif i == 117:  # ST-Z
-                    Mem_Instruction = 5
-                    IncDec = 2
+                    IncDec = 2  # PRE DECREMENT (applies once, this cycle only)
                     self._pointer_update_pending = True
-                elif i == 118:  # STDZ (STD Z+q)
-                    Mem_Instruction = 11  # MEM_Z_Q
 
             Read_Write = 1            # write opp
-            InputSelect_Memory = 2    # data sourced from ResL (staged Rr value)
+            InputSelect_Memory = 16   # data sourced from RD_BUFFER (the Rd/Rr value latched in WAIT_FETCH_VALUE_OF_RD)
 
             next_state = 'WAIT_LOAD_VALUE_TO_MEMORY'
 
         elif state == 'WAIT_LOAD_VALUE_TO_MEMORY':
 
+            # Hold the write (same address selection) but with IncDec=0:
+            # pre-decrement already updated the pointer in the previous
+            # cycle (so the plain pointer now resolves to the same,
+            # decremented address), and post-increment is deferred until
+            # the write completes below.
             if i == 119:
                 Mem_Instruction = 9
-                IncDec = 0
                 InputSelect_Memory = 16 
             elif i in _X_POINTER:
                 Mem_Instruction = 1
-                IncDec = 1 if i == 109 else (2 if i == 110 else 0)
-                InputSelect_Memory = 2
+                InputSelect_Memory = 16
             elif i in _Y_POINTER:
                 Mem_Instruction = 10 if i == 114 else 3
-                IncDec = 1 if i == 112 else (2 if i == 113 else 0)
-                InputSelect_Memory = 2
+                InputSelect_Memory = 16
             elif i in _Z_POINTER:
                 Mem_Instruction = 11 if i == 118 else 5
-                IncDec = 1 if i == 116 else (2 if i == 117 else 0)
-                InputSelect_Memory = 2
+                InputSelect_Memory = 16
 
             Read_Write = 1
             
             if resp:
+                if self._deferred_post_inc:
+                    # Apply the post-increment exactly once, now that the
+                    # write has completed at the ORIGINAL address.
+                    IncDec = 1
+                    self._deferred_post_inc = False
                 if self._pointer_update_pending:
                     next_state = 'LOAD_ADDRESS_XYZ_BEGIN_L'
                 else:

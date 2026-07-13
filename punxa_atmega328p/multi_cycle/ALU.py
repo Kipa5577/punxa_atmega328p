@@ -48,13 +48,15 @@ Outputs:
 """
 class SREG_Splitter(py4hw.Logic):
     """Splits the 8-bit SREG bus into individual flag wires."""
-    def __init__(self, parent, name, sreg_state, w_cin, w_zin, w_nin, w_vin):
+    def __init__(self, parent, name, sreg_state, w_cin, w_zin, w_nin, w_vin, w_tin=None):
         super().__init__(parent, name)
         self.sreg_state = self.addIn('SREG_STATE', sreg_state)
         self.w_cin = self.addOut('w_cin', w_cin)
         self.w_zin = self.addOut('w_zin', w_zin)
         self.w_nin = self.addOut('w_nin', w_nin)
         self.w_vin = self.addOut('w_vin', w_vin)
+        # T flag (bit 6), needed by BLD (Rd[bit] <- T)
+        self.w_tin = self.addOut('w_tin', w_tin) if w_tin is not None else None
 
     def propagate(self):
         sreg = self.sreg_state.get()
@@ -62,6 +64,8 @@ class SREG_Splitter(py4hw.Logic):
         self.w_zin.put((sreg >> 1) & 1)
         self.w_nin.put((sreg >> 2) & 1)
         self.w_vin.put((sreg >> 3) & 1)
+        if self.w_tin is not None:
+            self.w_tin.put((sreg >> 6) & 1)
 
 class ALU_MergerAndLogic(py4hw.Logic):
     """Merges flags back to SREG, bridges output results, and computes Branch/Skip."""
@@ -146,19 +150,23 @@ class ALU(py4hw.Logic):
         self.w_nopp = py4hw.Wire(self, 'w_nopp',3)
         self.w_vopp = py4hw.Wire(self, 'w_vopp',4)
         self.w_sopp = py4hw.Wire(self, 'w_sopp',3)
-        self.w_hopp = py4hw.Wire(self, 'w_hopp',2)
+        self.w_hopp = py4hw.Wire(self, 'w_hopp',3)
         self.w_topp = py4hw.Wire(self, 'w_topp',2)
         self.w_iopp = py4hw.Wire(self, 'w_iopp',1)
         self.w_branchOpp = py4hw.Wire(self, 'w_branchOpp', 3)
 
         self.w_res_l = py4hw.Wire(self,'w_res_l',8)
         self.w_res_H = py4hw.Wire(self,'w_res_H',8)
+        # FIX: dedicated carry-out from AU for the multiply family, bit 15
+        # of the raw (unshifted) product -- see AU.py / HandleC.py.
+        self.w_mul_carry = py4hw.Wire(self, 'w_mul_carry', 1)
 
         # Individual Flag Inputs (Split from SREG_STATE bus)
         self.w_cin = py4hw.Wire(self, 'w_cin',1)
         self.w_zin = py4hw.Wire(self, 'w_zin',1)
         self.w_nin = py4hw.Wire(self, 'w_nin',1)
         self.w_vin = py4hw.Wire(self, 'w_vin',1)
+        self.w_tin = py4hw.Wire(self, 'w_tin',1)
 
         # Individual Flag Outputs (Calculated by Handlers)
         self.w_cout = py4hw.Wire(self, 'w_cout',1)
@@ -181,11 +189,17 @@ class ALU(py4hw.Logic):
         
         # 0. SREG Splitter
         self.sreg_splitter = SREG_Splitter(self, 'SREGSplitter',
-            self.SREG_state, self.w_cin, self.w_zin, self.w_nin, self.w_vin)
+            self.SREG_state, self.w_cin, self.w_zin, self.w_nin, self.w_vin, self.w_tin)
         
         self.concat_A = WireCombiner16(self, 'ConcatA', self.ImputRegA1, self.ImputRegA0, self.w_regA_16)
         self.concat_B = WireCombiner16(self, 'ConcatB', self.ImputRegB1, self.ImputRegB0, self.w_regB_16)
-        self.concat_res = WireCombiner16(self, 'ConcatRes', self.w_res_l, self.w_res_H, self.w_res_16)
+        # FIX: arguments were (w_res_l, w_res_H, ...) i.e. (in_high, in_low)
+        # with the LOW byte passed as in_high and the HIGH byte passed as
+        # in_low -- WireCombiner16 shifts in_high left by 8 and ORs in_low
+        # in unshifted, so this was silently byte-swapping every 16-bit
+        # result (ADIW/SBIW/MUL family) before HandleC/HandleZ/HandleN ever
+        # saw it. Corrected to (in_high=w_res_H, in_low=w_res_l).
+        self.concat_res = WireCombiner16(self, 'ConcatRes', self.w_res_H, self.w_res_l, self.w_res_16)
 
 
         # 1. Configuration & Control Unit
@@ -217,6 +231,8 @@ class ALU(py4hw.Logic):
                     self.BitPos,          # BitPos (SBI/CBI only)
                     self.w_res_l,  # ResL
                     self.w_res_H,   # ResH
+                    self.w_mul_carry,  # MulCarryOut
+                    self.w_tin,     # Tval (for BLD)
                 )
 
         self.BranchUnit = BranchUnit(
@@ -232,12 +248,12 @@ class ALU(py4hw.Logic):
         )
 
         # 3. Flag Handlers
-        self.handle_c = HandleC(self, 'HC', self.w_regB_16, self.w_regA_16, self.w_res_16, self.w_copp, self.w_cout)
+        self.handle_c = HandleC(self, 'HC', self.w_regB_16, self.w_regA_16, self.w_res_16, self.w_copp, self.w_mul_carry, self.w_cout)
         self.handle_z = HandleZ(self, 'HZ', self.w_res_16, self.w_zopp, self.w_zin, self.w_zout) 
         self.handle_n = HandleN(self, 'HN', self.w_res_16, self.w_nopp, self.w_nout)
-        self.handle_v = HandleV(self, 'HV', self.w_regB_16, self.w_regA_16, self.w_res_16, self.w_nin, self.w_vopp, self.w_vout)
+        self.handle_v = HandleV(self, 'HV', self.w_regB_16, self.w_regA_16, self.w_res_16, self.w_nout, self.w_cout, self.w_vopp, self.w_vout)
         self.handle_h = HandleH(self, 'HH', self.w_regB_16, self.w_regA_16, self.w_res_16, self.w_hopp, self.w_hout)
-        self.handle_t = HandleT(self, 'HT', self.w_regA_16, self.BitPos, self.w_topp, self.w_tout)
+        self.handle_t = HandleT(self, 'HT', self.w_regB_16, self.BitPos, self.w_topp, self.w_tout)
         self.handle_i = HandleI(self, 'HI', self.w_iopp, self.w_iout)
         self.handle_s = HandleS(self, 'HS', self.w_nout, self.w_vout, self.w_sopp, self.w_sout)
 

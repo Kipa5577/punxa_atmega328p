@@ -8,36 +8,36 @@ from punxa_atmega328p.Memory import *
 from punxa_atmega328p.csr import *
 from deprecated import deprecated
 
-## *_IO = IN and OUT instruction address
-## *_LS =  LD LDS ST STS instruction address
 
-#0x0000 to 0x3FFF flash memory range 
 
-#Start of Sram : 0x0100 | End of Sram : 0x08FF
-#pointer registers
-# R26 X-register Low Byte 
-# R27 X-register High Byte
-# R28 Y-register Low Byte
-# R29 Y-register High Byte
-# R30 Z-register Low Byte 
-# R31 Z-register High Byte
- 
-# interupt wires to add: INT0, INT1, PCINT0, PCINT1, PCINT2, WDT, TIMER2 COMPA, TIMER2 COMPB, TIMER2 OVF, TIMER1 CAPT, TIMER1 COMPA, TIMER1 COMPB, TIMER1 OVF, TIMER0 COMPA, TIMER0 COMPB, TIMER0 OVF, SPI/STC , USART/RX , USART/UDRE , USART/TX , ADC , EE READY , ANALOG COMP, TWI, SPM READY.
- 
 
-STATES = [
-    
-    "FETCH_INSTRUCTION",
-    "WAIT_FETCH_INSTRUCTION",
+
+
+
+
+CPU_STATES = [
+
+    #GENERAL_STATES
+    "STATE_RESET",
     "EXECUTE_INSTRUCTION",
+    "STATE_SLEEP",
+    "STATE_WDT",
 
+    # CALL/RET
+    "STATE_CALL_PUSH_H","STATE_CALL_PUSH_L",
+    "STATE_RET_POP_L","STATE_RET_POP_H",
+    # Indirect load/store , LPM
+    "STATE_INDIRECT_LOAD","STATE_INDIRECT_STORE",
+    "STATE_LPM_REQ","STATE_LPM_WAIT",
+    # I/O bit read-modify-write
+    "STATE_IO_BIT_READ","STATE_IO_BIT_WRITE",
+    # SKIP
+    "STATE_SKIP_FETCH_REQ","STATE_SKIP_FETCH_WAIT",
 ]
 
 
-
-
-class SingleCycleATmega328P(py4hw.Logic):
-    def __init__(self,parent, name:str , ins_mem:MemoryInterface,memory:MemoryInterface, reset_address)):#INT0,INT1,PCINT0,PCINT1,PCINT2,WDT,TIMER2_COMPA,TIMER2_COMPB,TIMER2_OVF,TIMER1_CAPT,TIMER1_COMPA,TIMER1_COMPB,TIMER1_OVF,TIMER0_COMPA,TIMER0_COMPB,TIMER0_OVF,SPI_STC,USART_RX,USART_UDRE,USART_TX,ADC,EE_READY,ANALOG_COMP,TWI,SPM_READY):
+class MultyCycleATmega328P(py4hw.Logic):
+    def __init__(self,parent, name:str , ins_mem:MemoryInterface,memory:MemoryInterface, reset_address):#INT0,INT1,PCINT0,PCINT1,PCINT2,WDT,TIMER2_COMPA,TIMER2_COMPB,TIMER2_OVF,TIMER1_CAPT,TIMER1_COMPA,TIMER1_COMPB,TIMER1_OVF,TIMER0_COMPA,TIMER0_COMPB,TIMER0_OVF,SPI_STC,USART_RX,USART_UDRE,USART_TX,ADC,EE_READY,ANALOG_COMP,TWI,SPM_READY):
         super().__init__(parent,name)
 
         assert(ins_mem.read_data.getWidth() == 16)
@@ -45,7 +45,7 @@ class SingleCycleATmega328P(py4hw.Logic):
         
         self.ins_mem = self.addInterfaceSource('ins', ins_mem)
         self.mem = self.addInterfaceSource('data', memory)
-        self.pc =  #0x3F00 ##bootloarder
+        self.pc = reset_address, #0x3F00 ##bootloarder
         self.reg = [0]*32
         ##self.flash = [0]*16384
 
@@ -101,6 +101,7 @@ class SingleCycleATmega328P(py4hw.Logic):
         self.SPMCSR_addr_LS = 0x57
 
 
+        self.skip_next_instruction = False
 
         self.gotToGoFast = False
 
@@ -192,7 +193,6 @@ class SingleCycleATmega328P(py4hw.Logic):
 
         match self.opp: 
             case 'ADD':
-                
                 self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
                 self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
                 self.res = (self.reg[self.Rd] + self.reg[self.Rr]) &0xFF

@@ -48,9 +48,17 @@ class HandleH(py4hw.Logic):
             h_out = (rd3 & rr3) | (rr3 & not_r3) | (not_r3 & rd3)
 
         elif mode == 3:
-            # Mode 2: Subtraction / Compare / Negate (SUB, SBC, CP, CPC, NEG)
+            # Mode 2: Subtraction / Compare (SUB, SBC, CP, CPC)
             # H = (NOT Rd3 AND Rr3) OR (Rr3 AND R3) OR (R3 AND NOT Rd3)
             h_out = (not_rd3 & rr3) | (rr3 & r3) | (r3 & not_rd3)
+
+        elif mode == 4:
+            # Mode 4: Two's Complement Negation (NEG)
+            # NEG has no real Rr operand (it's 0x00 - Rd), so the generic
+            # subtraction formula above (which assumes a real Rr3 bit)
+            # gives the wrong answer here. Per the AVR spec, NEG's H flag
+            # is simply H = R3 OR Rd3.
+            h_out = r3 | rd3
 
         # Note: Instructions like INC, DEC, Shifts, Word operations, and Logical ops 
         # do not update the H flag in AVR. Your ConfCodeCalc handles this by 

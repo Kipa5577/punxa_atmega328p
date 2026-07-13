@@ -126,6 +126,12 @@ class LPM_FSM(py4hw.Logic):
         self._latched_inst = 0
         self._wb_addr_val = 0
         self._pointer_update_pending = False
+        # Edge-detect flag: set once Resp has genuinely been observed low
+        # during the current memory read, so a subsequent Resp=1 can be
+        # trusted as THIS read's completion rather than a registered
+        # Resp=1 left over from the previous memory operation (this is
+        # the same hazard that corrupted the ZH read in LDST_FSM).
+        self._saw_resp_low = False
         self.debug = 1
 
 
@@ -192,6 +198,9 @@ class LPM_FSM(py4hw.Logic):
             Mem_Instruction = 14     # MEM_WB_ADDR
             Read_Write = 2           # Read
             Input_Select = 1         # Receive from DataBus
+            # New read: discard any Resp=1 sampled before Resp has gone
+            # low — it belongs to the previous memory operation.
+            self._saw_resp_low = False
             next_state = 'WAIT_FETCH_ADDRESS_XYZ_L'
 
         elif state == 'WAIT_FETCH_ADDRESS_XYZ_L':
@@ -199,7 +208,9 @@ class LPM_FSM(py4hw.Logic):
             Mem_Instruction = 14
             Read_Write = 2 
             Input_Select = 1 
-            if resp:
+            if not resp:
+                self._saw_resp_low = True
+            elif self._saw_resp_low:
                 next_state = 'LOAD_ADDRESS_XYZ_L_IN_BUFFER'
 
         elif state == 'LOAD_ADDRESS_XYZ_L_IN_BUFFER':
@@ -216,6 +227,12 @@ class LPM_FSM(py4hw.Logic):
             Mem_Instruction = 14     
             Read_Write = 2 
             Input_Select = 1 
+            # CRITICAL edge-detect reset: this read starts one cycle after
+            # the ZL read completed with Resp=1. Without waiting for a
+            # genuine Resp low->high transition, the stale Resp=1 from the
+            # ZL read is accepted immediately and ZL's value gets latched
+            # into ZH — sending LPM to a garbage ROM address.
+            self._saw_resp_low = False
             next_state = 'WAIT_FETCH_ADDRESS_XYZ_H'
 
         elif state == 'WAIT_FETCH_ADDRESS_XYZ_H':
@@ -223,7 +240,9 @@ class LPM_FSM(py4hw.Logic):
             Mem_Instruction = 14
             Read_Write = 2 
             Input_Select = 1 
-            if resp:
+            if not resp:
+                self._saw_resp_low = True
+            elif self._saw_resp_low:
                 next_state = 'LOAD_ADDRESS_XYZ_H_IN_BUFFER'
 
         elif state == 'LOAD_ADDRESS_XYZ_H_IN_BUFFER':
@@ -236,10 +255,16 @@ class LPM_FSM(py4hw.Logic):
         # ------------------------------------------------
         elif state == 'JUMP_TO_Z':
             Load_Z = 1
+            # relative_Absolute=1 alongside Load_Z tells RomHandler that Z
+            # is a BYTE address (LPM semantics): PC <- Z>>1 and Z&1 selects
+            # the byte of the fetched flash word. (IJMP/ICALL assert Load_Z
+            # with relative_Absolute=0 and keep word-address semantics.)
+            relative_Absolute = 1
             next_state = 'WAIT_JUMP_TO_Z'
 
         elif state == 'WAIT_JUMP_TO_Z':
             Load_Z = 1               # Hold request
+            relative_Absolute = 1
             if executed_jump:
                 next_state = 'FETCH_ROM_DATA'
 

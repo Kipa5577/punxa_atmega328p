@@ -13,6 +13,8 @@ from punxa_atmega328p.assembly import assemble_program
 from punxa_atmega328p.interactive_commands import *
 
 
+
+
 def prepareTest(file):
     global hw
     global cpu
@@ -26,56 +28,74 @@ def prepareTest(file):
     
     hw = py4hw.HWSystem()
     
-    # Memory Map
-    # 0x0000 - 0x001F   GP Registers r0-r31
-    # 0x0020 - 0x005F   I/O registers
-    # 0x0060 - 0x00FF   Extended I/O Registers
-    #   0x00C0 - 0x00C6    USART
-    # 0x0100 - 0x08FF   Internal SRAM
-    
     dw = 8 
     aw = 16
     
+    # --- Interrupts ---
+    timer0_ovf_wire = py4hw.Wire(hw, 'timer0_ovf_wire', 1)
+    cpu_interrupt_wire = py4hw.Wire(hw, 'cpu_interrupt_wire', 1)
+    global_interrupt_enable_wire = py4hw.Wire(hw, 'global_interrupt_enable_wire', 1)
+
+    # --- Memory Interfaces ----
+    # Size window is 0x30 (48 bytes), so an address width of 6 bits (2^6 = 64) is perfect!
+    timer_p = punxa.MemoryInterface(hw, 'timer_p', dw, 6)
+    int_unit_p = punxa.MemoryInterface(hw, 'int_unit_p', dw, 1)
+
     data_p = punxa.MemoryInterface(hw, 'data_mem', dw, aw)
     ins_p = punxa.MemoryInterface(hw, 'ins_mem', 16, 14)
-    
-    gpio_p = punxa.MemoryInterface(hw, 'gpio', dw, 5)       # gpios
-    reg_p = punxa.MemoryInterface(hw, 'reg', dw, 7)         # 2^5 = 32 registers + 64 I/O registers
-    usart_p = punxa.MemoryInterface(hw, 'usart', dw, 3)     # 2^3 = 8 registers
-    mem_p = punxa.MemoryInterface(hw, 'mem', dw, 11)        # 2048 bytes
-    
-    
+
+    gpio_p = punxa.MemoryInterface(hw, 'gpio', dw, 5)       # 0x20 to 0x3F
+    reg_p = punxa.MemoryInterface(hw, 'reg', dw, 7)         # General Registers
+    usart_p = punxa.MemoryInterface(hw, 'usart', dw, 3)     
+    mem_p = punxa.MemoryInterface(hw, 'mem', dw, 11)        
+
+    # --- Clean Bus Configuration (No overlaps) ---
     punxa.MultiplexedBus(hw, 'bus', data_p, 
                         [(reg_p, 0x0, 0x20),
-                        (gpio_p, 0x20, 0x20), 
-                        (usart_p, 0xC0), 
-                        (mem_p, 0x100)])
+                         (gpio_p, 0x20, 0x20),        # 0x20 -> 0x3F
+                         (timer_p, 0x40, 0x30),       # 0x40 -> 0x6F (Captures TIMSK0 at 0x6E!)
+                         (int_unit_p, 0xFE, 0x2),     # 0xFE -> 0xFF
+                         (usart_p, 0xC0), 
+                         (mem_p, 0x100)])
     
-    cpu = punxa.SingleCycleATmega328P(hw, 'cpu', ins_p, data_p, reset_address=0)
-    reg = punxa.Ram_Memory(hw, 'reg', dw, 7, reg_p)                 # 32 B
-    mem = punxa.Ram_Memory(hw, 'men', dw, 11, mem_p)                # 2048 B
-    ins_mem = punxa.Ram_Memory(hw, 'ins_men', 16, 14, ins_p)        # 16 k words (of 16 bits) 
+    # --- Instantiate the CPU ---
+    cpu = punxa.SingleCycleATmega328P(hw, 'cpu', ins_p, data_p, 0, cpu_interrupt_wire, global_interrupt_enable_wire)
+
+    # --- Instantiate core memory blocks ---
+    reg = punxa.Ram_Memory(hw, 'reg', dw, 7, reg_p)                 
+    mem = punxa.Ram_Memory(hw, 'men', dw, 11, mem_p)                
+    ins_mem = punxa.Ram_Memory(hw, 'ins_men', 16, 14, ins_p)        
     usart = punxa.VirtualUSART(hw, 'usart', usart_p)
     gpio = punxa.VirtualGPIO(hw, 'gpio', gpio_p)
     
+    # ----------------------------------------------------------------
+    # --- NEW: Instantiate your custom modules so they exist in HW ---
+    # ----------------------------------------------------------------
+    timer0_module = punxa.SimpleTimer(hw, 'timer0_module', timer_p, TIMER0_OVF=timer0_ovf_wire)
+    
+    interrupt_module = punxa.SimpleInterruptUnit(
+        hw, 'interrupt_module', 
+        memory=int_unit_p, 
+        Interrupt=cpu_interrupt_wire, 
+        Global_Interrupt_Enable=global_interrupt_enable_wire,
+        TIMER0_OVF=timer0_ovf_wire
+    )
+    # ----------------------------------------------------------------
+
     watch = []
     watch.extend(py4hw.debug.getInterfaceWires(ins_p))
     watch.extend(py4hw.debug.getInterfaceWires(data_p))
     watch.extend(py4hw.debug.getInterfaceWires(reg_p))
-    
-    #wvf = py4hw.Waveform(hw, 'wvf', watch)
+    watch.append(timer0_ovf_wire)
+    watch.append(cpu_interrupt_wire)
     
     # Load program into memory
     for i, b in enumerate(words):
         ins_mem.writeWord(i, b)
         
-    #py4hw.gui.Workbench(hw)
-    
     import punxa_atmega328p.interactive_commands as ci
-    
     ci._ci_hw = hw
     ci._ci_cpu = cpu
-
 
     return hw, cpu, ins_mem, mem, symbols
     

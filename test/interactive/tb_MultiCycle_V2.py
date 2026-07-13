@@ -2,6 +2,7 @@ import py4hw
 import punxa_atmega328p as punxa
 from punxa_atmega328p.assembly import assemble_program
 
+
 # -----------------------------------------------------------------------------
 # Test Bench & Simulation Setup
 # -----------------------------------------------------------------------------
@@ -140,28 +141,30 @@ RJMP -1              ; Infinite self-loop
 
 
 
-words, symbols = assemble_program(program_Test)
+words, symbols = assemble_program(program)
 print(f"Assembled {len(words)} instructions")
 print(f"Symbols: {symbols}")
 dw = 8 
 aw = 16
 
 # --- Memory Map Interfaces ---
-# 0x000 - 0x01F   GP Registers r0-r31
+# 0x000 - 0x01F   GP Registers r0-r31  -> now internal to the CPU (self.reg),
+#                 not a memory-mapped component. LD/LDS/ST/STS targeting this
+#                 range are caught and serviced inside the CPU itself instead
+#                 of being routed onto the data bus.
 # 0x0C0 - 0x0C7   USART Registers
 # 0x100 - ...     General SRAM
 data_p = punxa.MemoryInterface(hw, 'data_mem', dw, aw)
 ins_p = punxa.MemoryInterface(hw, 'ins_mem', 16, 14)
 
-reg_p = punxa.MemoryInterface(hw, 'reg_bus', dw, 5)         # 2^5 = 32 registers
 usart_p = punxa.MemoryInterface(hw, 'usart_bus', dw, 3)     # 2^3 = 8 registers
 mem_p = punxa.MemoryInterface(hw, 'ram_bus', dw, 11)        # 2048 bytes
 
 # --- Bind Interfaces to the Data Bus ---
-punxa.MultiplexedBus(hw, 'bus', data_p, [(reg_p, 0x0), (usart_p, 0xC0), (mem_p, 0x100)])
+# No more reg_p entry here - the register file no longer lives on the bus.
+punxa.MultiplexedBus(hw, 'bus', data_p, [(usart_p, 0xC0), (mem_p, 0x100)])
 
 # --- Base Hardware Components ---
-reg = punxa.Ram_Memory(hw, 'reg_mem', dw, 5, reg_p)                 # 32 B
 mem = punxa.Ram_Memory(hw, 'ram_mem', dw, 11, mem_p)                # 2048 B
 ins_mem = punxa.Ram_Memory(hw, 'ins_mem', 16, 14, ins_p)            # 16 k words (16-bit)
 usart = punxa.VirtualUSART(hw, 'usart_block', usart_p)
@@ -174,22 +177,23 @@ reset_wire = py4hw.Wire(hw, 'Reset_Line', 1)
 reset_wire.put(0)
 
 # --- Instantiate Multicycle Processor ---
-
-cpu = punxa.multicycleProcessor(
-    parent=hw, 
-    name='multicycle_cpu', 
-    Interrupt=interrupt_wire, 
-    ins_mem=ins_p, 
-    memory=data_p, 
-    reset=reset_wire, 
-    reset_address=0
+# Register file is internal to the CPU (cpu.reg); LD/ST/LDS/STS instructions
+# whose effective address falls in 0-31 are resolved against it directly by
+# the CPU instead of issuing a bus transaction.
+cpu = punxa.MultyCycleATmega328P_V2(
+    parent=hw,
+    name='multicycle_cpu',
+    ins_mem=ins_p,
+    memory=data_p,
+    reset_address=0,
+    Interrupt=interrupt_wire,
+    reset=reset_wire,
 )
 
 # --- Waveform Debugging ---
 #watch = []
 #watch.extend(py4hw.debug.getInterfaceWires(ins_p))
 #watch.extend(py4hw.debug.getInterfaceWires(data_p))
-#watch.extend(py4hw.debug.getInterfaceWires(reg_p))
 
 #internal CPU wires to the waveform viewer for deeper debug
 #watch.append(cpu.w_instruction)

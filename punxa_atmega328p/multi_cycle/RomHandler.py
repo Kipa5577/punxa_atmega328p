@@ -78,6 +78,15 @@ class RomHandler(py4hw.Logic):
         # instruction.
         self._pc_restore_pending = False
 
+        # LPM byte-address support: Load_Z asserted together with
+        # relative_Absolute=1 means Z is a BYTE address (LPM semantics),
+        # so the PC gets Z>>1 (word address) and Z&1 selects which byte
+        # of the fetched word is exposed on the next FETCH_ADDR_WAIT
+        # completion. Load_Z with relative_Absolute=0 keeps the legacy
+        # word-address semantics used by IJMP/ICALL.
+        self._lpm_byte_pending = False
+        self._lpm_byte_high = 0
+
         self.FSM = 'STOP'           # State machine initial state
         self.latched_addr_word = 0  # Latches the 2nd-word (low bits) fetched
                                      # during FETCH_ADDR_WAIT, for JMP/CALL
@@ -191,7 +200,18 @@ class RomHandler(py4hw.Logic):
                     self._pc_restore_pending = True
 
                     z_val = (self.address_ZH.get() << 8) | self.address_ZL.get()
-                    self.PC = z_val & 0x3FFF
+                    if rel_abs == 1:
+                        # LPM semantics: Z is a BYTE address into program
+                        # memory. The PC (and the ROM) are WORD addressed,
+                        # so the word address is Z>>1, and Z&1 selects the
+                        # low (0) or high (1) byte of the fetched word,
+                        # applied at the next FETCH_ADDR_WAIT completion.
+                        self._lpm_byte_high = z_val & 1
+                        self._lpm_byte_pending = True
+                        self.PC = (z_val >> 1) & 0x3FFF
+                    else:
+                        # IJMP/ICALL semantics: Z is already a WORD address.
+                        self.PC = z_val & 0x3FFF
                     jumped = True
                 elif load_jump == 1:
                     if rel_abs == 1:
@@ -256,6 +276,7 @@ class RomHandler(py4hw.Logic):
                     # Consumed -- clear so a later, unrelated RET/RETI in a
                     # future instruction goes back to using the bus.
                     self._pc_restore_pending = False
+                    self._lpm_byte_pending = False
 
                 self.PC = self.PC & 0x3FFF
                 
@@ -272,6 +293,7 @@ class RomHandler(py4hw.Logic):
                         # restore should not leave _pc_restore_pending
                         # armed for some unrelated later instruction.
                         self._pc_restore_pending = False
+                        self._lpm_byte_pending = False
                         self.FSM = 'FETCH_REQ'
                     elif self.fetch_address.get() == 1:
                         self.FSM = 'FETCH_ADDR_REQ'
@@ -279,6 +301,7 @@ class RomHandler(py4hw.Logic):
                 self.Executed_Jump.prepare(0)
                 if self.Fetch_next_instruction.get() == 1:
                     self._pc_restore_pending = False
+                    self._lpm_byte_pending = False
                     self.FSM = 'FETCH_REQ'
                 elif self.fetch_address.get() == 1:
                     self.FSM = 'FETCH_ADDR_REQ'
@@ -374,14 +397,24 @@ class RomHandler(py4hw.Logic):
                 self.mem.instype.prepare(0)
                 
                 fetched_word = self.mem.read_data.get()
-                
-                self.Address_Out.prepare(fetched_word)
-                self.Value_Out.prepare(fetched_word)
+
+                if self._lpm_byte_pending:
+                    # LPM: expose only the byte selected by Z&1 (0 = low
+                    # byte, 1 = high byte of the 16-bit flash word).
+                    out_val = ((fetched_word >> 8) & 0xFF) if self._lpm_byte_high else (fetched_word & 0xFF)
+                    self._lpm_byte_pending = False
+                    if self.debug:
+                        print(f"[RomHandler] LPM byte select: word={fetched_word:04X} byte_high={self._lpm_byte_high} -> {out_val:02X}")
+                else:
+                    out_val = fetched_word
+
+                self.Address_Out.prepare(out_val)
+                self.Value_Out.prepare(out_val)
                 self.Address_fetched.prepare(1)
                 self.latched_addr_word = fetched_word  # keep for JMP/CALL PC calc
                 
                 if self.debug:
-                    print(f"[RomHandler] Outputs set: Address_Out=[{fetched_word:04X}], Address_fetched=1")
+                    print(f"[RomHandler] Outputs set: Address_Out=[{out_val:04X}], Address_fetched=1")
                 
                 self.PC = (self.PC + 1) & 0x3FFF
                 

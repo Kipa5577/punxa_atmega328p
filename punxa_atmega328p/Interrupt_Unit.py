@@ -194,3 +194,63 @@ class InterruptUnit(py4hw.Logic):
                 
                 self.Interrupt.preapare(1)
 
+
+
+class SimpleInterruptUnit(py4hw.Logic):
+    def __init__(self, parent, name: str, memory: py4hw.Interface, Interrupt, Global_Interrupt_Enable, **kwargs):
+        super().__init__(parent, name)
+
+        self.interface = self.addInterfaceSink('port', memory)
+        self.JUMPto = 0
+        
+        self.I = self.addIn('I', Global_Interrupt_Enable)
+        self.Interrupt = self.addOut('Interrupt', Interrupt)
+
+        self.vector_table = {
+            'INT0':          0x002, 'INT1':          0x004, 'PCINT0':        0x006,
+            'PCINT1':        0x008, 'PCINT2':        0x00A, 'WDT':           0x00C,
+            'TIMER2_COMPA':  0x00E, 'TIMER2_COMPB':  0x010, 'TIMER2_OVF':    0x012,
+            'TIMER1_CAPT':   0x014, 'TIMER1_COMPA':  0x016, 'TIMER1_COMPB':  0x018,
+            'TIMER1_OVF':    0x01A, 'TIMER0_COMPA':  0x01C, 'TIMER0_COMPB':  0x01E,
+            'TIMER0_OVF':    0x020, 'SPI_STC':       0x022, 'USART_RX':      0x024,
+            'USART_UDRE':    0x026, 'USART_TX':      0x028, 'ADC':           0x02A,
+            'EE_READY':      0x02C, 'ANALOG_COMP':   0x02E, 'TWI':           0x030,
+            'SPM_READY':     0x032
+        }
+
+        self.active_interrupts = {}
+        for name, vector_address in self.vector_table.items():
+            wire = kwargs.get(name, None)
+            if wire is not None:
+                self.active_interrupts[name] = {'port': self.addIn(name, wire), 'vector': vector_address}
+
+    def clock(self):
+        # 1. Handle Incoming Interrupt Signals
+        interrupt_triggered = False
+        
+        if self.I.get() == 1:
+            for name, config in self.active_interrupts.items():
+                if config['port'].get() == 1:
+                    self.JUMPto = config['vector']
+                    self.Interrupt.prepare(1)  
+                    interrupt_triggered = True
+                    break
+
+        if not interrupt_triggered:
+            self.Interrupt.prepare(0)
+
+        # 2. Handle Memory Bus
+        bus_active = (self.interface.read.get() == 1) or (self.interface.write.get() == 1)
+        if bus_active:
+            self.interface.resp.prepare(1) # Prevent CPU hanging
+        else:
+            self.interface.resp.prepare(0)
+
+        self.interface.read_data.prepare(0) # Default output
+        
+        if self.interface.read.get() == 1:
+            relative_addr = self.interface.address.get()
+            if relative_addr == 0x00:
+                self.interface.read_data.prepare(self.JUMPto & 0xFF)
+            elif relative_addr == 0x01:
+                self.interface.read_data.prepare((self.JUMPto >> 8) & 0xFF)

@@ -93,6 +93,44 @@ class MemoryInterfaceHandler(py4hw.Logic):
     INC_POST_DEC = 3  
     INC_PRE_INC = 4   
 
+    # ----------------------------------------------------------
+    # Addresses owned by a REAL peripheral model (data-space addresses,
+    # i.e. already +0x20 from the IN/OUT 6-bit I/O address, same as
+    # everything selectAddress() produces).
+    #
+    # Any address in this set must NOT be swallowed by the generic
+    # io_scratch fallback below -- it has to be forwarded to self.mem so
+    # the actual peripheral component (VirtualGPIO, VirtualUSART, ...)
+    # sitting on the bus gets a chance to see the transaction and drive
+    # mem.resp / mem.read_data itself.
+    #
+    # When you wire up a new peripheral with real behavior, add its
+    # register addresses here -- otherwise they'll keep landing in
+    # io_scratch as inert scratch cells and the peripheral's clock()
+    # will never fire.
+    # ----------------------------------------------------------
+    GPIO_ADDRS = {
+        0x23, 0x24, 0x25,   # PINB,  DDRB,  PORTB
+        0x26, 0x27, 0x28,   # PINC,  DDRC,  PORTC
+        0x3A,               # GPIOR1 (0x1A + 0x20)
+        0x3E,               # GPIOR0 (0x1E + 0x20)
+    }
+
+    # USART0 registers -- standard ATmega328P extended I/O addresses.
+    # NOTE: these must match whatever UCSRA_REG/UCSRB_REG/... are actually
+    # defined as wherever VirtualUSART's constants live. Adjust if those
+    # differ in your build.
+    USART_ADDRS = {
+        0xC0,   # UCSR0A
+        0xC1,   # UCSR0B
+        0xC2,   # UCSR0C
+        0xC4,   # UBRR0L
+        0xC5,   # UBRR0H
+        0xC6,   # UDR0
+    }
+
+    PERIPHERAL_ADDRS = GPIO_ADDRS | USART_ADDRS
+
 
     def __init__(self, parent, name: str,
             reset, WE, LoadSelectMux, LoadingMux, IncDec, ReadWrite, InputSelectMemory, 
@@ -195,7 +233,7 @@ class MemoryInterfaceHandler(py4hw.Logic):
 
         self.BusData = 0
         self.Databuffer = 0
-        self.debug = 0
+        self.debug = 1
 
     # ==========================================================
     # Helpers
@@ -260,15 +298,16 @@ class MemoryInterfaceHandler(py4hw.Logic):
             pointer_name = None
 
         elif mem_instr == self.MEM_Y_Q:
-            q_val = self.Q.get()
-            if q_val & 0x20:
-                q_val -= 0x40
+            # q is an UNSIGNED 6-bit displacement (0-63) per the AVR ISA --
+            # LDD/STD Y+q has no negative-offset form. Do NOT sign-extend
+            # bit 5; that previously turned q=63 into -1, sending the
+            # effective address to Y-1 instead of Y+63.
+            q_val = self.Q.get() & 0x3F
             base_address = self.getY() + q_val
 
         elif mem_instr == self.MEM_Z_Q:
-            q_val = self.Q.get()
-            if q_val & 0x20:
-                q_val -= 0x40
+            # See MEM_Y_Q above -- same fix applies to Z+q.
+            q_val = self.Q.get() & 0x3F
             base_address = self.getZ() + q_val
 
         elif mem_instr == self.MEM_RD_1:
@@ -299,7 +338,7 @@ class MemoryInterfaceHandler(py4hw.Logic):
                 base_address += 1
 
         if self.debug:
-            print(f"{pointer_name}Address:[{base_address}]")
+            print(f"MIH_ADDR | MemInstr:{mem_instr:2} Rd_in:{self.Rd.get():2} Rr_in:{self.Rr.get():2} -> Addr:{base_address:2} ({pointer_name})")
         return base_address & 0xFFFF, pointer_name
 
     # ==========================================================
@@ -477,7 +516,7 @@ class MemoryInterfaceHandler(py4hw.Logic):
                 if self.debug:
                     print(f"Intercepted WRITE to SREG: {self.SREG:02X}")
 
-            elif 0x0020 <= address < 0x0100:
+            elif 0x0020 <= address < 0x0100 and address not in self.PERIPHERAL_ADDRS:
                 # Any other memory-mapped I/O / extended I/O register with
                 # no dedicated hardware model yet (EIMSK, EICRA, SMCR, ...).
                 # Real SRAM starts at 0x0100, so anything below that is
@@ -491,6 +530,10 @@ class MemoryInterfaceHandler(py4hw.Logic):
                     print(f"Intercepted WRITE to I/O[{address:02X}]: {self.BusData:02X}")
 
             else:
+                # Either normal SRAM (>= 0x0100) OR an address owned by a
+                # real peripheral (VirtualGPIO, VirtualUSART, ...) -- both
+                # cases forward the transaction onto the actual bus so the
+                # device sitting there can see and respond to it.
                 # Normal SRAM Write
                 self.mem.write_data.prepare(self.BusData)
                 self.mem.write.prepare(1)
@@ -522,7 +565,7 @@ class MemoryInterfaceHandler(py4hw.Logic):
                 if self.debug:
                     print(f"Intercepted READ from SREG: {self.SREG:02X}")
 
-            elif 0x0020 <= address < 0x0100:
+            elif 0x0020 <= address < 0x0100 and address not in self.PERIPHERAL_ADDRS:
                 # See matching WRITE branch above. Unwritten registers
                 # default to 0 rather than raising, since real hardware
                 # reset state for these is 0 anyway.
@@ -533,7 +576,9 @@ class MemoryInterfaceHandler(py4hw.Logic):
                     print(f"Intercepted READ from I/O[{address:02X}]: {self.BusData:02X}")
 
             else:
-                # Normal SRAM Read
+                # Normal SRAM Read, or a read from a real peripheral
+                # (VirtualGPIO, VirtualUSART, ...) -- forward onto the bus
+                # so the device can drive read_data/resp itself.
                 self.BusData = self.mem.read_data.get()
                 self.mem.read.prepare(1)
                 resp_val = self.mem.resp.get()
@@ -547,7 +592,8 @@ class MemoryInterfaceHandler(py4hw.Logic):
             
         self.Resp.prepare(resp_val)
         self.RegisterOut.prepare(self.BusData)
-
+        if self.debug:
+            print(f"MIH_XFER | Addr:{address:02X} RW:{rw} BusData:{self.BusData:02X} Resp:{resp_val}")
         self.address_ZL.prepare(self.ZregL)
         self.address_ZH.prepare(self.ZregH)
         self.MIH_PCL_LOAD_VAL.prepare(self.BusData)

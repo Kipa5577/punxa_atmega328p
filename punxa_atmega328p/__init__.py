@@ -9,6 +9,9 @@ from .USART import *
 from .GPIO import *
 from .single_cycle.singlecycle_processor import *
 from .multi_cycle.MulticycleProcessor import *
+from .multi_cycle_V2.Multicycle_processor import * 
+from .Timers import * 
+from .Interrupt_Unit import *
 
 
 #from punxa_atmega328p import ADC

@@ -30,7 +30,7 @@ SREG_REG =  0x5F
 
 
 class SingleCycleATmega328P(py4hw.Logic):
-    def __init__(self,parent, name:str , ins_mem:MemoryInterface, memory:MemoryInterface, reset_address):
+    def __init__(self,parent, name:str , ins_mem:MemoryInterface, memory:MemoryInterface, reset_address, interrupt, interrupt_enable):
         #INT0,INT1,PCINT0,PCINT1,PCINT2,WDT,TIMER2_COMPA,TIMER2_COMPB,TIMER2_OVF,TIMER1_CAPT,TIMER1_COMPA,TIMER1_COMPB,TIMER1_OVF,TIMER0_COMPA,TIMER0_COMPB,TIMER0_OVF,SPI_STC,USART_RX,USART_UDRE,USART_TX,ADC,EE_READY,ANALOG_COMP,TWI,SPM_READY):
         super().__init__(parent,name)
 
@@ -39,6 +39,9 @@ class SingleCycleATmega328P(py4hw.Logic):
         
         self.ins_mem = self.addInterfaceSource('ins', ins_mem)
         self.mem = self.addInterfaceSource('data', memory)
+
+        self.interrupt = self.addIn('INTERRUPT', interrupt)
+        self.interrupt_enable = self.addOut('INTERRUT_EN',interrupt_enable)
         
         self.pc = reset_address # Reset address is a property of the processor. In Atmega328p it is stored in non-volatile memory and can be configured by JTAG
         
@@ -115,6 +118,26 @@ class SingleCycleATmega328P(py4hw.Logic):
         yield
         
         while (True):
+            self.interrupt_enable.put(self.I)
+            # Handle Interrupts
+            if self.interrupt.get() == 1 and self.I == 1:
+                print(f"Interrupt Triggered!")
+                self.I = 0
+                jmpADDlow = yield from self.readByte(0xFE)
+                jmpADDHigh = yield from self.readByte(0xFF)
+                jmpto = jmpADDlow | (jmpADDHigh<<8)
+                ra = self.pc
+
+                yield from self.writeByte(self.SP, (ra >> 8) & 0xFF)
+                self.SP = (self.SP - 1) & 0xFFFF
+
+                yield from self.writeByte(self.SP, ra & 0xFF)
+                self.SP = (self.SP - 1) & 0xFFFF
+
+                self.pc = jmpto
+
+                
+
             yield from self.fetchIns()
             yield from self.execute()
         
