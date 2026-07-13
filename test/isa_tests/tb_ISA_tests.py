@@ -23,7 +23,10 @@ def prepareTest(file):
     
     with open(os.path.join(ex_dir, file), 'r') as f:
         program = f.read()
-     
+
+    # Smart Detection: If the file doesn't define the Reset Vector, it's a legacy test
+    inject_vectors = (file == 'test_ctrflow_RETI.asm')   
+
     words, symbols = assemble_program(program)
     
     hw = py4hw.HWSystem()

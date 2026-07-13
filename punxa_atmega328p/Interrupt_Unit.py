@@ -246,11 +246,13 @@ class SimpleInterruptUnit(py4hw.Logic):
         else:
             self.interface.resp.prepare(0)
 
-        self.interface.read_data.prepare(0) # Default output
-        
         if self.interface.read.get() == 1:
             relative_addr = self.interface.address.get()
             if relative_addr == 0x00:
                 self.interface.read_data.prepare(self.JUMPto & 0xFF)
             elif relative_addr == 0x01:
                 self.interface.read_data.prepare((self.JUMPto >> 8) & 0xFF)
+            else:
+                self.interface.read_data.prepare(0)
+        else:
+            self.interface.read_data.prepare(0)

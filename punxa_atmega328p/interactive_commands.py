@@ -45,9 +45,15 @@ def step(steps = 1):
         
         cur_instret = _ci_cpu.getCSR(CSR_INSTRET)
         if (cur_instret == last_instret):
-            count += 1
-            if (count > 100):
-                raise Exception('Too many cycles waiting to complete instruction')
+            if (getattr(_ci_cpu, 'sleeping', False)):
+                # CPU is legitimately halted in SLEEP waiting for an
+                # interrupt - this isn't a stuck instruction, so don't
+                # count it against the stall watchdog.
+                count = 0
+            else:
+                count += 1
+                if (count > 100):
+                    raise Exception('Too many cycles waiting to complete instruction')
         else:
             last_instret = cur_instret
             count = 0

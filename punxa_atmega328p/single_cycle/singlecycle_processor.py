@@ -105,6 +105,7 @@ class SingleCycleATmega328P(py4hw.Logic):
         self.csr[CSR_CYCLE] = 0
         
         self.skip = False  # Skip flag to support skip instructions
+        self.sleeping = False  # Set by SLEEP; cleared when an interrupt wakes the CPU
         
         self.co = self.run()
 
@@ -119,8 +120,11 @@ class SingleCycleATmega328P(py4hw.Logic):
         
         while (True):
             self.interrupt_enable.put(self.I)
-            # Handle Interrupts
+            # Handle Interrupts (also wakes the CPU up if it is SLEEPing)
             if self.interrupt.get() == 1 and self.I == 1:
+                if self.sleeping:
+                    print("CPU woken from SLEEP by interrupt")
+                    self.sleeping = False
                 print(f"Interrupt Triggered!")
                 self.I = 0
                 jmpADDlow = yield from self.readByte(0xFE)
@@ -136,7 +140,11 @@ class SingleCycleATmega328P(py4hw.Logic):
 
                 self.pc = jmpto
 
-                
+            if self.sleeping:
+                # CPU is halted: don't fetch/execute anything new, just idle
+                # the clock until an interrupt (handled above) wakes it up.
+                yield
+                continue
 
             yield from self.fetchIns()
             yield from self.execute()
@@ -1505,6 +1513,8 @@ class SingleCycleATmega328P(py4hw.Logic):
                     v = self.SP & 0xFF
                 elif add == SREG_REG:
                     v, _ = self.getSREG()
+                elif add == self.SPMCSR_addr_LS:
+                    v = self.SPMCSR
                 else:
                     v = yield from self.readByte(add)
 
@@ -1536,6 +1546,9 @@ class SingleCycleATmega328P(py4hw.Logic):
                     self.Z = (v >> 1) & 1
                     self.C = v & 1
                     yield from self.writeByte(add, v)
+
+                elif add == self.SPMCSR_addr_LS:
+                    self.SPMCSR = v
 
                 else:
                     yield from self.writeByte(add, v)
@@ -1573,6 +1586,7 @@ class SingleCycleATmega328P(py4hw.Logic):
                 print('NOP')
                 
             case 'SLEEP':
+                self.sleeping = True
                 print('SLEEP')
             case 'WDR' :
                 ## Watchdog Reset

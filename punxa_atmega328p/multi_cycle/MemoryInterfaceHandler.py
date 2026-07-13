@@ -594,14 +594,21 @@ class MemoryInterfaceHandler(py4hw.Logic):
         self.RegisterOut.prepare(self.BusData)
         if self.debug:
             print(f"MIH_XFER | Addr:{address:02X} RW:{rw} BusData:{self.BusData:02X} Resp:{resp_val}")
-        self.address_ZL.prepare(self.ZregL)
-        self.address_ZH.prepare(self.ZregH)
-        self.MIH_PCL_LOAD_VAL.prepare(self.BusData)
-        self.MIH_PCH_LOAD_VAL.prepare(self.BusData)
-
         # ----------------------------------------------
         # 3. Register loading
         # ----------------------------------------------
+        # FIX: This block must run BEFORE address_ZL/address_ZH are
+        # prepared (below). Previously the prepare() calls ran first and
+        # pushed out the *pre-write* ZregL/ZregH, then this block updated
+        # self.ZregL/self.ZregH afterwards. That meant any consumer
+        # reading address_ZH the very same cycle a LOAD_ZH write happened
+        # (e.g. LPM_FSM pulsing LoadMux=LOAD_ZH the cycle before it
+        # asserts Load_Z to RomHandler) saw a stale, one-cycle-old Z
+        # value -- RomHandler would then compute the jump-to-Z target
+        # from the wrong Z (e.g. jumping to PC 0x0000 instead of the
+        # freshly-loaded 0x0200). Running the write first means the
+        # output wires reflect this cycle's write immediately, matching
+        # the internal state used to build the MIH_STATE debug line.
         if self.WE.get():
             load_sel = self.LoadingMux.get()
             data = self.BusData & 0xFF
@@ -644,6 +651,11 @@ class MemoryInterfaceHandler(py4hw.Logic):
             if target_name:
                 if self.debug:
                     print(f"{target_name}_Loaded:[{data}]")
+
+        self.address_ZL.prepare(self.ZregL)
+        self.address_ZH.prepare(self.ZregH)
+        self.MIH_PCL_LOAD_VAL.prepare(self.BusData)
+        self.MIH_PCH_LOAD_VAL.prepare(self.BusData)
 
         # ----------------------------------------------
         # 4. Pointer update

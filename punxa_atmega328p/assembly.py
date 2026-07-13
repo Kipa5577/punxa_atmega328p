@@ -997,7 +997,23 @@ def get_line_tokens(line):
     tokens = list(tokenize.generate_tokens(stream.readline))
     return [tok.string for tok in tokens if tok.type == 1]
 
-def assemble_program(program, debug=False):
+def assemble_program(program, debug=False, inject_vector_table=False):
+    # ---  VECTOR TABLE INJECTION LOGIC ---
+    if inject_vector_table:
+        # 1. Put a jump at the reset vector (0x0000) pointing to our code
+        vec_table = ".org 0x0000\nRJMP __auto_main\n"
+        
+        # 2. Fill all potential interrupt vectors (0x0001 - 0x0032) with RETI
+        # This acts as a safety net. If an old test triggers a stray interrupt, 
+        # it will immediately return instead of crashing the CPU.
+        for i in range(1, 0x33):
+            vec_table += f".org 0x{i:04X}\nRETI\n"
+            
+        # 3. Start the actual legacy program safely after the table
+        vec_table += ".org 0x0033\n__auto_main:\n"
+        
+        program = vec_table + program
+        
     ret = []
     labels = []
     lines = []
@@ -1104,8 +1120,23 @@ def assemble_program(program, debug=False):
         if (line[-1] == ':'):
             continue
             
+# ==================== Second pass: generate code with merged data ====================
+    output_words = {}  # word_address -> word_value
+    word_off = 0
+    
+    for line in lines:
+        if (line[-1] == ':'):
+            continue
+            
         if (line[0] == '.'):
-            continue  # Skip directives in second pass
+            # FIXED: We must respect .org in the second pass so instructions 
+            # are placed at the correct vector addresses!
+            line_lower = line.lower()
+            if line_lower.startswith('.org'):
+                parts = line.split()
+                if len(parts) > 1:
+                    word_off = get_int(parts[1])
+            continue  # Skip other directives in second pass
         
         # Insert any .db/.dw words that should come BEFORE this instruction
         while word_off in flash_image and word_off not in output_words:

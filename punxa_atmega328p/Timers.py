@@ -1930,10 +1930,10 @@ class TimerCounter1(py4hw.Logic): #16 Bit timer
 class SimpleTimer(py4hw.Logic):
     def __init__(self, parent, name: str, memory: py4hw.Interface, TIMER0_OVF):
         super().__init__(parent, name)
-
+ 
         self.interface = self.addInterfaceSink('port', memory)
         self.TIMER0_OVF = self.addOut('TIMER0_OVF', TIMER0_OVF)
-
+ 
         self.tccr0a = 0x00
         self.tccr0b = 0x00
         self.tcnt0  = 0x00
@@ -1941,16 +1941,16 @@ class SimpleTimer(py4hw.Logic):
         self.tifr0  = 0x00  # ADDED: Timer Interrupt Flag Register
         
         self.prescaler_counter = 0
-
+ 
     def clock(self):
         bus_active = (self.interface.read.get() == 1) or (self.interface.write.get() == 1)
         if bus_active:
             self.interface.resp.prepare(1)
         else:
             self.interface.resp.prepare(0)
-
+ 
         self.interface.read_data.prepare(0)
-
+ 
         # Handle Bus WRITE
         if self.interface.write.get() == 1:
             addr = self.interface.address.get()
@@ -1963,8 +1963,8 @@ class SimpleTimer(py4hw.Logic):
                 # Real AVR behavior: Writing a 1 to the flag bit clears it
                 if (data & 0x01):
                     self.tifr0 &= ~0x01
-            elif addr == 0x4E: self.timsk0 = data & 0xFF
-
+            elif addr == 0x2E: self.timsk0 = data & 0xFF
+ 
         # Handle Bus READ
         elif self.interface.read.get() == 1:
             addr = self.interface.address.get()
@@ -1973,8 +1973,8 @@ class SimpleTimer(py4hw.Logic):
             elif addr == 0x05: self.interface.read_data.prepare(self.tccr0b)
             elif addr == 0x06: self.interface.read_data.prepare(self.tcnt0)
             elif addr == 0x07: self.interface.read_data.prepare(self.tifr0)
-            elif addr == 0x4E: self.interface.read_data.prepare(self.timsk0)
-
+            elif addr == 0x2E: self.interface.read_data.prepare(self.timsk0)
+ 
         # Timer Counting & Prescaler Logic
         cs_bits = self.tccr0b & 0x07
         prescaler_limit = 0
@@ -1995,7 +1995,7 @@ class SimpleTimer(py4hw.Logic):
                     self.tifr0 |= 0x01  # LATCH THE OVERFLOW FLAG
                 else:
                     self.tcnt0 += 1
-
+ 
         # Assert wire as long as flag is latched and interrupts are enabled
         if (self.timsk0 & 0x01) and (self.tifr0 & 0x01):
             self.TIMER0_OVF.prepare(1)

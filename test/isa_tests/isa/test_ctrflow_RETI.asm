@@ -6,14 +6,16 @@
 ; Memory Mapped Registers for Timer0 (Absolute Addresses on Bus)
 .equ TCCR0B = 0x45
 .equ TCNT0  = 0x46
-.equ TIMSK0 = 0x8E
+.equ TIMSK0 = 0x6E
 .equ TIFR0 = 0x47
 ; Standard Constants
 .equ test_case = 0x0100
 .equ final_result = 0x0101
 .equ isr_flag = 0x0102       ; Flag to tell main loop the ISR fired
+.equ captured_sreg = 0x0103  ; Snapshot of SREG taken at ISR entry, checked via memory (not live flags)
 .equ stack_start = 0x08FF
 .equ SREG_ADDR = 0x5F
+.equ SREG_IO   = 0x3F   ; I/O address of SREG, for use with IN/OUT (SREG_ADDR is the memory address)
 .equ SPH = 0x3E
 .equ SPL = 0x3D
 
@@ -185,12 +187,16 @@ wait4:
     brne wait4
 
     ; Verify flags were untouched by the jump/return sequence[cite: 1]
-    brcc test4_fail      ; C should be 1[cite: 1]
-    brne test4_fail      ; Z should be 1[cite: 1]
-    brpl test4_fail      ; N should be 1[cite: 1]
-    brvc test4_fail      ; V should be 1[cite: 1]
-    brhc test4_fail      ; H should be 1[cite: 1]
-    brtc test4_fail      ; T should be 1[cite: 1]
+    ; NOTE: we can't check live SREG here - the CPI above (needed to detect
+    ; isr_flag==1 and exit the loop) is the very next instruction executed
+    ; after RETI, and it unavoidably overwrites C/Z/N/V/H itself. Instead,
+    ; the ISR snapshots SREG to memory at entry (before it does anything
+    ; flag-affecting), and we check that snapshot here.
+    ; Expected: C=1,Z=1,N=1,V=1,H=1,T=1,I=0(auto-cleared on interrupt entry)
+    ; -> 0b01101111 = 0x6F
+    lds r16, captured_sreg
+    cpi r16, 0x6F
+    brne test4_fail
 
     cli
     ldi r16, 0
@@ -206,6 +212,10 @@ test4_fail:
 ; ============================================================
 timer0_isr_dispatcher:
     push r27
+    push r16
+    in   r16, SREG_IO      ; save SREG before we touch any flags
+    sts  captured_sreg, r16 ; snapshot for test4's memory-based check (sts doesn't affect flags)
+
     lds r27, test_case
 
     cpi r27, 1
@@ -218,6 +228,14 @@ timer0_isr_dispatcher:
     breq isr_general
 
 isr_general:
+    ; Stop the timer immediately so TCNT0 can't silently wrap around and
+    ; re-fire TOV0 before the main code gets a chance to consume this
+    ; interrupt's result (TCNT0 keeps free-running otherwise, and a longer
+    ; ISR body makes a spurious re-trigger within one 256-cycle period real).
+    push r27
+    ldi r27, 0
+    sts TCCR0B, r27
+
     ; Flag that the ISR executed successfully
     ldi r27, 1
     sts isr_flag, r27
@@ -226,7 +244,10 @@ isr_general:
     ; This explicitly drops the interrupt wire so it doesn't refire instantly
     ldi r27, 1
     sts TIFR0, r27 
-    
+    pop r27
+
+    out  SREG_IO, r16      ; restore SREG exactly as it was at interrupt time
+    pop r16
     pop r27
     reti
 
