@@ -7,19 +7,19 @@ class AU(py4hw.Logic):
         super().__init__(parent, name)
 
         # Inputs
-        self.Cval = self.addIn('Cval', Cval)
-        self.RegAL = self.addIn('RegAL', RegAL)
-        self.RegAH = self.addIn('RegAH', RegAH)
-        self.RegBL = self.addIn('RegBL', RegBL)
-        self.RegBH = self.addIn('RegBH', RegBH)
-        self.Operation = self.addIn('Operation', Operation)
+        self.Cval = self.addIn('C', Cval)
+        self.RegAL = self.addIn('AL', RegAL)
+        self.RegAH = self.addIn('AH', RegAH)
+        self.RegBL = self.addIn('BL', RegBL)
+        self.RegBH = self.addIn('BH', RegBH)
+        self.Operation = self.addIn('op', Operation)
         # 3-bit index (0-7): which bit SBI/CBI target within RegAL. Every
         # other opcode ignores this input.
         self.BitPos = self.addIn('BitPos', BitPos)
 
         # Outputs 
-        self.ResL = self.addOut('ResL', ResL)
-        self.ResH = self.addOut('ResH', ResH)
+        self.ResL = self.addOut('RL', ResL)
+        self.ResH = self.addOut('RH', ResH)
 
     def propagate(self): 
         # Retrieve current values from pins
