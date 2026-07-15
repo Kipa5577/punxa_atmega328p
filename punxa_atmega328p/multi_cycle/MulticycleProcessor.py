@@ -17,11 +17,10 @@ class multicycleProcessor(py4hw.Logic):
         # -------------------------
         # External inputs / outputs
         # -------------------------
-        
-        self.reset = self.addIn('reset', reset)
-        self.Interrupt = self.addIn('interrupt', Interrupt)
-        self.ins_mem = self.addInterfaceSource('ins_mem', ins_mem)
-        self.memory = self.addInterfaceSource('memory', memory)
+        self.addIn('reset', reset)
+        self.addIn('interrupt', Interrupt)
+        self.addInterfaceSource('ins_mem', ins_mem)
+        self.addInterfaceSource('memory', memory)
 
         #RH = RomHandler
         #ID =  InstructionDecoder
@@ -33,290 +32,287 @@ class multicycleProcessor(py4hw.Logic):
         # -------------------------
         # Shared wires
         # -------------------------
-        self.W_Instruction_RH_ID = py4hw.Wire(self, 'W_Instruction_RH_ID', 16)
-        self.W_Resp_MIH_CB = py4hw.Wire(self, 'W_Resp_MIH', 1)
-        self.W_Branch_ALU_CB = py4hw.Wire(self, 'W_Branch_ALU_CB', 1)
-        self.W_Skip_ALU_CB = py4hw.Wire(self, 'W_Skip_ALU_CB', 1)
+        W_Instruction_RH_ID = self.wire('W_Instruction_RH_ID', 16)
+        W_Resp_MIH_CB = self.wire( 'W_Resp_MIH', 1)
+        W_Branch_ALU_CB = self.wire('W_Branch_ALU_CB', 1)
+        W_Skip_ALU_CB = self.wire( 'W_Skip_ALU_CB', 1)
 
         # Decoder outputs
-        self.W_CODE_ID_CB = py4hw.Wire(self, 'W_CODE_ID_CB', 16)
-        self.W_RD_ID_MIH = py4hw.Wire(self, 'W_RD_ID_MIH', 5)
-        self.W_RR_ID_MIH = py4hw.Wire(self, 'W_RR_ID_MIH', 5)
-        self.W_K8_ID_OB = py4hw.Wire(self,'W_K8_ID_OB',8)
+        W_CODE_ID_CB = self.wire( 'W_CODE_ID_CB', 16)
+        W_RD_ID_MIH = self.wire( 'W_RD_ID_MIH', 5)
+        W_RR_ID_MIH = self.wire( 'W_RR_ID_MIH', 5)
+        W_K8_ID_OB = self.wire('W_K8_ID_OB',8)
         #self.W_K7_ID_MIH = py4hw.Wire(self,'W_K7_ID_MIH',7)
-        self.W_K6_ID_OB =  py4hw.Wire(self,'W_K6_ID_OB',6)
-        self.W_K4_ID_ = py4hw.Wire(self,'W_K4_ID_',4)
-        self.W_k7_ID_RH = py4hw.Wire(self, 'W_k7_ID_RH', 7)
-        self.W_k12_ID_RH = py4hw.Wire(self,'W_k12_ID_RH',12)
-        self.W_k7_22_ID_RH = py4hw.Wire(self,'W_k7_22_ID_RH',7)
-        self.W_b_ID_ALU = py4hw.Wire(self, 'W_b_ID_RH', 3)
-        self.W_s_ID_ALU = py4hw.Wire(self,'W_s_ID_MIH',3)
-        self.W_A5_ID_MIH = py4hw.Wire(self,'W_A5_ID_MIH',5)
-        self.W_A6_ID_MIH = py4hw.Wire(self,'W_A6_ID_MIH',6)
-        self.W_q6_ID_MIH = py4hw.Wire(self, 'W_q6_ID_MIH', 6)
-        self.W_Instruction_decoded_ID_CB = py4hw.Wire(self,'W_Instruction_decoded_ID_CB',1)
+        W_K6_ID_OB =  self.wire('W_K6_ID_OB',6)
+        W_K4_ID_ = self.wire('W_K4_ID_',4)
+        W_k7_ID_RH = py4hw.Wire(self, 'W_k7_ID_RH', 7)
+        W_k12_ID_RH = py4hw.Wire(self,'W_k12_ID_RH',12)
+        W_k7_22_ID_RH = py4hw.Wire(self,'W_k7_22_ID_RH',7)
+        W_b_ID_ALU = py4hw.Wire(self, 'W_b_ID_RH', 3)
+        W_s_ID_ALU = py4hw.Wire(self,'W_s_ID_MIH',3)
+        W_A5_ID_MIH = py4hw.Wire(self,'W_A5_ID_MIH',5)
+        W_A6_ID_MIH = py4hw.Wire(self,'W_A6_ID_MIH',6)
+        W_q6_ID_MIH = py4hw.Wire(self, 'W_q6_ID_MIH', 6)
+        W_Instruction_decoded_ID_CB = py4hw.Wire(self,'W_Instruction_decoded_ID_CB',1)
         #self.W_address_xyz = py4hw.Wire(self, 'W_address_xyz', 16)
 
         # ALU / SREG
-        self.W_ImputRegA0_OB_ALU = py4hw.Wire(self, 'W_ImputRegA0_OB_ALU', 8)
-        self.W_ImputRegA1_OB_ALU = py4hw.Wire(self, 'W_ImputRegA1_OB_ALU', 8)
-        self.W_ImputRegB0_OB_ALU = py4hw.Wire(self, 'W_ImputRegB0_OB_ALU', 8)
-        self.W_ImputRegB1_OB_ALU = py4hw.Wire(self, 'W_ImputRegB1_OB_ALU', 8)
-        self.W_OUTPUTByte0_ALU_MIH = py4hw.Wire(self, 'W_OUTPUTByte0_ALU_MIH', 8)
-        self.W_OUTPUTByte1_ALU_MIH = py4hw.Wire(self, 'W_OUTPUTByte1_ALU_MIH', 8)
-        self.W_SREG_SL_ALU = py4hw.Wire(self, 'W_SREG_SL_ALU', 8)
-        self.W_eSREG_ALU_SL = py4hw.Wire(self, 'W_eSREG_ALU_SL', 8)
-        self.W_SREG_ALU_SL = py4hw.Wire(self, 'W_SREG_ALU_SL', 8)
+        W_ImputRegA0_OB_ALU = py4hw.Wire(self, 'W_ImputRegA0_OB_ALU', 8)
+        W_ImputRegA1_OB_ALU = py4hw.Wire(self, 'W_ImputRegA1_OB_ALU', 8)
+        W_ImputRegB0_OB_ALU = py4hw.Wire(self, 'W_ImputRegB0_OB_ALU', 8)
+        W_ImputRegB1_OB_ALU = py4hw.Wire(self, 'W_ImputRegB1_OB_ALU', 8)
+        W_OUTPUTByte0_ALU_MIH = py4hw.Wire(self, 'W_OUTPUTByte0_ALU_MIH', 8)
+        W_OUTPUTByte1_ALU_MIH = py4hw.Wire(self, 'W_OUTPUTByte1_ALU_MIH', 8)
+        W_SREG_SL_ALU = py4hw.Wire(self, 'W_SREG_SL_ALU', 8)
+        W_eSREG_ALU_SL = py4hw.Wire(self, 'W_eSREG_ALU_SL', 8)
+        W_SREG_ALU_SL = py4hw.Wire(self, 'W_SREG_ALU_SL', 8)
 
         # Operand buffer interface
-        self.W_DataInput_MIH_OB = py4hw.Wire(self, 'W_DataInput_MIH_OB', 8)
-        self.W_BufferWe_CB_OB = py4hw.Wire(self, 'W_BufferWe_CB_OB', 4)  # 1=A0, 2=A1, 3=B0, 4=B1 ,5=IOBuffer
-        self.W_IOBuffer_MIH_OB = py4hw.Wire(self, 'W_IOBuffer_MIH_OB',8)
-        self.W_Input_Select_CB_OB =  py4hw.Wire(self,'W_Input_Select_CB_OB',1)
+        W_DataInput_MIH_OB = py4hw.Wire(self, 'W_DataInput_MIH_OB', 8)
+        W_BufferWe_CB_OB = py4hw.Wire(self, 'W_BufferWe_CB_OB', 4)  # 1=A0, 2=A1, 3=B0, 4=B1 ,5=IOBuffer
+        W_IOBuffer_MIH_OB = py4hw.Wire(self, 'W_IOBuffer_MIH_OB',8)
+        W_Input_Select_CB_OB =  py4hw.Wire(self,'W_Input_Select_CB_OB',1)
 
 
         # ControlBox wires
-        self.W_NotExecute_CB_MIH = py4hw.Wire(self, 'NotExecute', 1)
-        self.W_LoadSelect_MUX_CB_MIH = py4hw.Wire(self, 'W_LoadSelect_MUX', 3)
-        self.W_Loading_MUX_CB_MIH = py4hw.Wire(self, 'W_Loading_MUX', 5)
-        self.W_Input_Select_CB_MIH = py4hw.Wire(self, 'W_Input_Select', 5)
-        self.W_WE_OpBuf_CB_MIH = py4hw.Wire(self, 'W_WE_OpBuf_CB_MIH', 6)
-        self.W_read_write = py4hw.Wire(self, 'W_read_write', 2)
+        W_NotExecute_CB_MIH = py4hw.Wire(self, 'NotExecute', 1)
+        W_LoadSelect_MUX_CB_MIH = py4hw.Wire(self, 'W_LoadSelect_MUX', 3)
+        W_Loading_MUX_CB_MIH = py4hw.Wire(self, 'W_Loading_MUX', 5)
+        W_Input_Select_CB_MIH = py4hw.Wire(self, 'W_Input_Select', 5)
+        W_WE_OpBuf_CB_MIH = py4hw.Wire(self, 'W_WE_OpBuf_CB_MIH', 6)
+        W_read_write = py4hw.Wire(self, 'W_read_write', 2)
         #self.W_Mem_instruction = py4hw.Wire(self, 'W_Mem_instruction', 3)
-        self.W_LOAD_Z_CB_RH = py4hw.Wire(self, 'W_LOAD_Z', 1)
-        self.W_LOAD_K_CB_RH = py4hw.Wire(self, 'W_LOAD_K', 1)
-        self.W_LOAD_JUMP_CB_RH = py4hw.Wire(self, 'W_LOAD_JUMP', 1)
-        self.W_Relative_Absolute_CB_RH = py4hw.Wire(self, 'W_Relative_Absolute', 1)
-        self.W_Load_byte_CB = py4hw.Wire(self, 'w_load_byte', 1)
-        self.W_LoadL_CB_ = py4hw.Wire(self,'W_LoadL',1)
-        self.W_LoadH_CB_ = py4hw.Wire(self,'W_LoadH',1)
-        self.W_JumpWidth_CB_RH = py4hw.Wire(self,'W_JumpWidth',1)
-        self.W_LOAD_PCL_CB_RH = py4hw.Wire(self,'W_LOAD_PCL_CB_RH',1)
-        self.W_LOAD_PCH_CB_RH = py4hw.Wire(self,'W_LOAD_PCH_CB_RH',1)
-        self.W_Instruction_fetched_RH_CB = py4hw.Wire(self,'W_Instruction_fetched',1)
-        self.W_Executed_Jump_CB = py4hw.Wire(self,'W_Executed_Jump',1)
-        self.W_Fetch_next_instruction_CB_RH = py4hw.Wire(self,'W_Fetch_next_instruction_CB_RH',1)
-        self.W_Select_K_CB_RH = py4hw.Wire(self,'W_Select_K_CB_RH',2)
+        W_LOAD_Z_CB_RH = py4hw.Wire(self, 'W_LOAD_Z', 1)
+        W_LOAD_K_CB_RH = py4hw.Wire(self, 'W_LOAD_K', 1)
+        W_LOAD_JUMP_CB_RH = py4hw.Wire(self, 'W_LOAD_JUMP', 1)
+        W_Relative_Absolute_CB_RH = py4hw.Wire(self, 'W_Relative_Absolute', 1)
+        W_Load_byte_CB = py4hw.Wire(self, 'w_load_byte', 1)
+        W_LoadL_CB_ = py4hw.Wire(self,'W_LoadL',1)
+        W_LoadH_CB_ = py4hw.Wire(self,'W_LoadH',1)
+        W_JumpWidth_CB_RH = py4hw.Wire(self,'W_JumpWidth',1)
+        W_LOAD_PCL_CB_RH = py4hw.Wire(self,'W_LOAD_PCL_CB_RH',1)
+        W_LOAD_PCH_CB_RH = py4hw.Wire(self,'W_LOAD_PCH_CB_RH',1)
+        W_Instruction_fetched_RH_CB = py4hw.Wire(self,'W_Instruction_fetched',1)
+        W_Executed_Jump_CB = py4hw.Wire(self,'W_Executed_Jump',1)
+        W_Fetch_next_instruction_CB_RH = py4hw.Wire(self,'W_Fetch_next_instruction_CB_RH',1)
+        W_Select_K_CB_RH = py4hw.Wire(self,'W_Select_K_CB_RH',2)
 
-        self.W_WriteVal_RH_MIH = py4hw.Wire(self,'W_WriteVal_RH_MIH',8)
-        self.W_ReadVal_RH_MIH = py4hw.Wire(self,'W_ReadVal_RH_MIH',8)
-        self.W_LPM_req_CB_RH = py4hw.Wire(self,'W_LPM_req_CB_RH',1)
-        self.W_SPM_req_CB_RH = py4hw.Wire(self,'W_SPM_req_CB_RH',2)
+        W_WriteVal_RH_MIH = py4hw.Wire(self,'W_WriteVal_RH_MIH',8)
+        W_ReadVal_RH_MIH = py4hw.Wire(self,'W_ReadVal_RH_MIH',8)
+        W_LPM_req_CB_RH = py4hw.Wire(self,'W_LPM_req_CB_RH',1)
+        W_SPM_req_CB_RH = py4hw.Wire(self,'W_SPM_req_CB_RH',2)
 
-        self.W_R0_BUFFER_IN_MIH_RH = py4hw.Wire(self,'W_R0_BUFFER_IN_MIH_RH',8)
-        self.W_R1_BUFFER_IN_MIH_RH = py4hw.Wire(self,'W_R1_BUFFER_IN_MIH_RH',8)
+        W_R0_BUFFER_IN_MIH_RH = py4hw.Wire(self,'W_R0_BUFFER_IN_MIH_RH',8)
+        W_R1_BUFFER_IN_MIH_RH = py4hw.Wire(self,'W_R1_BUFFER_IN_MIH_RH',8)
 
-        self.W_VALUE_OUT = py4hw.Wire(self,'W_VALUE_OUT',8)
+        W_VALUE_OUT = py4hw.Wire(self,'W_VALUE_OUT',8)
         
 
 
         # MemoryInterfaceHandler wires
         #self.w_mem_register_out = py4hw.Wire(self, 'w_mem_register_out', 8)
-        self.w_mem_incdec_MIH_CB = py4hw.Wire(self, 'w_mem_incdec_MIH_CB', 3)
-        self.w_mem_instr_MIH_CB = py4hw.Wire(self, 'w_mem_instr_MIH_CB', 5)
+        w_mem_incdec_MIH_CB = py4hw.Wire(self, 'w_mem_incdec_MIH_CB', 3)
+        w_mem_instr_MIH_CB = py4hw.Wire(self, 'w_mem_instr_MIH_CB', 5)
         #self.w_general_input = py4hw.Wire(self, 'w_general_input', 8)
-        self.w_address_ZL_MIH_RH = py4hw.Wire(self,'w_address_ZL_MIH_RH',8)
-        self.w_address_ZH_MIH_RH = py4hw.Wire(self,'w_address_ZH_MIH_RH',8)
-        self.W_Pc_valL_RH_MIH = py4hw.Wire(self,'W_Pc_valL_RH_MIH',8)
-        self.W_Pc_valH_RH_MIH = py4hw.Wire(self,'W_Pc_valH_RH_MIH',8)
+        w_address_ZL_MIH_RH = py4hw.Wire(self,'w_address_ZL_MIH_RH',8)
+        w_address_ZH_MIH_RH = py4hw.Wire(self,'w_address_ZH_MIH_RH',8)
+        W_Pc_valL_RH_MIH = py4hw.Wire(self,'W_Pc_valL_RH_MIH',8)
+        W_Pc_valH_RH_MIH = py4hw.Wire(self,'W_Pc_valH_RH_MIH',8)
 
         # Write-back address: explicit register address driven by ControlBox
-        self.W_WB_addr_CB_MIH = py4hw.Wire(self, 'w_wb_addr', 8)
+        W_WB_addr_CB_MIH = py4hw.Wire(self, 'w_wb_addr', 8)
 
         # ROM handler wires
-        self.W_Rom_address_RH_MIH = py4hw.Wire(self, 'W_Rom_address_RH_MIH', 16)
-        self.W_Rom_value_RH_MIH = py4hw.Wire(self, 'W_Rom_value_RH_MIH', 16)
-        self.W_PCL_LOAD_VAL_CB_RH = py4hw.Wire(self,'W_PCL_LOAD_VAL_CB_RH',8)
-        self.W_PCH_LOAD_VAL_CB_RH = py4hw.Wire(self,'W_PCH_LOAD_VAL_CB_RH',8)
-        self.W_Fetch_Address_CB_RH = py4hw.Wire(self,'W_Fetch_Address_CB_RH',1)
-        self.W_Address_fetched_RH_CB = py4hw.Wire(self,'W_Address_fetched_RH_CB',1)
+        W_Rom_address_RH_MIH = py4hw.Wire(self, 'W_Rom_address_RH_MIH', 16)
+        W_Rom_value_RH_MIH = py4hw.Wire(self, 'W_Rom_value_RH_MIH', 16)
+        W_PCL_LOAD_VAL_CB_RH = py4hw.Wire(self,'W_PCL_LOAD_VAL_CB_RH',8)
+        W_PCH_LOAD_VAL_CB_RH = py4hw.Wire(self,'W_PCH_LOAD_VAL_CB_RH',8)
+        W_Fetch_Address_CB_RH = py4hw.Wire(self,'W_Fetch_Address_CB_RH',1)
+        W_Address_fetched_RH_CB = py4hw.Wire(self,'W_Address_fetched_RH_CB',1)
 
         # No use 
 
-        self.W_Write_Enable_CB_OB = py4hw.Wire(self,'W_Write_Enable_CB_OB',1)
+        W_Write_Enable_CB_OB = py4hw.Wire(self,'W_Write_Enable_CB_OB',1)
 
 
         # -------------------------
         # Sub-components
         # -------------------------
-        self.rom = RomHandler(
-            self, 'RomHandler',
-            RH_mem=self.ins_mem,
-            RH_instructionOut=self.W_Instruction_RH_ID,
-            RH_Address_Out=self.W_Rom_address_RH_MIH,
-            RH_Value_Out=self.W_Rom_value_RH_MIH, 
-            RH_Pc_valL=self.W_Pc_valL_RH_MIH,
-            RH_Pc_valH=self.W_Pc_valH_RH_MIH,
-            RH_Instruction_fetched=self.W_Instruction_fetched_RH_CB,
-            RH_Executed_Jump=self.W_Executed_Jump_CB,
-            RH_Load_Z=self.W_LOAD_Z_CB_RH,
-            RH_address_ZL=self.w_address_ZL_MIH_RH,
-            RH_address_ZH=self.w_address_ZH_MIH_RH,
-            RH_Load_K=self.W_LOAD_K_CB_RH,
-            RH_K_select=self.W_Select_K_CB_RH,
-            RH_K7=self.W_k7_ID_RH,
-            RH_K12=self.W_k12_ID_RH,
-            RH_K7_22=self.W_k7_22_ID_RH,
-            RH_Load_Jump=self.W_LOAD_JUMP_CB_RH,
-            RH_relative_Absolute=self.W_Relative_Absolute_CB_RH,
-            RH_Load_Byte=self.W_Load_byte_CB,
-            RH_PCL_LOAD_VAL=self.W_PCL_LOAD_VAL_CB_RH,
-            RH_PCH_LOAD_VAL=self.W_PCH_LOAD_VAL_CB_RH,
-            RH_Fetch_next_instruction=self.W_Fetch_next_instruction_CB_RH,
-            RH_JumpWidth=self.W_JumpWidth_CB_RH,
-            RH_Load_PCL=self.W_LOAD_PCL_CB_RH,
-            RH_Load_PCH=self.W_LOAD_PCH_CB_RH,
-            RH_fetch_address=self.W_Fetch_Address_CB_RH,
-            RH_Address_fetched=self.W_Address_fetched_RH_CB,
+        RomHandler(self, 'RomHandler',
+            RH_mem= ins_mem,
+            RH_instructionOut= W_Instruction_RH_ID,
+            RH_Address_Out= W_Rom_address_RH_MIH,
+            RH_Value_Out= W_Rom_value_RH_MIH, 
+            RH_Pc_valL=W_Pc_valL_RH_MIH,
+            RH_Pc_valH=W_Pc_valH_RH_MIH,
+            RH_Instruction_fetched=W_Instruction_fetched_RH_CB,
+            RH_Executed_Jump=W_Executed_Jump_CB,
+            RH_Load_Z=W_LOAD_Z_CB_RH,
+            RH_address_ZL=w_address_ZL_MIH_RH,
+            RH_address_ZH=w_address_ZH_MIH_RH,
+            RH_Load_K=W_LOAD_K_CB_RH,
+            RH_K_select=W_Select_K_CB_RH,
+            RH_K7=W_k7_ID_RH,
+            RH_K12=W_k12_ID_RH,
+            RH_K7_22=W_k7_22_ID_RH,
+            RH_Load_Jump=W_LOAD_JUMP_CB_RH,
+            RH_relative_Absolute=W_Relative_Absolute_CB_RH,
+            RH_Load_Byte=W_Load_byte_CB,
+            RH_PCL_LOAD_VAL=W_PCL_LOAD_VAL_CB_RH,
+            RH_PCH_LOAD_VAL=W_PCH_LOAD_VAL_CB_RH,
+            RH_Fetch_next_instruction=W_Fetch_next_instruction_CB_RH,
+            RH_JumpWidth=W_JumpWidth_CB_RH,
+            RH_Load_PCL=W_LOAD_PCL_CB_RH,
+            RH_Load_PCH=W_LOAD_PCH_CB_RH,
+            RH_fetch_address=W_Fetch_Address_CB_RH,
+            RH_Address_fetched=W_Address_fetched_RH_CB,
             RH_reset_address=reset_address,
             #--- SPM and LPM ---
-            RH_WriteVal=self.W_WriteVal_RH_MIH,
-            RH_ReadVal=self.W_ReadVal_RH_MIH,
-            RH_LPM_req=self.W_LPM_req_CB_RH,
-            RH_SPM_req=self.W_SPM_req_CB_RH,
-            RH_R0_BUFFER_IN=self.W_R0_BUFFER_IN_MIH_RH,
-            RH_R1_BUFFER_IN=self.W_R1_BUFFER_IN_MIH_RH,
+            RH_WriteVal=W_WriteVal_RH_MIH,
+            RH_ReadVal=W_ReadVal_RH_MIH,
+            RH_LPM_req=W_LPM_req_CB_RH,
+            RH_SPM_req=W_SPM_req_CB_RH,
+            RH_R0_BUFFER_IN=W_R0_BUFFER_IN_MIH_RH,
+            RH_R1_BUFFER_IN=W_R1_BUFFER_IN_MIH_RH,
         )
 
-        self.decoder = Instruction_decoder(
-            self, 'InstructionDecoder',
-            ID_Instruction=self.W_Instruction_RH_ID,
-            ID_Instruction_fetched=self.W_Instruction_fetched_RH_CB,
-            ID_InstructionCode=self.W_CODE_ID_CB,
-            ID_Rd=self.W_RD_ID_MIH,
-            ID_Rr=self.W_RR_ID_MIH,
-            ID_K8=self.W_K8_ID_OB,
-            ID_k12=self.W_k12_ID_RH,
-            ID_K6=self.W_K6_ID_OB,
-            ID_K4=self.W_K4_ID_,
-            ID_k16=self.W_k12_ID_RH,
-            ID_k7= self.W_k7_ID_RH,
-            ID_k7_22=self.W_k7_22_ID_RH,
-            ID_b=self.W_b_ID_ALU,
-            ID_s=self.W_s_ID_ALU,
-            ID_A5=self.W_A5_ID_MIH,
-            ID_A6=self.W_A6_ID_MIH,
-            ID_q=self.W_q6_ID_MIH,
-            ID_Instruction_decoded=self.W_Instruction_decoded_ID_CB
+        Instruction_decoder(self, 'InstructionDecoder',
+            ID_Instruction=W_Instruction_RH_ID,
+            ID_Instruction_fetched=W_Instruction_fetched_RH_CB,
+            ID_InstructionCode=W_CODE_ID_CB,
+            ID_Rd=W_RD_ID_MIH,
+            ID_Rr=W_RR_ID_MIH,
+            ID_K8=W_K8_ID_OB,
+            ID_k12=W_k12_ID_RH,
+            ID_K6=W_K6_ID_OB,
+            ID_K4=W_K4_ID_,
+            ID_k16=W_k12_ID_RH,
+            ID_k7= W_k7_ID_RH,
+            ID_k7_22=W_k7_22_ID_RH,
+            ID_b=W_b_ID_ALU,
+            ID_s=W_s_ID_ALU,
+            ID_A5=W_A5_ID_MIH,
+            ID_A6=W_A6_ID_MIH,
+            ID_q=W_q6_ID_MIH,
+            ID_Instruction_decoded=W_Instruction_decoded_ID_CB
         )
 
-        self.control = control_Box(
-            self, 'ControlBox',
-            CB_Instruction=self.W_CODE_ID_CB,              
-            CB_Resp=self.W_Resp_MIH_CB,                     
-            CB_Branch=self.W_Branch_ALU_CB,                 
-            CB_Skip=self.W_Skip_ALU_CB,                     
-            CB_Interrupt=self.Interrupt,                    
-            CB_Instruction_fetched=self.W_Instruction_fetched_RH_CB,   
-            CB_Instruction_decoded=self.W_Instruction_decoded_ID_CB,   
-            CB_Executed_Jump=self.W_Executed_Jump_CB,       
-            CB_Address_fetched=self.W_Address_fetched_RH_CB,
-            CB_LoadSelectMux=self.W_LoadSelect_MUX_CB_MIH,  
-            CB_LoadingMux=self.W_Loading_MUX_CB_MIH,        
-            CB_Input_Select=self.W_Input_Select_CB_MIH,     
-            CB_WE_MEMORY=self.W_WE_OpBuf_CB_MIH,                  
-            CB_Read_Write=self.W_read_write,                
-            CB_mem_instr=self.w_mem_instr_MIH_CB,           
-            CB_IncDec=self.w_mem_incdec_MIH_CB,             
-            CB_InputSelect=self.W_Input_Select_CB_OB,       
-            CB_WE_Buffer=self.W_BufferWe_CB_OB,            
-            CB_Load_Z=self.W_LOAD_Z_CB_RH,                  
-            CB_Load_K=self.W_LOAD_K_CB_RH,
-            CB_K_Select = self.W_Select_K_CB_RH,                  
-            CB_Load_Jump=self.W_LOAD_JUMP_CB_RH,            
-            CB_relative_Absolute=self.W_Relative_Absolute_CB_RH,  
-            CB_Load_Byte=self.W_Load_byte_CB,               
-            CB_Fetch_next_instruction=self.W_Fetch_next_instruction_CB_RH,  
-            CB_Fetch_Address=self.W_Fetch_Address_CB_RH,    
-            CB_WB_Addr=self.W_WB_addr_CB_MIH,               
-            CB_JumpWidth=self.W_JumpWidth_CB_RH,            
-            CB_LOAD_PCL=self.W_LOAD_PCL_CB_RH,              
-            CB_LOAD_PCH=self.W_LOAD_PCH_CB_RH,      
-            CB_LPM_req=self.W_LPM_req_CB_RH,
-            CB_SPM_req=self.W_SPM_req_CB_RH,
+        control_Box(self, 'ControlBox',
+            CB_Instruction=W_CODE_ID_CB,              
+            CB_Resp=W_Resp_MIH_CB,                     
+            CB_Branch=W_Branch_ALU_CB,                 
+            CB_Skip=W_Skip_ALU_CB,                     
+            CB_Interrupt=Interrupt,                    
+            CB_Instruction_fetched=W_Instruction_fetched_RH_CB,   
+            CB_Instruction_decoded=W_Instruction_decoded_ID_CB,   
+            CB_Executed_Jump=W_Executed_Jump_CB,       
+            CB_Address_fetched=W_Address_fetched_RH_CB,
+            CB_LoadSelectMux=W_LoadSelect_MUX_CB_MIH,  
+            CB_LoadingMux=W_Loading_MUX_CB_MIH,        
+            CB_Input_Select=W_Input_Select_CB_MIH,     
+            CB_WE_MEMORY=W_WE_OpBuf_CB_MIH,                  
+            CB_Read_Write=W_read_write,                
+            CB_mem_instr=w_mem_instr_MIH_CB,           
+            CB_IncDec=w_mem_incdec_MIH_CB,             
+            CB_InputSelect=W_Input_Select_CB_OB,       
+            CB_WE_Buffer=W_BufferWe_CB_OB,            
+            CB_Load_Z=W_LOAD_Z_CB_RH,                  
+            CB_Load_K=W_LOAD_K_CB_RH,
+            CB_K_Select = W_Select_K_CB_RH,                  
+            CB_Load_Jump=W_LOAD_JUMP_CB_RH,            
+            CB_relative_Absolute=W_Relative_Absolute_CB_RH,  
+            CB_Load_Byte=W_Load_byte_CB,               
+            CB_Fetch_next_instruction=W_Fetch_next_instruction_CB_RH,  
+            CB_Fetch_Address=W_Fetch_Address_CB_RH,    
+            CB_WB_Addr=W_WB_addr_CB_MIH,               
+            CB_JumpWidth=W_JumpWidth_CB_RH,            
+            CB_LOAD_PCL=W_LOAD_PCL_CB_RH,              
+            CB_LOAD_PCH=W_LOAD_PCH_CB_RH,      
+            CB_LPM_req=W_LPM_req_CB_RH,
+            CB_SPM_req=W_SPM_req_CB_RH,
         )
 
-        self.operand_buffer = OperandBuffer(
+        OperandBuffer(
             self, 'OperandBuffer',
-            OB_DATA_IN=self.W_DataInput_MIH_OB,
-            OB_K=self.W_K8_ID_OB,
-            OB_WE=self.W_BufferWe_CB_OB,
-            OB_Reset=self.reset,
-            OB_InputSelectBuffer=self.W_Input_Select_CB_OB,
-            OB_A0=self.W_ImputRegA0_OB_ALU,
-            OB_A1=self.W_ImputRegA1_OB_ALU,
-            OB_B0=self.W_ImputRegB0_OB_ALU,
-            OB_B1=self.W_ImputRegB1_OB_ALU,
-            OB_IOout=self.W_IOBuffer_MIH_OB
+            OB_DATA_IN=W_DataInput_MIH_OB,
+            OB_K=W_K8_ID_OB,
+            OB_WE=W_BufferWe_CB_OB,
+            OB_Reset=reset,
+            OB_InputSelectBuffer=W_Input_Select_CB_OB,
+            OB_A0=W_ImputRegA0_OB_ALU,
+            OB_A1=W_ImputRegA1_OB_ALU,
+            OB_B0=W_ImputRegB0_OB_ALU,
+            OB_B1=W_ImputRegB1_OB_ALU,
+            OB_IOout=W_IOBuffer_MIH_OB
         )
 
-        self.alu = ALU(
+        ALU(
             self, 'ALU',
-            ImputRegA0=self.W_ImputRegA0_OB_ALU,
-            ImputRegA1=self.W_ImputRegA1_OB_ALU,
-            ImputRegB0=self.W_ImputRegB0_OB_ALU,
-            ImputRegB1=self.W_ImputRegB1_OB_ALU,
-            ALUInstruction=self.W_CODE_ID_CB,
-            SREG_STATE=self.W_SREG_SL_ALU,
-            BitPos=self.W_b_ID_ALU,
-            IOreg=self.W_IOBuffer_MIH_OB,
-            ALUOUTPUTByte0=self.W_OUTPUTByte0_ALU_MIH,
-            ALUOUTPUTByte1=self.W_OUTPUTByte1_ALU_MIH,
-            SREG_VAL=self.W_SREG_ALU_SL,
-            eSREG_VAL=self.W_eSREG_ALU_SL,
-            BRANCH=self.W_Branch_ALU_CB,
-            SKIP=self.W_Skip_ALU_CB
+            A0=W_ImputRegA0_OB_ALU,
+            A1=W_ImputRegA1_OB_ALU,
+            B0=W_ImputRegB0_OB_ALU,
+            B1=W_ImputRegB1_OB_ALU,
+            op=W_CODE_ID_CB,
+            SREG_STATE=W_SREG_SL_ALU,
+            BitPos=W_b_ID_ALU,
+            IOreg=W_IOBuffer_MIH_OB,
+            R0=W_OUTPUTByte0_ALU_MIH,
+            R1=W_OUTPUTByte1_ALU_MIH,
+            SREG_VAL=W_SREG_ALU_SL,
+            eSREG_VAL=W_eSREG_ALU_SL,
+            BRANCH=W_Branch_ALU_CB,
+            SKIP=W_Skip_ALU_CB
         )
 
-        self.mem_if = MemoryInterfaceHandler(
+        MemoryInterfaceHandler(
             self, 'MemoryInterfaceHandler',
-            reset=self.reset,
-            WE=self.W_WE_OpBuf_CB_MIH,
-            LoadSelectMux=self.W_LoadSelect_MUX_CB_MIH,
-            LoadingMux=self.W_Loading_MUX_CB_MIH,
-            IncDec=self.w_mem_incdec_MIH_CB,
-            RomAddressValue=self.W_Rom_value_RH_MIH,
-            ReadWrite=self.W_read_write,
-            InputSelectMemory=self.W_Input_Select_CB_MIH,
-            Mem_instruction=self.w_mem_instr_MIH_CB,
-            RomAddress=self.W_Rom_address_RH_MIH,
-            ResL=self.W_OUTPUTByte0_ALU_MIH,
-            ResH=self.W_OUTPUTByte1_ALU_MIH,
-            K_val_Input=self.W_K8_ID_OB,
-            PCL_VAL_IN=self.W_Pc_valL_RH_MIH,
-            PCH_VAL_IN=self.W_Pc_valH_RH_MIH,
+            reset=reset,
+            WE=W_WE_OpBuf_CB_MIH,
+            LoadSelectMux=W_LoadSelect_MUX_CB_MIH,
+            LoadingMux=W_Loading_MUX_CB_MIH,
+            IncDec=w_mem_incdec_MIH_CB,
+            RomAddressValue=W_Rom_value_RH_MIH,
+            ReadWrite=W_read_write,
+            InputSelectMemory=W_Input_Select_CB_MIH,
+            Mem_instruction=w_mem_instr_MIH_CB,
+            RomAddress=W_Rom_address_RH_MIH,
+            ResL=W_OUTPUTByte0_ALU_MIH,
+            ResH=W_OUTPUTByte1_ALU_MIH,
+            K_val_Input=W_K8_ID_OB,
+            PCL_VAL_IN=W_Pc_valL_RH_MIH,
+            PCH_VAL_IN=W_Pc_valH_RH_MIH,
             # Reuse the existing JumpWidth wire (MainFSM -> ControlBox ->
             # RomHandler, where it is received but never read) as the PC
             # push offset: 1 exactly when the current opcode is a 2-word
             # instruction, which is precisely the correction the pushed
             # return address needs for CALL (see MemoryInterfaceHandler).
-            PC_Offset=self.W_JumpWidth_CB_RH,
-            Rd=self.W_RD_ID_MIH,
-            Rr=self.W_RR_ID_MIH,
-            WbAddr=self.W_WB_addr_CB_MIH,
-            memory=self.memory,
-            RegisterOut=self.W_DataInput_MIH_OB,
-            Resp=self.W_Resp_MIH_CB,
-            address_ZL=self.w_address_ZL_MIH_RH,
-            address_ZH=self.w_address_ZH_MIH_RH,
-            Q=self.W_q6_ID_MIH,
-            A_5bit=self.W_A5_ID_MIH,
-            A_6bit=self.W_A6_ID_MIH,
-            MIH_PCL_LOAD_VAL = self.W_PCL_LOAD_VAL_CB_RH,
-            MIH_PCH_LOAD_VAL = self.W_PCH_LOAD_VAL_CB_RH,
+            PC_Offset=W_JumpWidth_CB_RH,
+            Rd=W_RD_ID_MIH,
+            Rr=W_RR_ID_MIH,
+            WbAddr=W_WB_addr_CB_MIH,
+            memory=memory,
+            RegisterOut=W_DataInput_MIH_OB,
+            Resp=W_Resp_MIH_CB,
+            address_ZL=w_address_ZL_MIH_RH,
+            address_ZH=w_address_ZH_MIH_RH,
+            Q=W_q6_ID_MIH,
+            A_5bit=W_A5_ID_MIH,
+            A_6bit=W_A6_ID_MIH,
+            MIH_PCL_LOAD_VAL = W_PCL_LOAD_VAL_CB_RH,
+            MIH_PCH_LOAD_VAL = W_PCH_LOAD_VAL_CB_RH,
             #---- SREG ----
             # ALU's flag update (SREG_VAL/eSREG_VAL) is merged directly into
             # MemoryInterfaceHandler's internal SREG register — the same
             # register that services IN/OUT accesses to I/O address 0x5F.
             # This keeps flag-updates and IN/OUT-visible SREG in sync
             # (previously they were two separate, unsynchronized registers).
-            SREG_In=self.W_SREG_ALU_SL,
-            eSREG_In=self.W_eSREG_ALU_SL,
-            SREG_Reset=self.reset,
-            SREG_Out=self.W_SREG_SL_ALU,
+            SREG_In=W_SREG_ALU_SL,
+            eSREG_In=W_eSREG_ALU_SL,
+            SREG_Reset=reset,
+            SREG_Out=W_SREG_SL_ALU,
             # ---- LPM SPM ----
-            R0_BUFFER_OUT= self.W_R0_BUFFER_IN_MIH_RH,
-            R1_BUFFER_OUT= self.W_R1_BUFFER_IN_MIH_RH,
-            ROM_VAL_IN=self.W_WriteVal_RH_MIH,
-            ROM_VAL_OUT=self.W_ReadVal_RH_MIH,
+            R0_BUFFER_OUT= W_R0_BUFFER_IN_MIH_RH,
+            R1_BUFFER_OUT= W_R1_BUFFER_IN_MIH_RH,
+            ROM_VAL_IN=W_WriteVal_RH_MIH,
+            ROM_VAL_OUT=W_ReadVal_RH_MIH,
         )
