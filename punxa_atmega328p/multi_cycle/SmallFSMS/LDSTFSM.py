@@ -626,12 +626,20 @@ class LDST_FSM(py4hw.Logic):
 
 
         elif state == 'LATCH_RD_TO_BUFFER':
+            Mem_Instruction = 12     # FIX: hold the SAME read (source register)
+                                     # stable -- this was defaulting to 0
+                                     # (register r0) since Mem_Instruction
+                                     # was never set here, silently
+                                     # redirecting the address away from
+                                     # the real source register mid-wait.
             Read_Write = 2           # Request Memory Read
             WE_Memory = 0            # DON'T latch yet!
             LoadingMux = 14          
             next_state = 'WAIT_LATCH_RD_TO_BUFFER'
 
         elif state == 'WAIT_LATCH_RD_TO_BUFFER':
+            Mem_Instruction = 12     # FIX: same as above -- keep addressing
+                                     # the source register, not r0.
             Read_Write = 2 # Keep holding the read request
             LoadingMux = 14
             if resp:

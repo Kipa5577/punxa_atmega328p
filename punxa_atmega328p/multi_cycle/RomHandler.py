@@ -42,6 +42,14 @@ class RomHandler(py4hw.Logic):
                  RH_R0_BUFFER_IN,
                  RH_R1_BUFFER_IN,
 
+                 # 1-bit OUT: pulses for one cycle when an SPM write
+                 # (triggered via SPM_req) has been committed to ROM.
+                 # Without this the calling FSM (LPM_FSM) has no way to
+                 # observe that the SPM_REQ state ever finished -- it's
+                 # an internal transition back to STOP with no externally
+                 # visible signal otherwise.
+                 RH_SPM_Done,
+
                  RH_PCL_LOAD_VAL,# 8-bit this 
                  RH_PCH_LOAD_VAL,# 
 
@@ -144,6 +152,8 @@ class RomHandler(py4hw.Logic):
         self.R0_BUFFER_IN = self.addIn('R0_BUFFER_IN',RH_R0_BUFFER_IN)
         self.R1_BUFFER_IN = self.addIn('R1_BUFFER_IN',RH_R1_BUFFER_IN)
 
+        self.SPM_Done = self.addOut('SPM_Done', RH_SPM_Done)
+
 
         self.debug = 1
 
@@ -178,6 +188,7 @@ class RomHandler(py4hw.Logic):
             
             self.Instruction_fetched.prepare(0)
             self.Address_fetched.prepare(0)
+            self.SPM_Done.prepare(0)
 
             load_jump = self.Load_Jump.get()
             load_z    = self.Load_Z.get()
@@ -461,7 +472,7 @@ class RomHandler(py4hw.Logic):
                 self.mem.instype.prepare(0)
                 self.mem.write.prepare(0)
                 self.mem.read.prepare(1)
-                z_address = ((self.address_ZH<<8)|(self.address_ZL)) & 0xFFFF
+                z_address = ((self.address_ZH.get()<<8)|(self.address_ZL.get())) & 0xFFFF
                 self.mem.address.prepare(z_address)
                 if self.mem.resp.get() == 1:
                     self.VALUE_OUT.prepare(self.mem.read_data.get())
@@ -478,14 +489,24 @@ class RomHandler(py4hw.Logic):
 
         elif self.FSM == 'SPM_REQ':
             self.mem.instype.prepare(1)
-            self.mem.write.prepare(0)
-            self.mem.read.prepare(1)
-            z_address = ((self.address_ZH<<8)|(self.address_ZL)) & 0xFFFF
+            self.mem.write.prepare(1)
+            self.mem.read.prepare(0)
+            # Z is a BYTE address into flash (same convention LPM uses --
+            # see the Load_Z/relative_Absolute=1 path above). Program
+            # memory is WORD addressed, so the target word is Z>>1; bit 0
+            # of Z is reserved/ignored for SPM (a whole word is written
+            # at once, unlike LPM's single-byte reads).
+            z_address = (((self.address_ZH.get()<<8)|(self.address_ZL.get())) >> 1) & 0x3FFF
             self.mem.address.prepare(z_address)
-            val = ((self.R1_BUFFER_IN<<8)|self.R0_BUFFER_IN.get()) 
+            # FIX: R1_BUFFER_IN was used without .get() -- shifting the
+            # Pin object itself instead of its value.
+            val = ((self.R1_BUFFER_IN.get()<<8)|self.R0_BUFFER_IN.get()) & 0xFFFF
             self.mem.write_data.prepare(val)
 
+            self.SPM_Done.prepare(0)
             if self.mem.resp.get() == 1:
+                self.mem.write.prepare(0)
+                self.SPM_Done.prepare(1)
                 self.FSM = 'STOP'
                 
         # ---------------------------------------------------------

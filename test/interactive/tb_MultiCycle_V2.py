@@ -139,19 +139,18 @@ STS 0xC6, R17
 RJMP -1              ; Infinite self-loop
 '''
 
-
-
 words, symbols = assemble_program(program)
 print(f"Assembled {len(words)} instructions")
 print(f"Symbols: {symbols}")
+
 dw = 8 
 aw = 16
 
 # --- Memory Map Interfaces ---
 # 0x000 - 0x01F   GP Registers r0-r31  -> now internal to the CPU (self.reg),
-#                 not a memory-mapped component. LD/LDS/ST/STS targeting this
+#                 not a memory-mapped component[cite: 2]. LD/LDS/ST/STS targeting this
 #                 range are caught and serviced inside the CPU itself instead
-#                 of being routed onto the data bus.
+#                 of being routed onto the data bus[cite: 2].
 # 0x0C0 - 0x0C7   USART Registers
 # 0x100 - ...     General SRAM
 data_p = punxa.MemoryInterface(hw, 'data_mem', dw, aw)
@@ -161,7 +160,7 @@ usart_p = punxa.MemoryInterface(hw, 'usart_bus', dw, 3)     # 2^3 = 8 registers
 mem_p = punxa.MemoryInterface(hw, 'ram_bus', dw, 11)        # 2048 bytes
 
 # --- Bind Interfaces to the Data Bus ---
-# No more reg_p entry here - the register file no longer lives on the bus.
+# No more reg_p entry here - the register file no longer lives on the bus[cite: 2].
 punxa.MultiplexedBus(hw, 'bus', data_p, [(usart_p, 0xC0), (mem_p, 0x100)])
 
 # --- Base Hardware Components ---
@@ -179,28 +178,17 @@ reset_wire.put(0)
 # --- Instantiate Multicycle Processor ---
 # Register file is internal to the CPU (cpu.reg); LD/ST/LDS/STS instructions
 # whose effective address falls in 0-31 are resolved against it directly by
-# the CPU instead of issuing a bus transaction.
+# the CPU instead of issuing a bus transaction[cite: 2].
 cpu = punxa.MultyCycleATmega328P_V2(
     parent=hw,
     name='multicycle_cpu',
     ins_mem=ins_p,
     memory=data_p,
-    reset_address=0,
     Interrupt=interrupt_wire,
+    Enable_Interrupt=py4hw.Wire(hw, 'Enable_Int', 1), # Added parameter placeholder for your class signature
     reset=reset_wire,
+    reset_address=0
 )
-
-# --- Waveform Debugging ---
-#watch = []
-#watch.extend(py4hw.debug.getInterfaceWires(ins_p))
-#watch.extend(py4hw.debug.getInterfaceWires(data_p))
-
-#internal CPU wires to the waveform viewer for deeper debug
-#watch.append(cpu.w_instruction)
-#watch.append(cpu.W_CODE)
-#watch.append(cpu.w_rom_address)
-
-#wvf = py4hw.Waveform(hw, 'wvf', watch)
 
 # --- Load Program into Instruction Memory ---
 for i, b in enumerate(words):

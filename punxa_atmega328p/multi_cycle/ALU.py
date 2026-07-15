@@ -1,19 +1,42 @@
 import py4hw 
-from ..Memory import * 
-from .ALU_Components.AU import *
-from .ALU_Components.LU import * 
-from .ALU_Components.ALU_ConfCodeCalc import *
 
-from .ALU_Components.HandleC import *
-from .ALU_Components.HandleH import * 
-from .ALU_Components.HandleI import *
-from .ALU_Components.HandleN import * 
-from .ALU_Components.HandleT import * 
-from .ALU_Components.HandleS import *
-from .ALU_Components.HandleV import * 
-from .ALU_Components.HandleZ import *
+try:
+    # Normal case: ALU.py is imported as part of the package.
+    from ..Memory import *
+    from .ALU_Components.AU import *
+    from .ALU_Components.LU import *
+    from .ALU_Components.ALU_ConfCodeCalc import *
 
-from .ALU_Components.WireCombiner16 import *
+    from .ALU_Components.HandleC import *
+    from .ALU_Components.HandleH import *
+    from .ALU_Components.HandleI import *
+    from .ALU_Components.HandleN import *
+    from .ALU_Components.HandleT import *
+    from .ALU_Components.HandleS import *
+    from .ALU_Components.HandleV import *
+    from .ALU_Components.HandleZ import *
+
+    from .ALU_Components.WireCombiner16 import *
+
+except ImportError:
+    # Fallback for standalone execution, e.g. `python3 ALU.py` to
+    # cross-compile this module to Verilog -- relative package imports
+    # don't resolve when the file is run directly as a script.
+    # Include the folder prefix since they live in ALU_Components.
+    from ALU_Components.AU import *
+    from ALU_Components.LU import *
+    from ALU_Components.ALU_ConfCodeCalc import *
+
+    from ALU_Components.HandleC import *
+    from ALU_Components.HandleH import *
+    from ALU_Components.HandleI import *
+    from ALU_Components.HandleN import *
+    from ALU_Components.HandleT import *
+    from ALU_Components.HandleS import *
+    from ALU_Components.HandleV import *
+    from ALU_Components.HandleZ import *
+
+    from ALU_Components.WireCombiner16 import *
 
 
 """
@@ -48,24 +71,29 @@ Outputs:
 """
 class SREG_Splitter(py4hw.Logic):
     """Splits the 8-bit SREG bus into individual flag wires."""
-    def __init__(self, parent, name, sreg_state, w_cin, w_zin, w_nin, w_vin, w_tin=None):
+    def __init__(self, parent, name, sreg_state, w_cin, w_zin, w_nin, w_vin, w_tin):
         super().__init__(parent, name)
-        self.sreg_state = self.addIn('SREG_STATE', sreg_state)
+        # NOTE: attribute renamed to match the addIn port label exactly
+        # (SREG_STATE) -- the py4hw RTL transpiler emits the attribute
+        # name as the internal wire reference, so a mismatched attribute
+        # name/label pair (e.g. self.sreg_state for label 'SREG_STATE')
+        # produces Verilog that references an undeclared signal.
+        self.SREG_STATE = self.addIn('SREG_STATE', sreg_state)
         self.w_cin = self.addOut('w_cin', w_cin)
         self.w_zin = self.addOut('w_zin', w_zin)
         self.w_nin = self.addOut('w_nin', w_nin)
         self.w_vin = self.addOut('w_vin', w_vin)
-        # T flag (bit 6), needed by BLD (Rd[bit] <- T)
-        self.w_tin = self.addOut('w_tin', w_tin) if w_tin is not None else None
+        # T is bit 6 in this project's SREG ordering (I-T-H-S-V-N-Z-C).
+        # Needed as BLD's real T-flag source -- see AU.Tval wiring below.
+        self.w_tin = self.addOut('w_tin', w_tin)
 
     def propagate(self):
-        sreg = self.sreg_state.get()
+        sreg = self.SREG_STATE.get()
         self.w_cin.put(sreg & 1)
         self.w_zin.put((sreg >> 1) & 1)
         self.w_nin.put((sreg >> 2) & 1)
         self.w_vin.put((sreg >> 3) & 1)
-        if self.w_tin is not None:
-            self.w_tin.put((sreg >> 6) & 1)
+        self.w_tin.put((sreg >> 6) & 1)
 
 class ALU_MergerAndLogic(py4hw.Logic):
     """Merges flags back to SREG, bridges output results, and computes Branch/Skip."""
@@ -87,7 +115,10 @@ class ALU_MergerAndLogic(py4hw.Logic):
         
         # AU outputs
         self.w_res_l = self.addIn('w_res_l', w_res_l)
-        self.w_res_H = self.addIn('w_res_h', w_res_H)
+        # NOTE: label kept as 'w_res_h' (lowercase) to match the original
+        # port name, but the attribute must match it exactly for the RTL
+        # transpiler to wire it up correctly.
+        self.w_res_h = self.addIn('w_res_h', w_res_H)
         
         # Outputs
         self.sreg_val = self.addOut('sreg_val', sreg_val)
@@ -97,7 +128,7 @@ class ALU_MergerAndLogic(py4hw.Logic):
     def propagate(self):
 
         self.out_byte0.put(self.w_res_l.get())
-        self.out_byte1.put(self.w_res_H.get())
+        self.out_byte1.put(self.w_res_h.get())
 
 
         # 2. SREG Merging
@@ -150,7 +181,7 @@ class ALU(py4hw.Logic):
         self.w_nopp = py4hw.Wire(self, 'w_nopp',3)
         self.w_vopp = py4hw.Wire(self, 'w_vopp',4)
         self.w_sopp = py4hw.Wire(self, 'w_sopp',3)
-        self.w_hopp = py4hw.Wire(self, 'w_hopp',3)
+        self.w_hopp = py4hw.Wire(self, 'w_hopp',2)
         self.w_topp = py4hw.Wire(self, 'w_topp',2)
         self.w_iopp = py4hw.Wire(self, 'w_iopp',1)
         self.w_branchOpp = py4hw.Wire(self, 'w_branchOpp', 3)
@@ -232,7 +263,7 @@ class ALU(py4hw.Logic):
                     self.w_res_l,  # ResL
                     self.w_res_H,   # ResH
                     self.w_mul_carry,  # MulCarryOut
-                    self.w_tin,     # Tval (for BLD)
+                    Tval=self.w_tin,  # FIX: BLD's real T-flag source (current SREG bit 6) -- was never wired at all before this fix
                 )
 
         self.BranchUnit = BranchUnit(
@@ -251,8 +282,17 @@ class ALU(py4hw.Logic):
         self.handle_c = HandleC(self, 'HC', self.w_regB_16, self.w_regA_16, self.w_res_16, self.w_copp, self.w_mul_carry, self.w_cout)
         self.handle_z = HandleZ(self, 'HZ', self.w_res_16, self.w_zopp, self.w_zin, self.w_zout) 
         self.handle_n = HandleN(self, 'HN', self.w_res_16, self.w_nopp, self.w_nout)
-        self.handle_v = HandleV(self, 'HV', self.w_regB_16, self.w_regA_16, self.w_res_16, self.w_nout, self.w_cout, self.w_vopp, self.w_vout)
+        self.handle_v = HandleV(self, 'HV', self.w_regB_16, self.w_regA_16, self.w_res_16, self.w_nin, self.w_cin, self.w_vopp, self.w_vout)
         self.handle_h = HandleH(self, 'HH', self.w_regB_16, self.w_regA_16, self.w_res_16, self.w_hopp, self.w_hout)
+        # FIX: BST's register operand is decoded into the Rr slot, not Rd
+        # (see Instruction_decoder.py: `elif code in [41, 42, 75]: out_rr =
+        # rd_d5` — BST is deliberately routed onto Rr). That means the
+        # actual byte to test lands on w_regB_16 (RegB/Rr), while RegA
+        # holds whatever Rd defaulted to (register r0, since BST leaves
+        # out_rd unset). HandleT was wired to w_regA_16 and so always
+        # tested a bit of r0 instead of the register the instruction
+        # named, silently breaking BST (and, downstream, BLD, since BLD's
+        # test cases rely on BST/SET having set T correctly first).
         self.handle_t = HandleT(self, 'HT', self.w_regB_16, self.BitPos, self.w_topp, self.w_tout)
         self.handle_i = HandleI(self, 'HI', self.w_iopp, self.w_iout)
         self.handle_s = HandleS(self, 'HS', self.w_nout, self.w_vout, self.w_sopp, self.w_sout)
@@ -265,3 +305,45 @@ class ALU(py4hw.Logic):
             self.w_res_l, self.w_res_H,
             self.SREG_VAL, self.OUTByte0, self.OUTByte1
         )
+
+
+if __name__ == '__main__':
+    # Cross-compilation entry point: instantiate the top-level ALU and
+    # generate Verilog for the whole hierarchy (ALU + every sub-component:
+    # AU, BranchUnit, ALU_ConfCodeCalc, all eight Handle* flag units,
+    # WireCombiner16, SREG_Splitter, and ALU_MergerAndLogic).
+    import os
+
+    hw = py4hw.HWSystem()
+
+    ImputRegA0 = hw.wire('ImputRegA0', 8)
+    ImputRegA1 = hw.wire('ImputRegA1', 8)
+    ImputRegB0 = hw.wire('ImputRegB0', 8)
+    ImputRegB1 = hw.wire('ImputRegB1', 8)
+    ALUInstruction = hw.wire('ALUInstruction', 8)
+    SREG_STATE = hw.wire('SREG_STATE', 8)
+    BitPos = hw.wire('BitPos', 3)
+    IOreg = hw.wire('IOreg', 8)
+
+    ALUOUTPUTByte0 = hw.wire('ALUOUTPUTByte0', 8)
+    ALUOUTPUTByte1 = hw.wire('ALUOUTPUTByte1', 8)
+    SREG_VAL = hw.wire('SREG_VAL', 8)
+    eSREG_VAL = hw.wire('eSREG_VAL', 8)
+    BRANCH = hw.wire('BRANCH', 1)
+    SKIP = hw.wire('SKIP', 1)
+
+    dut = ALU(hw, 'ALU',
+              ImputRegA0, ImputRegA1, ImputRegB0, ImputRegB1, ALUInstruction, SREG_STATE, BitPos, IOreg,
+              ALUOUTPUTByte0, ALUOUTPUTByte1, SREG_VAL, eSREG_VAL, BRANCH, SKIP)
+
+    rtl = py4hw.rtl_generation.VerilogGenerator(dut)
+    # getVerilogForHierarchy walks the whole sub-component tree and
+    # concatenates a separate `module` block for each one (skipping only
+    # primitives py4hw considers inlinable, which none of these are).
+    verilog = rtl.getVerilogForHierarchy(forceName='ALU')
+    print(verilog)
+
+    out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ALU.v')
+    with open(out_path, 'w') as f:
+        f.write(verilog)
+    print(f'Verilog written to {out_path}')

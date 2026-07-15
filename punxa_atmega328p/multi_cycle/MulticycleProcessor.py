@@ -11,7 +11,8 @@ from .SmallFSMS.INSTRUCTION_FSM_BOX import *
 
 class multicycleProcessor(py4hw.Logic):
 
-    def __init__(self, parent, name, Interrupt, ins_mem, memory, reset, reset_address=0):
+    def __init__(self, parent, name, Interrupt, Interrupt_Enable, ins_mem, memory, reset, reset_address=0,
+                 Bus_Passthrough_Ranges=None):
         super().__init__(parent, name)
 
         # -------------------------
@@ -19,7 +20,21 @@ class multicycleProcessor(py4hw.Logic):
         # -------------------------
         
         self.reset = self.addIn('reset', reset)
+
+        # Interrupt request line, driven by an external InterruptUnit
+        # peripheral once it has both seen I == 1 (via Interrupt_Enable
+        # below) and observed one of its own configured interrupt sources
+        # fire. MainFSM samples this at instruction boundaries only (see
+        # MainFSM.INTERRUPT_ENTRY). Always wired, not optional — every
+        # instantiation of this CPU must supply a real InterruptUnit wire.
         self.Interrupt = self.addIn('interrupt', Interrupt)
+
+        # Global Interrupt Enable (I flag of SREG) pin, driven OUT to the
+        # external InterruptUnit. Always wired, not optional. Driven
+        # directly by MemoryInterfaceHandler.I_Flag_Out below — it already
+        # owns the committed SREG register, so it's the natural source.
+        self.Interrupt_Enable = self.addOut('Interrupt_Enable', Interrupt_Enable)
+
         self.ins_mem = self.addInterfaceSource('ins_mem', ins_mem)
         self.memory = self.addInterfaceSource('memory', memory)
 
@@ -105,6 +120,7 @@ class multicycleProcessor(py4hw.Logic):
 
         self.W_R0_BUFFER_IN_MIH_RH = py4hw.Wire(self,'W_R0_BUFFER_IN_MIH_RH',8)
         self.W_R1_BUFFER_IN_MIH_RH = py4hw.Wire(self,'W_R1_BUFFER_IN_MIH_RH',8)
+        self.W_SPM_Done_RH_CB = py4hw.Wire(self,'W_SPM_Done_RH_CB',1)
 
         self.W_VALUE_OUT = py4hw.Wire(self,'W_VALUE_OUT',8)
         
@@ -134,6 +150,18 @@ class multicycleProcessor(py4hw.Logic):
         # No use 
 
         self.W_Write_Enable_CB_OB = py4hw.Wire(self,'W_Write_Enable_CB_OB',1)
+
+        # -------------------------
+        # Interrupt wires
+        # -------------------------
+        # Entrance signal: MainFSM pulses this to hand off to InterruptFSM
+        # (see ControlBox — InterruptFSM.Interrupt_Done now really is wired
+        # back to MainFSM internally, no external stub needed anymore).
+        self.W_Interrupt_Entrance_CB = py4hw.Wire(self, 'W_Interrupt_Entrance_CB', 1)
+
+        # InterruptFSM's direct SREG-I-flag override, to MemoryInterfaceHandler.
+        self.W_I_Force_WE_CB_MIH = py4hw.Wire(self, 'W_I_Force_WE_CB_MIH', 1)
+        self.W_I_Force_Value_CB_MIH = py4hw.Wire(self, 'W_I_Force_Value_CB_MIH', 1)
 
 
         # -------------------------
@@ -176,6 +204,7 @@ class multicycleProcessor(py4hw.Logic):
             RH_SPM_req=self.W_SPM_req_CB_RH,
             RH_R0_BUFFER_IN=self.W_R0_BUFFER_IN_MIH_RH,
             RH_R1_BUFFER_IN=self.W_R1_BUFFER_IN_MIH_RH,
+            RH_SPM_Done=self.W_SPM_Done_RH_CB,
         )
 
         self.decoder = Instruction_decoder(
@@ -234,6 +263,10 @@ class multicycleProcessor(py4hw.Logic):
             CB_LOAD_PCH=self.W_LOAD_PCH_CB_RH,      
             CB_LPM_req=self.W_LPM_req_CB_RH,
             CB_SPM_req=self.W_SPM_req_CB_RH,
+            CB_SPM_Done=self.W_SPM_Done_RH_CB,
+            CB_Interrupt_Entrance=self.W_Interrupt_Entrance_CB,
+            CB_I_Force_WE=self.W_I_Force_WE_CB_MIH,
+            CB_I_Force_Value=self.W_I_Force_Value_CB_MIH,
         )
 
         self.operand_buffer = OperandBuffer(
@@ -319,4 +352,13 @@ class multicycleProcessor(py4hw.Logic):
             R1_BUFFER_OUT= self.W_R1_BUFFER_IN_MIH_RH,
             ROM_VAL_IN=self.W_WriteVal_RH_MIH,
             ROM_VAL_OUT=self.W_ReadVal_RH_MIH,
+            #---- Interrupts ----
+            # Drive the CPU's external Interrupt_Enable pin straight from
+            # MemoryInterfaceHandler's own SREG bit 7 — it already owns the
+            # committed SREG register, so it's the natural source for this
+            # instead of a separate tap elsewhere.
+            I_Flag_Out=self.Interrupt_Enable,
+            I_Force_WE=self.W_I_Force_WE_CB_MIH,
+            I_Force_Value=self.W_I_Force_Value_CB_MIH,
+            Bus_Passthrough_Ranges=Bus_Passthrough_Ranges,
         )

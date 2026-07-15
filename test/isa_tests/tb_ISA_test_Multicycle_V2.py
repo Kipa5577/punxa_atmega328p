@@ -131,7 +131,7 @@ def runTest(file):
 
     # Multicycle processor takes multiple clock cycles per instruction.
     # Use a generous overall limit to catch ACTUAL infinite loops.
-    step_limit = 10000
+    step_limit = 1000
     step_count = 0
 
     while (cpu.pc != symbols['end']):

@@ -73,14 +73,14 @@ STATES = [
     "STATE_FETCH_OP2_REQ", "STATE_FETCH_OP2_WAIT",
     "STATE_FETCH_REQ","STATE_MEM_WAIT",
     # CALL/RET
-    "STATE_CALL_PUSH_H","STATE_CALL_PUSH_L",
-    "STATE_RET_POP_L","STATE_RET_POP_H",
+    "STATE_CALL_PUSH_H_REQ","STATE_CALL_PUSH_H","STATE_CALL_PUSH_L",
+    "STATE_RET_POP_L_REQ","STATE_RET_POP_L","STATE_RET_POP_H",
     # Indirect load/store , LPM
     "STATE_INDIRECT_LOAD","STATE_INDIRECT_STORE",
     "STATE_LPM_REQ","STATE_LPM_WAIT",
     "STATE_SPM_WRITE_REQ","STATE_SPM_WRITE_WAIT",
     # I/O bit read-modify-write
-    "STATE_IO_BIT_READ","STATE_IO_BIT_WRITE",
+    "STATE_IO_BIT_READ","STATE_IO_BIT_WRITE_REQ","STATE_IO_BIT_WRITE",
     # SKIP
     "STATE_SKIP_FETCH_REQ","STATE_SKIP_FETCH_WAIT"
 ]
@@ -91,38 +91,9 @@ TWO_WORD_OPS = {"JMP", "CALL", "LDS", "STS"}
 # ptr register (X/Y/Z) -> index of its LOW byte in the register file
 PTR_LOW = {'X': 26, 'Y': 28, 'Z': 30}
 
-# opcode -> (pointer register, addressing mode, direction)
-#   mode: 'none' | 'post_inc' | 'pre_dec' | 'offset_q'
-#   direction: 'load' | 'store'
-INDIRECT_TABLE = {
-    'LDX':  ('X', 'none',     'load'),
-    'LDX+': ('X', 'post_inc', 'load'),
-    'LD-X': ('X', 'pre_dec',  'load'),
-    'LDY':  ('Y', 'none',     'load'),
-    'LDY+': ('Y', 'post_inc', 'load'),
-    'LD-Y': ('Y', 'pre_dec',  'load'),
-    'LDDY': ('Y', 'offset_q', 'load'),
-    'LDZ':  ('Z', 'none',     'load'),
-    'LDZ+': ('Z', 'post_inc', 'load'),
-    'LD-Z': ('Z', 'pre_dec',  'load'),
-    'LDDZ': ('Z', 'offset_q', 'load'),
-
-    'STX':  ('X', 'none',     'store'),
-    'STX+': ('X', 'post_inc', 'store'),
-    'ST-X': ('X', 'pre_dec',  'store'),
-    'STY':  ('Y', 'none',     'store'),
-    'STY+': ('Y', 'post_inc', 'store'),
-    'ST-Y': ('Y', 'pre_dec',  'store'),
-    'STDY': ('Y', 'offset_q', 'store'),
-    'STZ':  ('Z', 'none',     'store'),
-    'STZ+': ('Z', 'post_inc', 'store'),
-    'ST-Z': ('Z', 'pre_dec',  'store'),
-    'STDZ': ('Z', 'offset_q', 'store'),
-}
-
 
 class MultyCycleATmega328P_V2(py4hw.Logic):
-    def __init__(self,parent, name:str , ins_mem:MemoryInterface,memory:MemoryInterface, reset_address, Interrupt=None, reset=None):#INT0,INT1,PCINT0,PCINT1,PCINT2,WDT,TIMER2_COMPA,TIMER2_COMPB,TIMER2_OVF,TIMER1_CAPT,TIMER1_COMPA,TIMER1_COMPB,TIMER1_OVF,TIMER0_COMPA,TIMER0_COMPB,TIMER0_OVF,SPI_STC,USART_RX,USART_UDRE,USART_TX,ADC,EE_READY,ANALOG_COMP,TWI,SPM_READY):
+    def __init__(self,parent, name:str , ins_mem:MemoryInterface,memory:MemoryInterface, reset_address, Interrupt=None, reset=None):
         super().__init__(parent,name)
 
         assert(ins_mem.read_data.getWidth() == 16)
@@ -207,7 +178,9 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
         self.state = "STATE_RESET"
         self.reset_address = reset_address
 
-        # generic data-memory engine context
+        # generic data-memory engine context (shared by the STATE_FETCH_REQ /
+        # STATE_MEM_WAIT bus-transaction states in clock(); each memory
+        # instruction's case in execute() fills these fields directly)
         self.mem_dir = None
         self.mem_addr = 0
         self.mem_wdata = 0
@@ -216,7 +189,9 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
         self.mem_next_state = "FETCH_INSTRUCTION"
         self.mem_on_complete = None
 
-        # push/pop engine context
+        # push/pop engine context (shared by the STATE_CALL_PUSH_* /
+        # STATE_RET_POP_* states in clock(); each instruction's case in
+        # execute() fills these fields directly)
         self.push_lo = 0
         self.push_hi = 0
         self.push_two_bytes = False
@@ -332,6 +307,8 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                         data = self.mem.read_data.get()
                         if self.mem_dest_reg is not None:
                             self.reg[self.mem_dest_reg] = data & 0xFF
+                    self.mem.read.prepare(0)
+                    self.mem.write.prepare(0)
                     self.mem.instype.prepare(0)
 
                     self.pc += self.mem_words
@@ -358,14 +335,29 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.mem.write_data.prepare(self.push_lo)
                 if self.mem.resp.get() == 1:
                     if self.push_two_bytes:
-                        self.state = "STATE_CALL_PUSH_H"
+                        # settle cycle: the address/write-data change from the
+                        # low-byte write to the high-byte write, so give the
+                        # bus a dedicated request-only cycle before sampling
+                        # resp again - checking resp in the same cycle the
+                        # address changes would still reflect the low-byte
+                        # write's (stale) response.
+                        self.state = "STATE_CALL_PUSH_H_REQ"
                     else:
+                        self.mem.write.prepare(0)
                         newSP = (self.push_sp - 1) & 0xFFFF
                         self.SPH = (newSP >> 8) & 0xFF
                         self.SPL = newSP & 0xFF
                         if self.push_after_pc is not None:
                             self.pc = self.push_after_pc
                         self.state = self.push_next_state
+
+            case "STATE_CALL_PUSH_H_REQ":
+                addr = (self.push_sp - 1) & 0xFFFF
+                self.mem.write.prepare(1)
+                self.mem.read.prepare(0)
+                self.mem.address.prepare(addr)
+                self.mem.write_data.prepare(self.push_hi)
+                self.state = "STATE_CALL_PUSH_H"
 
             case "STATE_CALL_PUSH_H":
                 addr = (self.push_sp - 1) & 0xFFFF
@@ -374,6 +366,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.mem.address.prepare(addr)
                 self.mem.write_data.prepare(self.push_hi)
                 if self.mem.resp.get() == 1:
+                    self.mem.write.prepare(0)
                     newSP = (self.push_sp - 2) & 0xFFFF
                     self.SPH = (newSP >> 8) & 0xFF
                     self.SPL = newSP & 0xFF
@@ -391,10 +384,31 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                     data = self.mem.read_data.get()
                     self.pop_count += 1
                     if self.pop_num_bytes == 1:
-                        self._pop_finish(data, None)
+                        # ---- inlined single-byte pop finish (POP Rd) ----
+                        self.mem.read.prepare(0)
+                        new_sp = (self.pop_base_sp + self.pop_count) & 0xFFFF
+                        self.SPH = (new_sp >> 8) & 0xFF
+                        self.SPL = new_sp & 0xFF
+                        if self.pop_dest_reg is not None:
+                            self.reg[self.pop_dest_reg] = data & 0xFF
+                        self.pc += 1
+                        if self.pop_extra is not None:
+                            self.pop_extra()
+                        self.state = self.pop_next_state
                     else:
                         self.pop_byte1 = data
-                        self.state = "STATE_RET_POP_L"
+                        # settle cycle: same reasoning as STATE_CALL_PUSH_H_REQ
+                        # above - the address is about to change from the
+                        # high-byte to the low-byte location, so give the bus
+                        # a dedicated request-only cycle first.
+                        self.state = "STATE_RET_POP_L_REQ"
+
+            case "STATE_RET_POP_L_REQ":
+                addr = (self.pop_base_sp + self.pop_count + 1) & 0xFFFF
+                self.mem.read.prepare(1)
+                self.mem.write.prepare(0)
+                self.mem.address.prepare(addr)
+                self.state = "STATE_RET_POP_L"
 
             case "STATE_RET_POP_L":
                 addr = (self.pop_base_sp + self.pop_count + 1) & 0xFFFF
@@ -404,7 +418,20 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 if self.mem.resp.get() == 1:
                     data = self.mem.read_data.get()
                     self.pop_count += 1
-                    self._pop_finish(self.pop_byte1, data)
+                    # ---- inlined two-byte pop finish (RET/RETI) ----
+                    self.mem.read.prepare(0)
+                    new_sp = (self.pop_base_sp + self.pop_count) & 0xFFFF
+                    self.SPH = (new_sp >> 8) & 0xFF
+                    self.SPL = new_sp & 0xFF
+                    if self.pop_dest_is_pc:
+                        self.pc = ((self.pop_byte1 & 0xFF) << 8) | (data & 0xFF)
+                    else:
+                        if self.pop_dest_reg is not None:
+                            self.reg[self.pop_dest_reg] = self.pop_byte1 & 0xFF
+                        self.pc += 1
+                    if self.pop_extra is not None:
+                        self.pop_extra()
+                    self.state = self.pop_next_state
 
             # ---------------- LPM ENGINE ----------------
             case "STATE_LPM_REQ":
@@ -430,8 +457,11 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                         self.reg[30] = newaddr & 0xFF
                         self.reg[31] = (newaddr >> 8) & 0xFF
 
+                    self.ins_mem.read.prepare(0)
                     self.pc += 1
                     self.state = "FETCH_INSTRUCTION"
+                    suffix = '+' if self.lpm_postinc else ''
+                    print(f'LPM R{self.lpm_dest}, Z{suffix}\t\tR{self.lpm_dest}={self.reg[self.lpm_dest]:02X} [Z]={self.lpm_addr:04X}')
 
             # ---------------- SPM WRITE ENGINE (page erase / page write) ----------------
             # Writes one word per REQ/WAIT pair to program memory over the
@@ -477,23 +507,38 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                     bitval = (val >> self.io_bit) & 0b1
 
                     if self.io_op == 'SBI':
+                        self.mem.read.prepare(0)
                         self.io_val = val | (1 << self.io_bit)
-                        self.state = "STATE_IO_BIT_WRITE"
+                        self.state = "STATE_IO_BIT_WRITE_REQ"
+                        print(f'SBI {self.io_addr:02X}, {self.io_bit}\t\t[{self.io_addr:04X}]={self.io_val & 0xFF:02X}')
                     elif self.io_op == 'CBI':
+                        self.mem.read.prepare(0)
                         self.io_val = val & ~(1 << self.io_bit)
-                        self.state = "STATE_IO_BIT_WRITE"
+                        self.state = "STATE_IO_BIT_WRITE_REQ"
+                        print(f'CBI {self.io_addr:02X}, {self.io_bit}\t\t[{self.io_addr:04X}]={self.io_val & 0xFF:02X}')
                     elif self.io_op == 'SBIC':
+                        self.mem.read.prepare(0)
                         if bitval == 0:
                             self.state = "STATE_SKIP_FETCH_REQ"
                         else:
                             self.pc += 1
                             self.state = "FETCH_INSTRUCTION"
+                        print(f'SBIC {self.io_addr:02X}, {self.io_bit}\t\tskip={bitval == 0}')
                     elif self.io_op == 'SBIS':
+                        self.mem.read.prepare(0)
                         if bitval == 1:
                             self.state = "STATE_SKIP_FETCH_REQ"
                         else:
                             self.pc += 1
                             self.state = "FETCH_INSTRUCTION"
+                        print(f'SBIS {self.io_addr:02X}, {self.io_bit}\t\tskip={bitval == 1}')
+
+            case "STATE_IO_BIT_WRITE_REQ":
+                self.mem.write.prepare(1)
+                self.mem.read.prepare(0)
+                self.mem.address.prepare(self.io_addr)
+                self.mem.write_data.prepare(self.io_val & 0xFF)
+                self.state = "STATE_IO_BIT_WRITE"
 
             case "STATE_IO_BIT_WRITE":
                 self.mem.write.prepare(1)
@@ -501,6 +546,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.mem.address.prepare(self.io_addr)
                 self.mem.write_data.prepare(self.io_val & 0xFF)
                 if self.mem.resp.get() == 1:
+                    self.mem.write.prepare(0)
                     self.pc += 1
                     self.state = "FETCH_INSTRUCTION"
 
@@ -523,9 +569,9 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                     self.state = "FETCH_INSTRUCTION"
 
     # -----------------------------------------------------------------
-    # Generic engine helpers - called from inside execute()
+    # data-space address (LS view) -> internal attribute name, for the
+    # CPU-internal I/O registers that are serviced without a bus transaction
     # -----------------------------------------------------------------
-    # data-space address (LS view) -> internal attribute name
     INTERNAL_IO_REGS = {
         0x54: 'MCUSR',
         0x55: 'MCUCR',
@@ -536,156 +582,12 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
         0x60: 'WDTCSR',
     }
 
-    def mem_read_start(self, address, dest_reg, words=1, next_state="FETCH_INSTRUCTION", on_complete=None):
-        address &= 0xFFFF
-
-        # CPU-internal I/O registers: service without a bus transaction.
-        if address in self.INTERNAL_IO_REGS:
-            if dest_reg is not None:
-                self.reg[dest_reg] = getattr(self, self.INTERNAL_IO_REGS[address]) & 0xFF
-            self.pc += words
-            if on_complete is not None:
-                on_complete()
-            self.state = next_state
-            return
-
-        # Addresses 0-31 alias the CPU's own register file (R0-R31). The
-        # register file lives inside the CPU (self.reg), not on the external
-        # data bus, so LD/LDS/etc. targeting this range are serviced
-        # internally in a single cycle instead of starting a bus transaction.
-        if address < 32:
-            if dest_reg is not None:
-                self.reg[dest_reg] = self.reg[address] & 0xFF
-            self.pc += words
-            if on_complete is not None:
-                on_complete()
-            self.state = next_state
-            return
-
-        self.mem_dir = 'read'
-        self.mem_addr = address
-        self.mem_dest_reg = dest_reg
-        self.mem_words = words
-        self.mem_next_state = next_state
-        self.mem_on_complete = on_complete
-        self.state = "STATE_FETCH_REQ"
-
-    def mem_write_start(self, address, data, words=1, next_state="FETCH_INSTRUCTION", on_complete=None):
-        address &= 0xFFFF
-
-        # CPU-internal I/O registers: service without a bus transaction.
-        if address in self.INTERNAL_IO_REGS:
-            setattr(self, self.INTERNAL_IO_REGS[address], data & 0xFF)
-            self.pc += words
-            if on_complete is not None:
-                on_complete()
-            self.state = next_state
-            return
-
-        # Same short-circuit as mem_read_start, for ST/STS/etc. writes that
-        # target the register file instead of external SRAM.
-        if address < 32:
-            self.reg[address] = data & 0xFF
-            self.pc += words
-            if on_complete is not None:
-                on_complete()
-            self.state = next_state
-            return
-
-        self.mem_dir = 'write'
-        self.mem_addr = address
-        self.mem_wdata = data & 0xFF
-        self.mem_dest_reg = None
-        self.mem_words = words
-        self.mem_next_state = next_state
-        self.mem_on_complete = on_complete
-        self.state = "STATE_FETCH_REQ"
-
-    def indirect_start(self, ptr, mode, direction, reg_idx):
-        """Compute the effective address for a LD*/ST* indirect addressing
-        mode (pre-decrement / post-increment / +q offset), apply any
-        pre-decrement immediately (as real AVR hardware does), then hand the
-        actual byte transfer off to the generic memory engine. Post-increment
-        is applied as an on_complete callback once the transfer finishes."""
-        lo = PTR_LOW[ptr]
-        hi = lo + 1
-        addr = (self.reg[lo] & 0xFF) | ((self.reg[hi] & 0xFF) << 8)
-
-        if mode == 'pre_dec':
-            addr = (addr - 1) & 0xFFFF
-            self.reg[lo] = addr & 0xFF
-            self.reg[hi] = (addr >> 8) & 0xFF
-        elif mode == 'offset_q':
-            q = (self.ins & 0b111) | (((self.ins >> 10) & 0b11) << 3) | (((self.ins >> 13) & 0b1) << 5)
-            addr = (addr + q) & 0xFFFF
-
-        def post_inc():
-            if mode == 'post_inc':
-                newaddr = (addr + 1) & 0xFFFF
-                self.reg[lo] = newaddr & 0xFF
-                self.reg[hi] = (newaddr >> 8) & 0xFF
-
-        if direction == 'load':
-            self.state = "STATE_INDIRECT_LOAD"
-            self.mem_read_start(addr, dest_reg=reg_idx, on_complete=post_inc)
-        else:
-            self.state = "STATE_INDIRECT_STORE"
-            self.mem_write_start(addr, self.reg[reg_idx] & 0xFF, on_complete=post_inc)
-
-    def push_start(self, value16=None, value8=None, next_state="FETCH_INSTRUCTION", after_push_pc=None):
-        """1 byte push (PUSH Rr) or 2 byte push (return address for
-        CALL/RCALL/ICALL). Mirrors real AVR ordering: low byte stored first
-        at SP, high byte stored second at SP-1, SP -= 2 at the end."""
-        SP = ((self.SPH & 0xFF) << 8) | (self.SPL & 0xFF)
-        self.push_sp = SP
-        self.push_next_state = next_state
-        self.push_after_pc = after_push_pc
-        if value16 is not None:
-            self.push_lo = value16 & 0xFF
-            self.push_hi = (value16 >> 8) & 0xFF
-            self.push_two_bytes = True
-        else:
-            self.push_lo = value8 & 0xFF
-            self.push_two_bytes = False
-        self.state = "STATE_CALL_PUSH_L"
-
-    def pop_start(self, num_bytes, dest_reg=None, dest_is_pc=False, next_state="FETCH_INSTRUCTION", extra_on_complete=None):
-        """1 byte pop (POP Rd) or 2 byte pop (return address for RET/RETI).
-        Mirrors real AVR ordering: first byte read is the "high" part
-        (SP+1), second byte read is the "low" part (SP+2); SP += num_bytes
-        at the end."""
-        self.pop_num_bytes = num_bytes
-        self.pop_dest_reg = dest_reg
-        self.pop_dest_is_pc = dest_is_pc
-        self.pop_next_state = next_state
-        self.pop_extra = extra_on_complete
-        self.pop_base_sp = ((self.SPH & 0xFF) << 8) | (self.SPL & 0xFF)
-        self.pop_count = 0
-        self.state = "STATE_RET_POP_H"
-
-    def _pop_finish(self, byte1, byte2):
-        new_sp = (self.pop_base_sp + self.pop_count) & 0xFFFF
-        self.SPH = (new_sp >> 8) & 0xFF
-        self.SPL = new_sp & 0xFF
-
-        if self.pop_dest_is_pc:
-            self.pc = ((byte1 & 0xFF) << 8) | (byte2 & 0xFF)
-        else:
-            if self.pop_dest_reg is not None:
-                self.reg[self.pop_dest_reg] = byte1 & 0xFF
-            self.pc += 1
-
-        if self.pop_extra is not None:
-            self.pop_extra()
-
-        self.state = self.pop_next_state
-
     def execute(self):
         # self.opp was already decoded in WAIT_FETCH_INSTRUCTION
         match self.opp: 
             case 'ADD':
-                self.Rr = ((self.ins>>9)&0b1)<<4|(self.ins & 0xF)
-                self.Rd = ((self.ins>>8)&0b1)<<4|((self.ins>>4) & 0xF)
+                self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
+                self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
                 self.res = (self.reg[self.Rd] + self.reg[self.Rr]) &0xFF
 
                 Rd7= ((self.reg[self.Rd]&0xFF)>>7)&0b1
@@ -732,6 +634,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd] =  self.res
 
                 self.pc += 1
+                print(f'ADD R{self.Rd}, R{self.Rr}\t\tR{self.Rd}={self.res:02X}\t{self.SREG:08b}')
             case 'ADC': # there may be a problem with this but I don't know what is the problem
 
                 self.Rr = ((self.ins>>9)&0b1)<<4|(self.ins & 0xF)
@@ -789,6 +692,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd] = self.res & 0xFF
 
                 self.pc += 1
+                print(f'ADC R{self.Rd}, R{self.Rr}\t\tR{self.Rd}={self.reg[self.Rd]:02X}\t{self.SREG:08b}')
             case 'ADIW':
                 self.K = (((self.ins>>6)&0b11)<<4)|(self.ins & 0xF)
                 self.Rd = 24 + (((self.ins >> 4) & 0b11) * 2)
@@ -829,6 +733,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd+1] =  (self.res>>8) & 0xFF
 
                 self.pc += 1
+                print(f'ADIW R{self.Rd+1}:R{self.Rd}, {self.K}\t\tR{self.Rd+1}:R{self.Rd}={self.res & 0xFFFF:04X}\t{self.SREG:08b}')
             case 'SUB':
 
                 self.Rr = ((self.ins>>9)&0b1)<<4|(self.ins & 0xF)
@@ -881,6 +786,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd] =  self.res & 0xFF
 
                 self.pc += 1
+                print(f'SUB R{self.Rd}, R{self.Rr}\t\tR{self.Rd}={self.reg[self.Rd]:02X}\t{self.SREG:08b}')
             case 'SUBI':
                 self.K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
                 self.Rd = 16 + ((self.ins >> 4) & 0xF)
@@ -933,6 +839,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd] =  self.res & 0xFF
 
                 self.pc += 1
+                print(f'SUBI R{self.Rd}, {self.K}\t\tR{self.Rd}={self.reg[self.Rd]:02X}\t{self.SREG:08b}')
             case 'SBC':
                 self.Rr = ((self.ins>>9)&0b1)<<4|(self.ins & 0xF)
                 self.Rd = ((self.ins>>8)&0b1)<<4|((self.ins>>4) & 0xF)
@@ -983,6 +890,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
 
                 self.reg[self.Rd] =  self.res & 0xFF
                 self.pc += 1
+                print(f'SBC R{self.Rd}, R{self.Rr}\t\tR{self.Rd}={self.reg[self.Rd]:02X}\t{self.SREG:08b}')
             case 'SBCI':
                 self.K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
                 self.Rd = ((self.ins>>4) & 0xF) + 16
@@ -1033,6 +941,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
 
                 self.reg[self.Rd] =  self.res & 0xFF
                 self.pc += 1
+                print(f'SBCI R{self.Rd}, {self.K}\t\tR{self.Rd}={self.reg[self.Rd]:02X}\t{self.SREG:08b}')
             case 'SBIW':
                 self.K = (((self.ins>>6)&0b11)<<4)|(self.ins & 0xF)
                 self.Rd = 24 + (((self.ins>>4)&0b11) * 2)
@@ -1074,6 +983,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd+1] = (self.res>>8)&0xFF 
 
                 self.pc += 1
+                print(f'SBIW R{self.Rd+1}:R{self.Rd}, {self.K}\t\tR{self.Rd+1}:R{self.Rd}={self.res & 0xFFFF:04X}\t{self.SREG:08b}')
             case 'AND':
                 self.Rr = ((self.ins>>9)&0b1)<<4|(self.ins & 0xF)
                 self.Rd = ((self.ins>>8)&0b1)<<4|((self.ins>>4) & 0xF)
@@ -1104,6 +1014,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd] =  self.res
 
                 self.pc += 1
+                print(f'AND R{self.Rd}, R{self.Rr}\t\tR{self.Rd}={self.res:02X}\t{self.SREG:08b}')
             case 'ANDI':
                 self.K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
                 self.Rd = ((self.ins>>4) & 0xF) + 16
@@ -1133,6 +1044,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
 
                 self.reg[self.Rd] =  self.res
                 self.pc += 1
+                print(f'ANDI R{self.Rd}, {self.K}\t\tR{self.Rd}={self.res:02X}\t{self.SREG:08b}')
             case 'OR':
                 self.Rr = ((self.ins>>9)&0b1)<<4|(self.ins & 0xF)
                 self.Rd = ((self.ins>>8)&0b1)<<4|((self.ins>>4) & 0xF)
@@ -1164,6 +1076,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd] =  self.res
 
                 self.pc += 1
+                print(f'OR R{self.Rd}, R{self.Rr}\t\tR{self.Rd}={self.res:02X}\t{self.SREG:08b}')
             case 'ORI':
                 self.K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
                 self.Rd = ((self.ins>>4) & 0xF) + 16
@@ -1192,6 +1105,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
 
                 self.reg[self.Rd] =  self.res
                 self.pc += 1
+                print(f'ORI R{self.Rd}, {self.K}\t\tR{self.Rd}={self.res:02X}\t{self.SREG:08b}')
             case 'EOR':
                 self.Rr = ((self.ins>>9)&0b1)<<4|(self.ins & 0xF)
                 self.Rd = ((self.ins>>8)&0b1)<<4|((self.ins>>4) & 0xF)
@@ -1221,6 +1135,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd] =  self.res
 
                 self.pc += 1
+                print(f'EOR R{self.Rd}, R{self.Rr}\t\tR{self.Rd}={self.res:02X}\t{self.SREG:08b}')
             case 'COM':
                 self.Rd = ((self.ins>>4) & 0x1F)
                 self.res = 0xFF - self.reg[self.Rd] 
@@ -1250,6 +1165,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd] =  self.res
 
                 self.pc += 1
+                print(f'COM R{self.Rd}\t\tR{self.Rd}={self.res:02X}\t{self.SREG:08b}')
             case 'NEG':
                 self.Rd = ((self.ins>>4) & 0x1F)
                 self.res = (0x00 - self.reg[self.Rd]) & 0xFF 
@@ -1293,6 +1209,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
 
                 self.reg[self.Rd] =  self.res
                 self.pc += 1
+                print(f'NEG R{self.Rd}\t\tR{self.Rd}={self.res:02X}\t{self.SREG:08b}')
             case 'SBR':
                 self.K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
                 self.Rd = ((self.ins>>4) & 0xF) + 16
@@ -1321,6 +1238,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
 
                 self.reg[self.Rd] =  self.res
                 self.pc += 1
+                print(f'SBR R{self.Rd}, {self.K}\t\tR{self.Rd}={self.res:02X}\t{self.SREG:08b}')
             case 'CBR':
                 self.K =  ((self.ins>>4)&0xF0)|(self.ins&0xF)
                 self.Rd = ((self.ins>>4) & 0xF) + 16
@@ -1347,6 +1265,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
 
                 self.reg[self.Rd] =  self.res 
                 self.pc += 1
+                print(f'CBR R{self.Rd}, {self.K}\t\tR{self.Rd}={self.res:02X}\t{self.SREG:08b}')
             case 'INC':
                 self.Rd = ((self.ins>>4) & 0x1F)
                 self.res = (self.reg[self.Rd] + 1) & 0xFF
@@ -1381,6 +1300,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
 
                 self.reg[self.Rd] =  self.res 
                 self.pc += 1
+                print(f'INC R{self.Rd}\t\tR{self.Rd}={self.res:02X}\t{self.SREG:08b}')
             case 'DEC':
                 self.Rd = ((self.ins>>4) & 0x1F)
                 self.res = (self.reg[self.Rd] - 1) & 0xFF
@@ -1412,12 +1332,14 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
 
                 self.reg[self.Rd] =  self.res
                 self.pc += 1
+                print(f'DEC R{self.Rd}\t\tR{self.Rd}={self.res:02X}\t{self.SREG:08b}')
             case 'SER':
                 self.Rd = ((self.ins>>4)&0b1111) + 16
                 self.reg[self.Rd] = 0xFF
         
 
                 self.pc +=1 
+                print(f'SER R{self.Rd}\t\tR{self.Rd}={self.reg[self.Rd]:02X}\t{self.SREG:08b}')
             case 'MUL':
                 self.Rr = ((self.ins>>9)&0b1)<<4|(self.ins & 0xF)
                 self.Rd = ((self.ins>>8)&0b1)<<4|((self.ins>>4) & 0xF)
@@ -1439,6 +1361,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[0] = self.res & 0xFF
 
                 self.pc += 1
+                print(f'MUL R{self.Rd}, R{self.Rr}\t\tR1:R0={self.res & 0xFFFF:04X}\t{self.SREG:08b}')
             case 'MULS': 
                 self.Rr = (self.ins & 0xF) + 16
                 self.Rd = ((self.ins>>4) & 0xF) + 16
@@ -1469,6 +1392,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[0]= self.res & 0xFF
 
                 self.pc += 1
+                print(f'MULS R{self.Rd}, R{self.Rr}\t\tR1:R0={self.res & 0xFFFF:04X}\t{self.SREG:08b}')
             case 'MULSU':
                 self.Rr = (self.ins & 0b111) + 16
                 self.Rd = ((self.ins>>4) & 0b111) + 16
@@ -1497,6 +1421,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[0]= self.res & 0xFF
 
                 self.pc += 1
+                print(f'MULSU R{self.Rd}, R{self.Rr}\t\tR1:R0={self.res & 0xFFFF:04X}\t{self.SREG:08b}')
             case 'FMUL':
                 self.Rr = (self.ins & 0b111) + 16
                 self.Rd = ((self.ins>>4) & 0b111) + 16
@@ -1520,6 +1445,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[0]= self.res & 0xFF
 
                 self.pc += 1
+                print(f'FMUL R{self.Rd}, R{self.Rr}\t\tR1:R0={self.res & 0xFFFF:04X}\t{self.SREG:08b}')
             case 'FMULS': 
                 self.Rr = (self.ins & 0b111) + 16
                 self.Rd = ((self.ins>>4) & 0b111) + 16
@@ -1551,6 +1477,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[0]= self.res & 0xFF
 
                 self.pc += 1
+                print(f'FMULS R{self.Rd}, R{self.Rr}\t\tR1:R0={self.res & 0xFFFF:04X}\t{self.SREG:08b}')
             case 'FMULSU':
                 self.Rr = (self.ins & 0b111) + 16 
                 self.Rd = ((self.ins>>4) & 0b111) + 16
@@ -1581,16 +1508,22 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[0]= self.res & 0xFF
 
                 self.pc += 1
+                print(f'FMULSU R{self.Rd}, R{self.Rr}\t\tR1:R0={self.res & 0xFFFF:04X}\t{self.SREG:08b}')
             case 'RJMP':
                 self.K = self.ins & 0xFFF
                 if self.K & 0x800:
                     self.K -= 0x1000   # sign-extend 12-bit two's complement
                 self.pc = (self.pc + self.K + 1) & 0xFFFF
+                soff = self.K
+                print(f'RJMP {soff}')
             case 'IJMP':
                 self.pc  = (self.reg[30]&0xFF) | ((self.reg[31]&0xFF)<<8)
+                print(f'IJMP {self.pc:04X}')
             case 'JMP':
                 self.K = (((self.ins>>4)&0x1F)<<17)|((self.ins&0b1)<<16)|self.ins2
                 self.pc = self.K
+                add = self.K
+                print(f'JMP {add:04X}')
             case 'RCALL':
                 self.K = self.ins&0xFFF
                 #handeling negative K numbers
@@ -1599,21 +1532,85 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
 
                 ret_addr = (self.pc + 1) & 0xFFFF
                 target = (self.pc + self.K + 1) & 0xFFFF
-                self.push_start(value16=ret_addr, after_push_pc=target)
+
+                # ---- inlined push_start(value16=ret_addr, after_push_pc=target) ----
+                SP = ((self.SPH & 0xFF) << 8) | (self.SPL & 0xFF)
+                self.push_sp = SP
+                self.push_next_state = "FETCH_INSTRUCTION"
+                self.push_after_pc = target
+                self.push_lo = ret_addr & 0xFF
+                self.push_hi = (ret_addr >> 8) & 0xFF
+                self.push_two_bytes = True
+                self.state = "STATE_CALL_PUSH_L"
+
+                K = self.ins & 0xFFF
+                ra = ret_addr
+                self.SP = (SP - 2) & 0xFFFF
+                print(f'RCALL {K:03X}\t\t[{(self.SP+2)&0xFFFF:04X}]={(ra>>8):02X} [{(self.SP+1)&0xFFFF:04X}]={ra&0xFF:02X}')
             case 'ICALL':
                 target = (self.reg[30]&0xFF) | ((self.reg[31]&0xFF)<<8)
                 ret_addr = (self.pc + 1) & 0xFFFF
-                self.push_start(value16=ret_addr, after_push_pc=target)
+
+                # ---- inlined push_start(value16=ret_addr, after_push_pc=target) ----
+                SP = ((self.SPH & 0xFF) << 8) | (self.SPL & 0xFF)
+                self.push_sp = SP
+                self.push_next_state = "FETCH_INSTRUCTION"
+                self.push_after_pc = target
+                self.push_lo = ret_addr & 0xFF
+                self.push_hi = (ret_addr >> 8) & 0xFF
+                self.push_two_bytes = True
+                self.state = "STATE_CALL_PUSH_L"
+
+                ra = ret_addr
+                self.SP = (SP - 2) & 0xFFFF
+                print(f'ICALL\t\t\t[{(self.SP+2)&0xFFFF:04X}]={(ra>>8):02X} [{(self.SP+1)&0xFFFF:04X}]={ra&0xFF:02X}')
             case 'CALL':
                 target = (((self.ins>>4)&0x1F)<<17)|((self.ins&0b1)<<16)|self.ins2
                 ret_addr = (self.pc + 2) & 0xFFFF
-                self.push_start(value16=ret_addr, after_push_pc=target)
+
+                # ---- inlined push_start(value16=ret_addr, after_push_pc=target) ----
+                SP = ((self.SPH & 0xFF) << 8) | (self.SPL & 0xFF)
+                self.push_sp = SP
+                self.push_next_state = "FETCH_INSTRUCTION"
+                self.push_after_pc = target
+                self.push_lo = ret_addr & 0xFF
+                self.push_hi = (ret_addr >> 8) & 0xFF
+                self.push_two_bytes = True
+                self.state = "STATE_CALL_PUSH_L"
+
+                add = target
+                ra = ret_addr
+                self.SP = (SP - 2) & 0xFFFF
+                print(f'CALL {add:04X}\t\t[{(self.SP+2)&0xFFFF:04X}]={(ra>>8):02X} [{(self.SP+1)&0xFFFF:04X}]={ra&0xFF:02X}')
             case 'RET':
-                self.pop_start(num_bytes=2, dest_is_pc=True)
+                # ---- inlined pop_start(num_bytes=2, dest_is_pc=True) ----
+                self.pop_num_bytes = 2
+                self.pop_dest_reg = None
+                self.pop_dest_is_pc = True
+                self.pop_next_state = "FETCH_INSTRUCTION"
+                self.pop_extra = None
+                self.pop_base_sp = ((self.SPH & 0xFF) << 8) | (self.SPL & 0xFF)
+                self.pop_count = 0
+                self.state = "STATE_RET_POP_H"
+
+                self.SP = (self.pop_base_sp + 2) & 0xFFFF
+                print(f'RET\t\t\t\t[{self.SPH_addr_LS:04X}]={(self.SP>>8):02X} [{self.SPL_addr_LS:04X}]={(self.SP & 0xFF):02X}')
             case 'RETI':## return from interrupt 
                 def _set_interrupt_flag():
                     self.SREG |= (1<<7)
-                self.pop_start(num_bytes=2, dest_is_pc=True, extra_on_complete=_set_interrupt_flag)
+
+                # ---- inlined pop_start(num_bytes=2, dest_is_pc=True, extra_on_complete=_set_interrupt_flag) ----
+                self.pop_num_bytes = 2
+                self.pop_dest_reg = None
+                self.pop_dest_is_pc = True
+                self.pop_next_state = "FETCH_INSTRUCTION"
+                self.pop_extra = _set_interrupt_flag
+                self.pop_base_sp = ((self.SPH & 0xFF) << 8) | (self.SPL & 0xFF)
+                self.pop_count = 0
+                self.state = "STATE_RET_POP_H"
+
+                self.SP = (self.pop_base_sp + 2) & 0xFFFF
+                print(f'RETI\t\t\t[{self.SPH_addr_LS:04X}]={(self.SP>>8):02X} [{self.SPL_addr_LS:04X}]={(self.SP & 0xFF):02X}')
             case 'CPSE':
                 self.Rr = ((self.ins>>9)&0b1)<<4|(self.ins & 0xF)
                 self.Rd = ((self.ins>>8)&0b1)<<4|((self.ins>>4) & 0xF)
@@ -1622,6 +1619,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                     self.state = "STATE_SKIP_FETCH_REQ"
                 else:
                     self.pc += 1
+                print(f'CPSE R{self.Rd}, R{self.Rr}\t\tskip={self.reg[self.Rr] == self.reg[self.Rd]}')
             case 'CP':
                 self.Rr = ((self.ins>>9)&0b1)<<4|(self.ins & 0xF)
                 self.Rd = ((self.ins>>8)&0b1)<<4|((self.ins>>4) & 0xF)
@@ -1672,6 +1670,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                     self.SREG &= ~(1<<5)
 
                 self.pc += 1
+                print(f'CP R{self.Rd}, R{self.Rr}\t\t{self.SREG:08b}')
             case 'CPC':
                 self.Rr = ((self.ins>>9)&0b1)<<4|(self.ins & 0xF)
                 self.Rd = ((self.ins>>8)&0b1)<<4|((self.ins>>4) & 0xF)
@@ -1722,6 +1721,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                     self.SREG &= ~(1<<5)
 
                 self.pc += 1
+                print(f'CPC R{self.Rd}, R{self.Rr}\t\t{self.SREG:08b}')
             case 'CPI':
                 
                 self.K = (self.ins&0xF)|(((self.ins>>8)&0xF)<<4)
@@ -1784,6 +1784,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
 
 
                 self.pc+=1
+                print(f'CPI R{self.Rd}, {self.K:02X}\t\t{self.SREG:08b}')
             case 'SBRC':
                 b = self.ins&0b111
                 self.A = (self.ins>>4)&0b11111
@@ -1791,6 +1792,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                     self.state = "STATE_SKIP_FETCH_REQ"
                 else:
                     self.pc += 1
+                print(f'SBRC R{self.A}, {b}\t\tskip={(self.reg[self.A]>>b)&1 == 0}')
             case 'SBRS':
                 b = self.ins&0b111
                 self.A = (self.ins>>4)&0b11111
@@ -1798,6 +1800,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                     self.state = "STATE_SKIP_FETCH_REQ"
                 else:
                     self.pc += 1
+                print(f'SBRS R{self.A}, {b}\t\tskip={(self.reg[self.A]>>b)&1 == 1}')
             case 'SBIC':
                 self.io_addr = ((self.ins>>3)&0b11111) + 0x20
                 self.io_bit = self.ins&0b111
@@ -1808,7 +1811,14 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.io_bit = self.ins&0b111
                 self.io_op = 'SBIS'
                 self.state = "STATE_IO_BIT_READ"
-            case 'BRBS':
+            case 'BRBS' | 'BREQ' | 'BRCS' | 'BRMI' | 'BRVS' | 'BRLT' | 'BRHS' | 'BRTS' | 'BRIE':
+                # BRBS and its named aliases (BREQ=Z, BRCS=C, BRMI=N, BRVS=V,
+                # BRLT=S, BRHS=H, BRTS=T, BRIE=I) are all the exact same
+                # encoding - "branch if SREG bit S is set" - just given a
+                # friendlier mnemonic by the disassembler/assembler. The bit
+                # index S to test is already encoded in the instruction word
+                # regardless of which name it decoded to, so all of them are
+                # serviced by this single case.
                 self.K =  (self.ins>>3)&0b1111111 
                 S =  self.ins&0b111
 
@@ -1819,7 +1829,11 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                     self.pc +=  self.K +1
                 else:
                     self.pc += 1 
-            case 'BRBC':
+                print(f'{self.opp} {self.K}\t\ttaken={(self.SREG>>S)&1 == 1}')
+            case 'BRBC' | 'BRNE' | 'BRCC' | 'BRPL' | 'BRVC' | 'BRGE' | 'BRHC' | 'BRTC' | 'BRID':
+                # BRBC and its named aliases (BRNE=Z, BRCC=C, BRPL=N, BRVC=V,
+                # BRGE=S, BRHC=H, BRTC=T, BRID=I) - "branch if SREG bit S is
+                # clear". Same reasoning as the BRBS group above.
                 self.K =  (self.ins>>3)&0b1111111 
                 S =  self.ins&0b111
 
@@ -1830,6 +1844,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                     self.pc += self.K + 1
                 else:
                     self.pc += 1 
+                print(f'{self.opp} {self.K}\t\ttaken={(self.SREG>>S)&1 == 0}')
             case 'SBI': ## set bit in I/O register (read-modify-write)
                 self.io_bit = (self.ins & 0b111)
                 self.io_addr = ((self.ins>>3)&0x1F) + 0x20
@@ -1889,6 +1904,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd] =  self.res
 
                 self.pc += 1
+                print(f'LSL R{self.Rd}\t\tR{self.Rd}={self.res:02X}\t{self.SREG:08b}')
             case 'LSR':
 
                 self.Rd =  (self.ins>>4)&0x1F
@@ -1927,6 +1943,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
 
                 self.reg[self.Rd] = self.res
                 self.pc += 1
+                print(f'LSR R{self.Rd}\t\tR{self.Rd}={self.res:02X}\t{self.SREG:08b}')
             case 'ROL':
                 self.Rr = ((self.ins>>9)&0b1)<<4|(self.ins & 0xF)
                 self.Rd = ((self.ins>>8)&0b1)<<4|((self.ins>>4) & 0xF)
@@ -1975,6 +1992,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd] =  self.res
 
                 self.pc += 1
+                print(f'ROL R{self.Rd}\t\tR{self.Rd}={self.res:02X}\t{self.SREG:08b}')
             case 'ROR':
                 self.Rd =  (self.ins>>4)&0x1F
 
@@ -2017,6 +2035,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd] = self.res & 0xFF
 
                 self.pc += 1
+                print(f'ROR R{self.Rd}\t\tR{self.Rd}={self.reg[self.Rd]:02X}\t{self.SREG:08b}')
             case 'ASR':
                 self.Rd =  (self.ins>>4)&0x1F
 
@@ -2058,21 +2077,30 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd] = self.res & 0xFF
 
                 self.pc += 1
+                print(f'ASR R{self.Rd}\t\tR{self.Rd}={self.reg[self.Rd]:02X}\t{self.SREG:08b}')
             case 'SWAP':
                 self.Rd = (self.ins>>4)&0x1F
                 self.reg[self.Rd]= ((self.reg[self.Rd]&0xF)<<4) | ((self.reg[self.Rd]&0xF0)>>4)
 
                 self.pc += 1
-            case 'BSET':
+                print(f'SWAP R{self.Rd}\t\tR{self.Rd}={self.reg[self.Rd]:02X}')
+            case 'BSET' | 'SEC' | 'SEZ' | 'SEN' | 'SEV' | 'SES' | 'SEH' | 'SET' | 'SEI':
+                # BSET and its named single-flag aliases (SEC=C, SEZ=Z,
+                # SEN=N, SEV=V, SES=S, SEH=H, SET=T, SEI=I) are the same
+                # encoding with the bit index already baked into the word.
                 s = (self.ins>>4)&0b111
                 self.SREG |=(1<<s) 
 
                 self.pc += 1
-            case 'BCLR':
+                print(f'{self.opp}\t\tSREG={self.SREG:08b}')
+            case 'BCLR' | 'CLC' | 'CLZ' | 'CLN' | 'CLV' | 'CLS' | 'CLH' | 'CLT' | 'CLI':
+                # BCLR and its named single-flag aliases (CLC=C, CLZ=Z,
+                # CLN=N, CLV=V, CLS=S, CLH=H, CLT=T, CLI=I).
                 s = (self.ins>>4)&0b111
                 self.SREG &= ~(1<<s) 
 
                 self.pc += 1
+                print(f'{self.opp}\t\tSREG={self.SREG:08b}')
             case 'BST':
                 b = self.ins&0b111
                 self.Rd = (self.ins>>4)&0x1F
@@ -2084,6 +2112,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                     self.SREG &= ~(1<<6)
  
                 self.pc += 1
+                print(f'BST R{self.Rd}, {b}\t\tT={bit}')
             case 'BLD':
                 b = self.ins&0b111
                 self.Rd = (self.ins>>4)&0x1F
@@ -2091,6 +2120,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd] |= ((self.SREG>>6)&1)<<b
 
                 self.pc += 1
+                print(f'BLD R{self.Rd}, {b}\t\tR{self.Rd}={self.reg[self.Rd]:02X}')
 
 
             case 'MOV':
@@ -2099,6 +2129,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd] =  self.reg[self.Rr]
 
                 self.pc += 1
+                print(f'MOV R{self.Rd}, R{self.Rr}\t\tR{self.Rd}={self.reg[self.Rd]:02X}')
             case 'MOVW':
                 self.Rr = (self.ins & 0xF) << 1
                 self.Rd = ((self.ins>>4) & 0xF) << 1
@@ -2107,6 +2138,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                 self.reg[self.Rd] =  self.reg[self.Rr]
 
                 self.pc += 1
+                print(f'MOVW R{self.Rd}, R{self.Rr}\t\tR{self.Rd+1}:R{self.Rd}={self.reg[self.Rd+1]:02X}{self.reg[self.Rd]:02X}')
             case 'LDI':
             
                 self.Rd = ((self.ins>>4)&0xF)+16
@@ -2114,19 +2146,641 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
 
                 self.reg[self.Rd] = self.K 
                 self.pc += 1
-            case 'LDX' | 'LDX+' | 'LD-X' | 'LDY' | 'LDY+' | 'LD-Y' | 'LDDY' | \
-                 'LDZ' | 'LDZ+' | 'LD-Z' | 'LDDZ' | \
-                 'STX' | 'STX+' | 'ST-X' | 'STY' | 'STY+' | 'ST-Y' | 'STDY' | \
-                 'STZ' | 'STZ+' | 'ST-Z' | 'STDZ':
-                ptr, mode, direction = INDIRECT_TABLE[self.opp]
-                reg_idx = (self.ins>>4)&0x1F
-                self.indirect_start(ptr, mode, direction, reg_idx)
+                print(f'LDI R{self.Rd}, {self.K:02X}\t\tR{self.Rd}={self.reg[self.Rd]:02X}')
+
+            # ---------------------------------------------------------------
+            # Indirect LD/ST family - one distinct case per instruction.
+            # Each case computes its own effective address (applying
+            # pre-decrement / +q offset immediately, as real AVR hardware
+            # does) and then services the transfer itself: CPU-internal I/O
+            # registers and the register file (address < 32) are resolved in
+            # a single cycle, everything else starts the generic bus engine
+            # (STATE_FETCH_REQ / STATE_MEM_WAIT) via STATE_INDIRECT_LOAD /
+            # STATE_INDIRECT_STORE.
+            # ---------------------------------------------------------------
+            case 'LDX':
+                Rd = (self.ins>>4)&0x1F
+                addr = (self.reg[26] & 0xFF) | ((self.reg[27] & 0xFF) << 8)
+                self.state = "STATE_INDIRECT_LOAD"
+                if addr in self.INTERNAL_IO_REGS:
+                    self.reg[Rd] = getattr(self, self.INTERNAL_IO_REGS[addr]) & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDX R{Rd}, X\t\tR{Rd}={self.reg[Rd]:02X} [X]={addr:04X}')
+                elif addr < 32:
+                    self.reg[Rd] = self.reg[addr] & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDX R{Rd}, X\t\tR{Rd}={self.reg[Rd]:02X} [X]={addr:04X}')
+                else:
+                    def _ldx_print(Rd=Rd, addr=addr):
+                        print(f'LDX R{Rd}, X\t\tR{Rd}={self.reg[Rd]:02X} [X]={addr:04X}')
+                    self.mem_dir = 'read'
+                    self.mem_addr = addr
+                    self.mem_dest_reg = Rd
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _ldx_print
+            case 'LDX+':
+                Rd = (self.ins>>4)&0x1F
+                addr = (self.reg[26] & 0xFF) | ((self.reg[27] & 0xFF) << 8)
+
+                def _ldx_postinc(addr=addr):
+                    newaddr = (addr + 1) & 0xFFFF
+                    self.reg[26] = newaddr & 0xFF
+                    self.reg[27] = (newaddr >> 8) & 0xFF
+
+                def _ldx_postinc_print(Rd=Rd, addr=addr):
+                    _ldx_postinc(addr)
+                    print(f'LDX+ R{Rd}, X+\t\tR{Rd}={self.reg[Rd]:02X} [X]={addr:04X}')
+
+                self.state = "STATE_INDIRECT_LOAD"
+                if addr in self.INTERNAL_IO_REGS:
+                    self.reg[Rd] = getattr(self, self.INTERNAL_IO_REGS[addr]) & 0xFF
+                    self.pc += 1
+                    _ldx_postinc()
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDX+ R{Rd}, X+\t\tR{Rd}={self.reg[Rd]:02X} [X]={addr:04X}')
+                elif addr < 32:
+                    self.reg[Rd] = self.reg[addr] & 0xFF
+                    self.pc += 1
+                    _ldx_postinc()
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDX+ R{Rd}, X+\t\tR{Rd}={self.reg[Rd]:02X} [X]={addr:04X}')
+                else:
+                    self.mem_dir = 'read'
+                    self.mem_addr = addr
+                    self.mem_dest_reg = Rd
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _ldx_postinc_print
+            case 'LD-X':
+                Rd = (self.ins>>4)&0x1F
+                addr = (((self.reg[26] & 0xFF) | ((self.reg[27] & 0xFF) << 8)) - 1) & 0xFFFF
+                self.reg[26] = addr & 0xFF
+                self.reg[27] = (addr >> 8) & 0xFF
+
+                self.state = "STATE_INDIRECT_LOAD"
+                if addr in self.INTERNAL_IO_REGS:
+                    self.reg[Rd] = getattr(self, self.INTERNAL_IO_REGS[addr]) & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LD-X R{Rd}, -X\t\tR{Rd}={self.reg[Rd]:02X} [X]={addr:04X}')
+                elif addr < 32:
+                    self.reg[Rd] = self.reg[addr] & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LD-X R{Rd}, -X\t\tR{Rd}={self.reg[Rd]:02X} [X]={addr:04X}')
+                else:
+                    def _ldmx_print(Rd=Rd, addr=addr):
+                        print(f'LD-X R{Rd}, -X\t\tR{Rd}={self.reg[Rd]:02X} [X]={addr:04X}')
+                    self.mem_dir = 'read'
+                    self.mem_addr = addr
+                    self.mem_dest_reg = Rd
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _ldmx_print
+            case 'LDY':
+                Rd = (self.ins>>4)&0x1F
+                addr = (self.reg[28] & 0xFF) | ((self.reg[29] & 0xFF) << 8)
+                self.state = "STATE_INDIRECT_LOAD"
+                if addr in self.INTERNAL_IO_REGS:
+                    self.reg[Rd] = getattr(self, self.INTERNAL_IO_REGS[addr]) & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDY R{Rd}, Y\t\tR{Rd}={self.reg[Rd]:02X} [Y]={addr:04X}')
+                elif addr < 32:
+                    self.reg[Rd] = self.reg[addr] & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDY R{Rd}, Y\t\tR{Rd}={self.reg[Rd]:02X} [Y]={addr:04X}')
+                else:
+                    def _ldy_print(Rd=Rd, addr=addr):
+                        print(f'LDY R{Rd}, Y\t\tR{Rd}={self.reg[Rd]:02X} [Y]={addr:04X}')
+                    self.mem_dir = 'read'
+                    self.mem_addr = addr
+                    self.mem_dest_reg = Rd
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _ldy_print
+            case 'LDY+':
+                Rd = (self.ins>>4)&0x1F
+                addr = (self.reg[28] & 0xFF) | ((self.reg[29] & 0xFF) << 8)
+
+                def _ldy_postinc(addr=addr):
+                    newaddr = (addr + 1) & 0xFFFF
+                    self.reg[28] = newaddr & 0xFF
+                    self.reg[29] = (newaddr >> 8) & 0xFF
+
+                def _ldy_postinc_print(Rd=Rd, addr=addr):
+                    _ldy_postinc(addr)
+                    print(f'LDY+ R{Rd}, Y+\t\tR{Rd}={self.reg[Rd]:02X} [Y]={addr:04X}')
+
+                self.state = "STATE_INDIRECT_LOAD"
+                if addr in self.INTERNAL_IO_REGS:
+                    self.reg[Rd] = getattr(self, self.INTERNAL_IO_REGS[addr]) & 0xFF
+                    self.pc += 1
+                    _ldy_postinc()
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDY+ R{Rd}, Y+\t\tR{Rd}={self.reg[Rd]:02X} [Y]={addr:04X}')
+                elif addr < 32:
+                    self.reg[Rd] = self.reg[addr] & 0xFF
+                    self.pc += 1
+                    _ldy_postinc()
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDY+ R{Rd}, Y+\t\tR{Rd}={self.reg[Rd]:02X} [Y]={addr:04X}')
+                else:
+                    self.mem_dir = 'read'
+                    self.mem_addr = addr
+                    self.mem_dest_reg = Rd
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _ldy_postinc_print
+            case 'LD-Y':
+                Rd = (self.ins>>4)&0x1F
+                addr = (((self.reg[28] & 0xFF) | ((self.reg[29] & 0xFF) << 8)) - 1) & 0xFFFF
+                self.reg[28] = addr & 0xFF
+                self.reg[29] = (addr >> 8) & 0xFF
+
+                self.state = "STATE_INDIRECT_LOAD"
+                if addr in self.INTERNAL_IO_REGS:
+                    self.reg[Rd] = getattr(self, self.INTERNAL_IO_REGS[addr]) & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LD-Y R{Rd}, -Y\t\tR{Rd}={self.reg[Rd]:02X} [Y]={addr:04X}')
+                elif addr < 32:
+                    self.reg[Rd] = self.reg[addr] & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LD-Y R{Rd}, -Y\t\tR{Rd}={self.reg[Rd]:02X} [Y]={addr:04X}')
+                else:
+                    def _ldmy_print(Rd=Rd, addr=addr):
+                        print(f'LD-Y R{Rd}, -Y\t\tR{Rd}={self.reg[Rd]:02X} [Y]={addr:04X}')
+                    self.mem_dir = 'read'
+                    self.mem_addr = addr
+                    self.mem_dest_reg = Rd
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _ldmy_print
+            case 'LDDY':
+                Rd = (self.ins>>4)&0x1F
+                q = (self.ins & 0b111) | (((self.ins >> 10) & 0b11) << 3) | (((self.ins >> 13) & 0b1) << 5)
+                addr = (((self.reg[28] & 0xFF) | ((self.reg[29] & 0xFF) << 8)) + q) & 0xFFFF
+
+                self.state = "STATE_INDIRECT_LOAD"
+                if addr in self.INTERNAL_IO_REGS:
+                    self.reg[Rd] = getattr(self, self.INTERNAL_IO_REGS[addr]) & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDD R{Rd}, Y+{q}\t\tR{Rd}={self.reg[Rd]:02X} [Y+{q}]={addr:04X}')
+                elif addr < 32:
+                    self.reg[Rd] = self.reg[addr] & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDD R{Rd}, Y+{q}\t\tR{Rd}={self.reg[Rd]:02X} [Y+{q}]={addr:04X}')
+                else:
+                    def _lddy_print(Rd=Rd, addr=addr, q=q):
+                        print(f'LDD R{Rd}, Y+{q}\t\tR{Rd}={self.reg[Rd]:02X} [Y+{q}]={addr:04X}')
+                    self.mem_dir = 'read'
+                    self.mem_addr = addr
+                    self.mem_dest_reg = Rd
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _lddy_print
+            case 'LDZ':
+                Rd = (self.ins>>4)&0x1F
+                addr = (self.reg[30] & 0xFF) | ((self.reg[31] & 0xFF) << 8)
+                self.state = "STATE_INDIRECT_LOAD"
+                if addr in self.INTERNAL_IO_REGS:
+                    self.reg[Rd] = getattr(self, self.INTERNAL_IO_REGS[addr]) & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDZ R{Rd}, Z\t\tR{Rd}={self.reg[Rd]:02X} [Z]={addr:04X}')
+                elif addr < 32:
+                    self.reg[Rd] = self.reg[addr] & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDZ R{Rd}, Z\t\tR{Rd}={self.reg[Rd]:02X} [Z]={addr:04X}')
+                else:
+                    def _ldz_print(Rd=Rd, addr=addr):
+                        print(f'LDZ R{Rd}, Z\t\tR{Rd}={self.reg[Rd]:02X} [Z]={addr:04X}')
+                    self.mem_dir = 'read'
+                    self.mem_addr = addr
+                    self.mem_dest_reg = Rd
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _ldz_print
+            case 'LDZ+':
+                Rd = (self.ins>>4)&0x1F
+                addr = (self.reg[30] & 0xFF) | ((self.reg[31] & 0xFF) << 8)
+
+                def _ldz_postinc(addr=addr):
+                    newaddr = (addr + 1) & 0xFFFF
+                    self.reg[30] = newaddr & 0xFF
+                    self.reg[31] = (newaddr >> 8) & 0xFF
+
+                def _ldz_postinc_print(Rd=Rd, addr=addr):
+                    _ldz_postinc(addr)
+                    print(f'LDZ+ R{Rd}, Z+\t\tR{Rd}={self.reg[Rd]:02X} [Z]={addr:04X}')
+
+                self.state = "STATE_INDIRECT_LOAD"
+                if addr in self.INTERNAL_IO_REGS:
+                    self.reg[Rd] = getattr(self, self.INTERNAL_IO_REGS[addr]) & 0xFF
+                    self.pc += 1
+                    _ldz_postinc()
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDZ+ R{Rd}, Z+\t\tR{Rd}={self.reg[Rd]:02X} [Z]={addr:04X}')
+                elif addr < 32:
+                    self.reg[Rd] = self.reg[addr] & 0xFF
+                    self.pc += 1
+                    _ldz_postinc()
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDZ+ R{Rd}, Z+\t\tR{Rd}={self.reg[Rd]:02X} [Z]={addr:04X}')
+                else:
+                    self.mem_dir = 'read'
+                    self.mem_addr = addr
+                    self.mem_dest_reg = Rd
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _ldz_postinc_print
+            case 'LD-Z':
+                Rd = (self.ins>>4)&0x1F
+                addr = (((self.reg[30] & 0xFF) | ((self.reg[31] & 0xFF) << 8)) - 1) & 0xFFFF
+                self.reg[30] = addr & 0xFF
+                self.reg[31] = (addr >> 8) & 0xFF
+
+                self.state = "STATE_INDIRECT_LOAD"
+                if addr in self.INTERNAL_IO_REGS:
+                    self.reg[Rd] = getattr(self, self.INTERNAL_IO_REGS[addr]) & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LD-Z R{Rd}, -Z\t\tR{Rd}={self.reg[Rd]:02X} [Z]={addr:04X}')
+                elif addr < 32:
+                    self.reg[Rd] = self.reg[addr] & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LD-Z R{Rd}, -Z\t\tR{Rd}={self.reg[Rd]:02X} [Z]={addr:04X}')
+                else:
+                    def _ldmz_print(Rd=Rd, addr=addr):
+                        print(f'LD-Z R{Rd}, -Z\t\tR{Rd}={self.reg[Rd]:02X} [Z]={addr:04X}')
+                    self.mem_dir = 'read'
+                    self.mem_addr = addr
+                    self.mem_dest_reg = Rd
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _ldmz_print
+            case 'LDDZ':
+                Rd = (self.ins>>4)&0x1F
+                q = (self.ins & 0b111) | (((self.ins >> 10) & 0b11) << 3) | (((self.ins >> 13) & 0b1) << 5)
+                addr = (((self.reg[30] & 0xFF) | ((self.reg[31] & 0xFF) << 8)) + q) & 0xFFFF
+
+                self.state = "STATE_INDIRECT_LOAD"
+                if addr in self.INTERNAL_IO_REGS:
+                    self.reg[Rd] = getattr(self, self.INTERNAL_IO_REGS[addr]) & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDD R{Rd}, Z+{q}\t\tR{Rd}={self.reg[Rd]:02X} [Z+{q}]={addr:04X}')
+                elif addr < 32:
+                    self.reg[Rd] = self.reg[addr] & 0xFF
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDD R{Rd}, Z+{q}\t\tR{Rd}={self.reg[Rd]:02X} [Z+{q}]={addr:04X}')
+                else:
+                    def _lddz_print(Rd=Rd, addr=addr, q=q):
+                        print(f'LDD R{Rd}, Z+{q}\t\tR{Rd}={self.reg[Rd]:02X} [Z+{q}]={addr:04X}')
+                    self.mem_dir = 'read'
+                    self.mem_addr = addr
+                    self.mem_dest_reg = Rd
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _lddz_print
+            case 'STX':
+                Rr = (self.ins>>4)&0x1F
+                addr = (self.reg[26] & 0xFF) | ((self.reg[27] & 0xFF) << 8)
+                data = self.reg[Rr] & 0xFF
+
+                self.state = "STATE_INDIRECT_STORE"
+                if addr in self.INTERNAL_IO_REGS:
+                    setattr(self, self.INTERNAL_IO_REGS[addr], data)
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                elif addr < 32:
+                    self.reg[addr] = data
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                else:
+                    self.mem_dir = 'write'
+                    self.mem_addr = addr
+                    self.mem_wdata = data
+                    self.mem_dest_reg = None
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = None
+                print(f'STX X, R{Rr}\t\t[{addr:04X}]={data:02X}')
+            case 'STX+':
+                Rr = (self.ins>>4)&0x1F
+                addr = (self.reg[26] & 0xFF) | ((self.reg[27] & 0xFF) << 8)
+                data = self.reg[Rr] & 0xFF
+
+                def _stx_postinc(addr=addr):
+                    newaddr = (addr + 1) & 0xFFFF
+                    self.reg[26] = newaddr & 0xFF
+                    self.reg[27] = (newaddr >> 8) & 0xFF
+
+                self.state = "STATE_INDIRECT_STORE"
+                if addr in self.INTERNAL_IO_REGS:
+                    setattr(self, self.INTERNAL_IO_REGS[addr], data)
+                    self.pc += 1
+                    _stx_postinc()
+                    self.state = "FETCH_INSTRUCTION"
+                elif addr < 32:
+                    self.reg[addr] = data
+                    self.pc += 1
+                    _stx_postinc()
+                    self.state = "FETCH_INSTRUCTION"
+                else:
+                    self.mem_dir = 'write'
+                    self.mem_addr = addr
+                    self.mem_wdata = data
+                    self.mem_dest_reg = None
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _stx_postinc
+                print(f'STX+ X+, R{Rr}\t\t[{addr:04X}]={data:02X}')
+            case 'ST-X':
+                Rr = (self.ins>>4)&0x1F
+                addr = (((self.reg[26] & 0xFF) | ((self.reg[27] & 0xFF) << 8)) - 1) & 0xFFFF
+                self.reg[26] = addr & 0xFF
+                self.reg[27] = (addr >> 8) & 0xFF
+                data = self.reg[Rr] & 0xFF
+
+                self.state = "STATE_INDIRECT_STORE"
+                if addr in self.INTERNAL_IO_REGS:
+                    setattr(self, self.INTERNAL_IO_REGS[addr], data)
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                elif addr < 32:
+                    self.reg[addr] = data
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                else:
+                    self.mem_dir = 'write'
+                    self.mem_addr = addr
+                    self.mem_wdata = data
+                    self.mem_dest_reg = None
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = None
+                print(f'ST-X -X, R{Rr}\t\t[{addr:04X}]={data:02X}')
+            case 'STY':
+                Rr = (self.ins>>4)&0x1F
+                addr = (self.reg[28] & 0xFF) | ((self.reg[29] & 0xFF) << 8)
+                data = self.reg[Rr] & 0xFF
+
+                self.state = "STATE_INDIRECT_STORE"
+                if addr in self.INTERNAL_IO_REGS:
+                    setattr(self, self.INTERNAL_IO_REGS[addr], data)
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                elif addr < 32:
+                    self.reg[addr] = data
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                else:
+                    self.mem_dir = 'write'
+                    self.mem_addr = addr
+                    self.mem_wdata = data
+                    self.mem_dest_reg = None
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = None
+                print(f'STY Y, R{Rr}\t\t[{addr:04X}]={data:02X}')
+            case 'STY+':
+                Rr = (self.ins>>4)&0x1F
+                addr = (self.reg[28] & 0xFF) | ((self.reg[29] & 0xFF) << 8)
+                data = self.reg[Rr] & 0xFF
+
+                def _sty_postinc(addr=addr):
+                    newaddr = (addr + 1) & 0xFFFF
+                    self.reg[28] = newaddr & 0xFF
+                    self.reg[29] = (newaddr >> 8) & 0xFF
+
+                self.state = "STATE_INDIRECT_STORE"
+                if addr in self.INTERNAL_IO_REGS:
+                    setattr(self, self.INTERNAL_IO_REGS[addr], data)
+                    self.pc += 1
+                    _sty_postinc()
+                    self.state = "FETCH_INSTRUCTION"
+                elif addr < 32:
+                    self.reg[addr] = data
+                    self.pc += 1
+                    _sty_postinc()
+                    self.state = "FETCH_INSTRUCTION"
+                else:
+                    self.mem_dir = 'write'
+                    self.mem_addr = addr
+                    self.mem_wdata = data
+                    self.mem_dest_reg = None
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _sty_postinc
+                print(f'STY+ Y+, R{Rr}\t\t[{addr:04X}]={data:02X}')
+            case 'ST-Y':
+                Rr = (self.ins>>4)&0x1F
+                addr = (((self.reg[28] & 0xFF) | ((self.reg[29] & 0xFF) << 8)) - 1) & 0xFFFF
+                self.reg[28] = addr & 0xFF
+                self.reg[29] = (addr >> 8) & 0xFF
+                data = self.reg[Rr] & 0xFF
+
+                self.state = "STATE_INDIRECT_STORE"
+                if addr in self.INTERNAL_IO_REGS:
+                    setattr(self, self.INTERNAL_IO_REGS[addr], data)
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                elif addr < 32:
+                    self.reg[addr] = data
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                else:
+                    self.mem_dir = 'write'
+                    self.mem_addr = addr
+                    self.mem_wdata = data
+                    self.mem_dest_reg = None
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = None
+                print(f'ST-Y -Y, R{Rr}\t\t[{addr:04X}]={data:02X}')
+            case 'STDY':
+                Rr = (self.ins>>4)&0x1F
+                q = (self.ins & 0b111) | (((self.ins >> 10) & 0b11) << 3) | (((self.ins >> 13) & 0b1) << 5)
+                addr = (((self.reg[28] & 0xFF) | ((self.reg[29] & 0xFF) << 8)) + q) & 0xFFFF
+                data = self.reg[Rr] & 0xFF
+
+                self.state = "STATE_INDIRECT_STORE"
+                if addr in self.INTERNAL_IO_REGS:
+                    setattr(self, self.INTERNAL_IO_REGS[addr], data)
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                elif addr < 32:
+                    self.reg[addr] = data
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                else:
+                    self.mem_dir = 'write'
+                    self.mem_addr = addr
+                    self.mem_wdata = data
+                    self.mem_dest_reg = None
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = None
+                print(f'STD Y+{q}, R{Rr}\t\t[{addr:04X}]={data:02X}')
+            case 'STZ':
+                Rr = (self.ins>>4)&0x1F
+                addr = (self.reg[30] & 0xFF) | ((self.reg[31] & 0xFF) << 8)
+                data = self.reg[Rr] & 0xFF
+
+                self.state = "STATE_INDIRECT_STORE"
+                if addr in self.INTERNAL_IO_REGS:
+                    setattr(self, self.INTERNAL_IO_REGS[addr], data)
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                elif addr < 32:
+                    self.reg[addr] = data
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                else:
+                    self.mem_dir = 'write'
+                    self.mem_addr = addr
+                    self.mem_wdata = data
+                    self.mem_dest_reg = None
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = None
+                print(f'STZ Z, R{Rr}\t\t[{addr:04X}]={data:02X}')
+            case 'STZ+':
+                Rr = (self.ins>>4)&0x1F
+                addr = (self.reg[30] & 0xFF) | ((self.reg[31] & 0xFF) << 8)
+                data = self.reg[Rr] & 0xFF
+
+                def _stz_postinc(addr=addr):
+                    newaddr = (addr + 1) & 0xFFFF
+                    self.reg[30] = newaddr & 0xFF
+                    self.reg[31] = (newaddr >> 8) & 0xFF
+
+                self.state = "STATE_INDIRECT_STORE"
+                if addr in self.INTERNAL_IO_REGS:
+                    setattr(self, self.INTERNAL_IO_REGS[addr], data)
+                    self.pc += 1
+                    _stz_postinc()
+                    self.state = "FETCH_INSTRUCTION"
+                elif addr < 32:
+                    self.reg[addr] = data
+                    self.pc += 1
+                    _stz_postinc()
+                    self.state = "FETCH_INSTRUCTION"
+                else:
+                    self.mem_dir = 'write'
+                    self.mem_addr = addr
+                    self.mem_wdata = data
+                    self.mem_dest_reg = None
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _stz_postinc
+                print(f'STZ+ Z+, R{Rr}\t\t[{addr:04X}]={data:02X}')
+            case 'ST-Z':
+                Rr = (self.ins>>4)&0x1F
+                addr = (((self.reg[30] & 0xFF) | ((self.reg[31] & 0xFF) << 8)) - 1) & 0xFFFF
+                self.reg[30] = addr & 0xFF
+                self.reg[31] = (addr >> 8) & 0xFF
+                data = self.reg[Rr] & 0xFF
+
+                self.state = "STATE_INDIRECT_STORE"
+                if addr in self.INTERNAL_IO_REGS:
+                    setattr(self, self.INTERNAL_IO_REGS[addr], data)
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                elif addr < 32:
+                    self.reg[addr] = data
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                else:
+                    self.mem_dir = 'write'
+                    self.mem_addr = addr
+                    self.mem_wdata = data
+                    self.mem_dest_reg = None
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = None
+                print(f'ST-Z -Z, R{Rr}\t\t[{addr:04X}]={data:02X}')
+            case 'STDZ':
+                Rr = (self.ins>>4)&0x1F
+                q = (self.ins & 0b111) | (((self.ins >> 10) & 0b11) << 3) | (((self.ins >> 13) & 0b1) << 5)
+                addr = (((self.reg[30] & 0xFF) | ((self.reg[31] & 0xFF) << 8)) + q) & 0xFFFF
+                data = self.reg[Rr] & 0xFF
+
+                self.state = "STATE_INDIRECT_STORE"
+                if addr in self.INTERNAL_IO_REGS:
+                    setattr(self, self.INTERNAL_IO_REGS[addr], data)
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                elif addr < 32:
+                    self.reg[addr] = data
+                    self.pc += 1
+                    self.state = "FETCH_INSTRUCTION"
+                else:
+                    self.mem_dir = 'write'
+                    self.mem_addr = addr
+                    self.mem_wdata = data
+                    self.mem_dest_reg = None
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = None
+                print(f'STD Z+{q}, R{Rr}\t\t[{addr:04X}]={data:02X}')
             case 'LDS':#k  Load direct from sram
                 Rd = (self.ins>>4)&0x1F
-                self.mem_read_start(self.ins2, dest_reg=Rd, words=2)
+                addr = self.ins2 & 0xFFFF
+                if addr in self.INTERNAL_IO_REGS:
+                    self.reg[Rd] = getattr(self, self.INTERNAL_IO_REGS[addr]) & 0xFF
+                    self.pc += 2
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDS R{Rd}, {addr:04X}\t\tR{Rd}={self.reg[Rd]:02X}')
+                elif addr < 32:
+                    self.reg[Rd] = self.reg[addr] & 0xFF
+                    self.pc += 2
+                    self.state = "FETCH_INSTRUCTION"
+                    print(f'LDS R{Rd}, {addr:04X}\t\tR{Rd}={self.reg[Rd]:02X}')
+                else:
+                    def _lds_print(Rd=Rd, addr=addr):
+                        print(f'LDS R{Rd}, {addr:04X}\t\tR{Rd}={self.reg[Rd]:02X}')
+                    self.mem_dir = 'read'
+                    self.mem_addr = addr
+                    self.mem_dest_reg = Rd
+                    self.mem_words = 2
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _lds_print
+                    self.state = "STATE_FETCH_REQ"
             case 'STS':#k
                 Rr = (self.ins>>4)&0x1F
-                self.mem_write_start(self.ins2, self.reg[Rr]&0xFF, words=2)
+                addr = self.ins2 & 0xFFFF
+                data = self.reg[Rr] & 0xFF
+                if addr in self.INTERNAL_IO_REGS:
+                    setattr(self, self.INTERNAL_IO_REGS[addr], data)
+                    self.pc += 2
+                    self.state = "FETCH_INSTRUCTION"
+                elif addr < 32:
+                    self.reg[addr] = data
+                    self.pc += 2
+                    self.state = "FETCH_INSTRUCTION"
+                else:
+                    self.mem_dir = 'write'
+                    self.mem_addr = addr
+                    self.mem_wdata = data
+                    self.mem_dest_reg = None
+                    self.mem_words = 2
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = None
+                    self.state = "STATE_FETCH_REQ"
+                print(f'STS {addr:04X}, R{Rr}\t\t[{addr:04X}]={data:02X}')
             case 'LPM': #R0 implied
                 self.lpm_addr = (self.reg[30]&0xFF)|((self.reg[31]&0xFF)<<8)
                 self.lpm_dest = 0
@@ -2164,6 +2818,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                         self.spm_idx = 0
                         self.spm_mode = 'erase'
                         self.state = "STATE_SPM_WRITE_REQ"
+                        print(f'SPM\t\t\terase page @{page_base_addr:04X}')
 
                     # --- 2. PAGE WRITE ---
                     elif (PGERS == 0) and (PGWRT == 1):
@@ -2171,6 +2826,7 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                         self.spm_idx = 0
                         self.spm_mode = 'write'
                         self.state = "STATE_SPM_WRITE_REQ"
+                        print(f'SPM\t\t\twrite page @{page_base_addr:04X}')
 
                     # --- 3. FILL TEMPORARY BUFFER ---
                     elif (PGERS == 0) and (PGWRT == 0) and (BLBSET == 0):
@@ -2178,41 +2834,106 @@ class MultyCycleATmega328P_V2(py4hw.Logic):
                         data_word = (self.reg[0] & 0xFF) | ((self.reg[1] & 0xFF) << 8)
                         self.temp_page_buffer[page_offset] = data_word
                         self.pc += 1
+                        print(f'SPM\t\t\tbuffer[{page_offset}]={data_word:04X}')
                     else:
                         self.pc += 1
+                        print(f'SPM\t\t\t(no-op)')
                 else:
                     self.pc += 1
+                    print(f'SPM\t\t\t(disabled)')
 
             case 'IN':
                 Rd = (self.ins>>4)&0b11111
                 A = ((self.ins)&0xF) | ((((self.ins)>>9)&0b11)<<4)
+                addr = (A + 0x20) & 0xFFFF
                 # I/O address A maps to data-space address A + 0x20.
                 # CPU-internal registers (SREG, SPL/SPH, MCUSR, ...) are
-                # intercepted inside mem_read_start.
-                self.mem_read_start(A + 0x20, dest_reg=Rd)
+                # serviced without a bus transaction.
+                if addr in self.INTERNAL_IO_REGS:
+                    self.reg[Rd] = getattr(self, self.INTERNAL_IO_REGS[addr]) & 0xFF
+                    self.pc += 1
+                    print(f'IN R{Rd}, {A:02X}\t\tR{Rd}={self.reg[Rd]:02X}')
+                elif addr < 32:
+                    self.reg[Rd] = self.reg[addr] & 0xFF
+                    self.pc += 1
+                    print(f'IN R{Rd}, {A:02X}\t\tR{Rd}={self.reg[Rd]:02X}')
+                else:
+                    def _in_print(Rd=Rd, A=A):
+                        print(f'IN R{Rd}, {A:02X}\t\tR{Rd}={self.reg[Rd]:02X}')
+                    self.mem_dir = 'read'
+                    self.mem_addr = addr
+                    self.mem_dest_reg = Rd
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = _in_print
+                    self.state = "STATE_FETCH_REQ"
             case 'OUT':
                 Rr = (self.ins>>4)&0b11111
                 A = ((self.ins)&0xF) | ((((self.ins)>>9)&0b11)<<4)
-                self.mem_write_start(A + 0x20, self.reg[Rr]&0xFF)
+                addr = (A + 0x20) & 0xFFFF
+                data = self.reg[Rr] & 0xFF
+                if addr in self.INTERNAL_IO_REGS:
+                    setattr(self, self.INTERNAL_IO_REGS[addr], data)
+                    self.pc += 1
+                elif addr < 32:
+                    self.reg[addr] = data
+                    self.pc += 1
+                else:
+                    self.mem_dir = 'write'
+                    self.mem_addr = addr
+                    self.mem_wdata = data
+                    self.mem_dest_reg = None
+                    self.mem_words = 1
+                    self.mem_next_state = "FETCH_INSTRUCTION"
+                    self.mem_on_complete = None
+                    self.state = "STATE_FETCH_REQ"
+                print(f'OUT {A:02X}, R{Rr}\t\t[{addr:04X}]={data:02X}')
             case 'PUSH':
                 Rr = (self.ins>>4)&0x1F
-                self.push_start(value8=self.reg[Rr]&0xFF)
+                value8 = self.reg[Rr] & 0xFF
+
+                # ---- inlined push_start(value8=value8) ----
+                SP = ((self.SPH & 0xFF) << 8) | (self.SPL & 0xFF)
+                self.push_sp = SP
+                self.push_next_state = "FETCH_INSTRUCTION"
+                self.push_after_pc = None
+                self.push_lo = value8
+                self.push_two_bytes = False
+                self.state = "STATE_CALL_PUSH_L"
+                print(f'PUSH R{Rr}\t\t[{(SP)&0xFFFF:04X}]={value8:02X}')
             case 'POP':
                 Rd = (self.ins>>4)&0x1F
-                self.pop_start(num_bytes=1, dest_reg=Rd)
+
+                def _pop_print(Rd=Rd):
+                    print(f'POP R{Rd}\t\tR{Rd}={self.reg[Rd]:02X}')
+
+                # ---- inlined pop_start(num_bytes=1, dest_reg=Rd) ----
+                self.pop_num_bytes = 1
+                self.pop_dest_reg = Rd
+                self.pop_dest_is_pc = False
+                self.pop_next_state = "FETCH_INSTRUCTION"
+                self.pop_extra = _pop_print
+                self.pop_base_sp = ((self.SPH & 0xFF) << 8) | (self.SPL & 0xFF)
+                self.pop_count = 0
+                self.state = "STATE_RET_POP_H"
             case 'NOP':
                 self.pc += 1 
+                print('NOP')
             case 'SLEEP':
                 ##activation of SLEEP MODE
                 self.pc += 1
+                print('SLEEP')
             case 'WDR' :
                 ## Watchdog Reset
                 self.pc +=1
+                print('WDR')
             case 'BREAK' : 
                 ## Sould enter debug mode
                 self.pc += 1
+                print('BREAK')
             case 'invalid': #basicaly a nop
                 self.pc += 1
+                print(f'invalid opcode @ PC {self.last_pc:04X}')
             case _:
                 # Unhandled opcode: warn and treat as NOP so the CPU does
                 # not spin forever refetching the same instruction.

@@ -997,6 +997,19 @@ def get_line_tokens(line):
     tokens = list(tokenize.generate_tokens(stream.readline))
     return [tok.string for tok in tokens if tok.type == 1]
 
+def replace_token(line, label, value):
+    """Replace `label` in `line` only where it appears as a whole
+    identifier (word-boundary match), never as a substring of some other
+    token. A plain str.replace() here is unsafe: once triggered by an
+    exact-token match, it rewrites EVERY occurrence of that substring
+    anywhere in the line, including inside unrelated identifiers, hex
+    digits, or a numeric value already substituted in by an earlier
+    label on the same line (e.g. a label named 'A' would also corrupt
+    the 'A' inside 'RAMEND', or inside a '10' produced by a prior
+    substitution if a later label happened to be named '0' or similar).
+    """
+    return re.sub(r'\b' + re.escape(label) + r'\b', str(value), line)
+
 def assemble_program(program, debug=False, inject_vector_table=False):
     # ---  VECTOR TABLE INJECTION LOGIC ---
     if inject_vector_table:
@@ -1104,7 +1117,7 @@ def assemble_program(program, debug=False, inject_vector_table=False):
             for label in labels:
                 tokens = get_line_tokens(line)
                 if (label in tokens):
-                    line = line.replace(label, '0')
+                    line = replace_token(line, label, 0)
             line = expand_macros(line)         
             words = assemble(line)  
             assert(isinstance(words, list))
@@ -1154,7 +1167,7 @@ def assemble_program(program, debug=False, inject_vector_table=False):
                     add -= word_off + 1
                     if not(is_valid_relative(line_copy, add)):
                         raise Exception(f'relative jump outside of range {add} in {line_copy}')
-                line_copy = line_copy.replace(label, f'{add}')
+                line_copy = replace_token(line_copy, label, add)
         
         line_copy = expand_macros(line_copy)
         words = assemble(line_copy)   

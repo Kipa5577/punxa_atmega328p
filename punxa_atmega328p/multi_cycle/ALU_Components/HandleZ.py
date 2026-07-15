@@ -57,3 +57,5 @@ class HandleZ(py4hw.Logic):
 
         # 3. Put calculated bit on the output wire
         self.Zout.put(z_out & 1)
+
+

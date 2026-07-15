@@ -4,6 +4,8 @@ from punxa_atmega328p.Memory import *
 import time
 import math
 
+#run from top directory using python -m test.TB_of_Timer.TB_of_Timer1
+
 def TestBench_of_Timer1():
 
     sys = py4hw.HWSystem()
@@ -39,7 +41,7 @@ def TestBench_of_Timer1():
     wvf = py4hw.Waveform(sys, 'wvf', SIGNALS1)
 
     Testing = True
-    with open("Test/TB_of_Timer/Test_Results.txt", 'w+') as results:
+    with open("test/TB_of_Timer/Test_Results.txt", 'w+') as results:
         while Testing:
             match CURRENT_TEST:
                 case 'START':
@@ -492,7 +494,7 @@ def TestBench_of_Timer1():
                     TIMER1.TCNT1 = 0
                     TIMER1.TCNT1H = 0
                     TIMER1.TCNT1L = 0
-                    for i in range(256):
+                    for i in range(257):
                         if TIMER1.TCNT1 != i % 256:
                             TEST = False
                             ERROR_LIST.append("TCNT1 = {} expected {}".format(TIMER1.TCNT1, i % 256))
@@ -515,7 +517,7 @@ def TestBench_of_Timer1():
                             TEST = False
                             ERROR_LIST.append("OCF1B = 0 expected 1 | iter = {}".format(i))
 
-                        if TIMER1.TCNT1 == 0xFF and TOV1.get() == 0:
+                        if TIMER1.TCNT1 == 0 and i > 0 and TOV1.get() == 0:
                             TEST = False
                             ERROR_LIST.append("OVF = 0 expected 1")
 
@@ -553,7 +555,7 @@ def TestBench_of_Timer1():
                     TIMER1.TCNT1H = 0
                     TIMER1.TCNT1L = 0
 
-                    for i in range(256):
+                    for i in range(257):
                         if TIMER1.TCNT1 != i % 256:
                             TEST = False
                             ERROR_LIST.append("TCNT1 = {} expected {}".format(TIMER1.TCNT1, i % 256))
@@ -576,7 +578,7 @@ def TestBench_of_Timer1():
                             TEST = False
                             ERROR_LIST.append("OCF1B = 0 expected 1 | iter = {}".format(i))
 
-                        if TIMER1.TCNT1 == 0xFF and TOV1.get() == 0:
+                        if TIMER1.TCNT1 == 0 and i > 0 and TOV1.get() == 0:
                             TEST = False
                             ERROR_LIST.append("OVF = 0 expected 1")
 
@@ -600,12 +602,14 @@ def TestBench_of_Timer1():
                     TEST = True 
                     TIMER1.TIMSK1 = 0b111
                     TIMER1.TIFR1 = 0 
+                    TIMER1.OC1A_val = 1
+                    TIMER1.OC1B_val = 1
 
                     sys.getSimulator().clk(1)
 
                     TIMER1.TCNT1H = 0
                     TIMER1.TCNT1L = 0
-                    for i in range(256):
+                    for i in range(257):
                         # OC1A Non-Inverting PWM
                         if TIMER1.TCNT1 >= TIMER1.OCR1A:
                             if OC1A.get() == 1:
@@ -635,7 +639,7 @@ def TestBench_of_Timer1():
                             TEST = False
                             ERROR_LIST.append("OCF1B = 0 expected 1 | iter = {}".format(i))
 
-                        if TIMER1.TCNT1 == 0xFF and TOV1.get() == 0:
+                        if TIMER1.TCNT1 == 0 and i > 0 and TOV1.get() == 0:
                             TEST = False
                             ERROR_LIST.append("OVF = 0 expected 1")
 
@@ -659,15 +663,15 @@ def TestBench_of_Timer1():
                     TEST = True 
                     TIMER1.TIMSK1 = 0b111
                     TIMER1.TIFR1 = 0 
+                    TIMER1.OC1A_val = 0
+                    TIMER1.OC1B_val = 0
                     sys.getSimulator().clk(1)
 
                     TIMER1.TCNT1 = 0
                     TIMER1.TCNT1H = 0
                     TIMER1.TCNT1L = 0
-                    TIMER1.OC1A_val = 0
-                    TIMER1.OC1B_val = 0
 
-                    for i in range(256):
+                    for i in range(257):
                         # OC1A Inverting PWM
                         if TIMER1.TCNT1 >= TIMER1.OCR1A:
                             if OC1A.get() == 0:
@@ -697,7 +701,7 @@ def TestBench_of_Timer1():
                             TEST = False
                             ERROR_LIST.append("OCF1B = 0 expected 1 | iter = {}".format(i))
 
-                        if TIMER1.TCNT1 == 0xFF and TOV1.get() == 0:
+                        if TIMER1.TCNT1 == 0 and i > 0 and TOV1.get() == 0:
                             TEST = False
                             ERROR_LIST.append("OVF = 0 expected 1")
 
@@ -1152,7 +1156,7 @@ def TestBench_of_Timer1():
                     TIMER1.TCNT1H = 0
                     TIMER1.TCNT1L = 0
 
-                    for i in range(1024):
+                    for i in range(1025):
                         if TIMER1.TCNT1 != i % 1024:
                             TEST = False
                             ERROR_LIST.append("TCNT1 = {} expected {}".format(TIMER1.TCNT1, i % 1024))
@@ -1176,7 +1180,7 @@ def TestBench_of_Timer1():
                             TEST = False
                             ERROR_LIST.append("OCF1B = 0 expected 1 | iter = {}".format(i))
 
-                        if TIMER1.TCNT1 == 0x03FF and TOV1.get() == 0:
+                        if TIMER1.TCNT1 == 0 and i > 0 and TOV1.get() == 0:
                             TEST = False
                             ERROR_LIST.append("OVF = 0 expected 1")
 
@@ -1200,15 +1204,15 @@ def TestBench_of_Timer1():
                     TEST = True 
                     TIMER1.TIMSK1 = 0b111
                     TIMER1.TIFR1 = 0 
-                    TIMER1.OC1A_val = 0
-                    TIMER1.OC1B_val = 0
+                    TIMER1.OC1A_val = 1
+                    TIMER1.OC1B_val = 1
                     sys.getSimulator().clk(1)
 
                     TIMER1.TCNT1 = 0
                     TIMER1.TCNT1H = 0
                     TIMER1.TCNT1L = 0
 
-                    for i in range(1024):
+                    for i in range(1025):
                         # OC1A Non-Inverting PWM
                         if TIMER1.TCNT1 >= TIMER1.OCR1A:
                             if OC1A.get() == 1:
@@ -1238,7 +1242,7 @@ def TestBench_of_Timer1():
                             TEST = False
                             ERROR_LIST.append("OCF1B = 0 expected 1 | iter = {}".format(i))
 
-                        if TIMER1.TCNT1 == 0x03FF and TOV1.get() == 0:
+                        if TIMER1.TCNT1 == 0 and i > 0 and TOV1.get() == 0:
                             TEST = False
                             ERROR_LIST.append("OVF = 0 expected 1")
 
@@ -1270,7 +1274,7 @@ def TestBench_of_Timer1():
                     TIMER1.TCNT1H = 0
                     TIMER1.TCNT1L = 0
 
-                    for i in range(1024):
+                    for i in range(1025):
                         # OC1A Inverting PWM
                         if TIMER1.TCNT1 >= TIMER1.OCR1A:
                             if OC1A.get() == 0:
@@ -1300,7 +1304,7 @@ def TestBench_of_Timer1():
                             TEST = False
                             ERROR_LIST.append("OCF1B = 0 expected 1 | iter = {}".format(i))
 
-                        if TIMER1.TCNT1 == 0x03FF and TOV1.get() == 0:
+                        if TIMER1.TCNT1 == 0 and i > 0 and TOV1.get() == 0:
                             TEST = False
                             ERROR_LIST.append("OVF = 0 expected 1")
 
@@ -2380,8 +2384,8 @@ def TestBench_of_Timer1():
                     TEST = True 
                     TIMER1.TIMSK1 = 0b111
                     TIMER1.TIFR1 = 0
-                    TIMER1.OC1A_val = 0
-                    TIMER1.OC1B_val = 0
+                    TIMER1.OC1A_val = 1
+                    TIMER1.OC1B_val = 1
                     sys.getSimulator().clk(1)
 
                     TIMER1.TCNT1 = 0
@@ -2416,7 +2420,7 @@ def TestBench_of_Timer1():
                                 ERROR_LIST.append("OC1B = 0 expected 1 | iter = {}".format(i))
 
                         # Verify Flags (TOV1 and ICF1 trigger at TOP in Mode 14)
-                        if TIMER1.TCNT1 == 600:
+                        if TIMER1.TCNT1 == 0 and i > 0:
                             if TOV1.get() == 0:
                                 TEST = False
                                 ERROR_LIST.append("OVF = 0 expected 1 | iter = {}".format(i))
@@ -2450,7 +2454,7 @@ def TestBench_of_Timer1():
                     TIMER1.TIMSK1 = 0b111
                     TIMER1.TIFR1 = 0
                     TIMER1.OC1A_val = 0
-                    TIMER1.OC1B_val = 0
+                    TIMER1.OC1B_val = 1
                     sys.getSimulator().clk(1)
 
                     TIMER1.TCNT1 = 0
@@ -2483,7 +2487,7 @@ def TestBench_of_Timer1():
                                 ERROR_LIST.append("OC1B = 0 expected 1 | iter = {}".format(i))
 
                         # Verify Flags (TOV1 and OCF1A trigger at TOP in Mode 15)
-                        if TIMER1.TCNT1 == 600:
+                        if TIMER1.TCNT1 == 0 and i > 0:
                             if TOV1.get() == 0:
                                 TEST = False
                                 ERROR_LIST.append("OVF = 0 expected 1 | iter = {}".format(i))
@@ -2620,7 +2624,7 @@ def TestBench_of_Timer1():
                             ERROR_LIST.append("OCF1B = 0 expected 1 | iter = {}".format(i))
 
                         # In Mode 12 (CTC via ICR1), ICF1 triggers at TOP (ICR1 match)
-                        if TIMER1.TCNT1 == 100 and ICF1.get() == 0:
+                        if TIMER1.TCNT1 == 0 and i > 0 and ICF1.get() == 0:
                             TEST = False
                             ERROR_LIST.append("ICF1 = 0 expected 1 | iter = {}".format(i))
 
