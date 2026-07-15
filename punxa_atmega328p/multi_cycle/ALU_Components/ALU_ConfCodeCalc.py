@@ -201,6 +201,7 @@ class ALU_ConfCodeCalc(py4hw.Logic):
         # Keep AU out of the jump/skip path entirely.
         if inst in _BRANCH_SKIP_INS:
             arith_ctrl = 0
+            
         self.ArithmCode.put(arith_ctrl)
         self.Copp.put(copp)
         self.Zopp.put(zopp)
