@@ -67,7 +67,7 @@ class MulticycleCpuWrapper:
 
     @property
     def pc(self):
-        return self._cpu.rom.PC
+        return self._cpu.children['RomHandler'].PC
 
     def get_retired_instructions(self):
         # Accessing the instruction count from the ControlBox FSM
@@ -78,6 +78,7 @@ class MulticycleCpuWrapper:
 
 # 3. CPU Setup Function
 def prepare_cpu(cpu_type, program_words):
+    global hw
     hw = py4hw.HWSystem()
     dw = 8 
     aw = 16
@@ -120,20 +121,13 @@ def prepare_cpu(cpu_type, program_words):
         reset_wire = py4hw.Wire(hw, 'Reset_Line', 1)
         reset_wire.put(0)
         
-        cpu = punxa.multicycleProcessor(
-            parent=hw, 
-            name='cpu', 
-            Interrupt=interrupt_wire, 
-            ins_mem=ins_p, 
-            memory=data_p, 
-            reset=reset_wire, 
-            reset_address=0
-        )
+        cpu = punxa.multicycleProcessor(hw, 'cpu', Interrupt=interrupt_wire, ins_mem=ins_p, memory=data_p, reset=reset_wire, reset_address=0)
         wrapped_cpu = MulticycleCpuWrapper(cpu)
         return hw, cpu, wrapped_cpu
 
 # 4. Simulation Execution
 def run_simulation(cpu_type, program_words, halt_pc):
+    global cpu
     hw, cpu, wrapped_cpu = prepare_cpu(cpu_type, program_words)
     
     step_limit = 20000
@@ -244,4 +238,9 @@ if __name__ == "__main__":
     res_multi = run_simulation('multi', words, halt_address)
     
     # Generate the comparison graphs
-    generate_graphs(res_single, res_multi)
+    #generate_graphs(res_single, res_multi)
+    
+    rtlgen = py4hw.VerilogGenerator(hw)
+    
+    rtl = rtlgen.getVerilogForHierarchy(cpu)
+    print(rtl)
