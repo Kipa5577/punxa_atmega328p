@@ -96,12 +96,14 @@ class SREG_Splitter(py4hw.Logic):
         self.w_tin.put((sreg >> 6) & 1)
 
 class ALU_MergerAndLogic(py4hw.Logic):
-    """Merges flags back to SREG, bridges output results, and computes Branch/Skip."""
+    """
+    Merges flags back to SREG, bridges output results, and computes Branch/Skip.
+    @todo this is just a concatenation of wires, use concatenate
+    """
     def __init__(self, parent, name,
                 w_cout, w_zout, w_nout, w_vout,
                 w_sout, w_hout, w_tout, w_iout,
-                w_res_l, w_res_H,
-                sreg_val, out_byte0, out_byte1):
+                sreg_val):
         super().__init__(parent, name)
         # SREG inputs
         self.w_cout = self.addIn('w_cout', w_cout)
@@ -122,8 +124,7 @@ class ALU_MergerAndLogic(py4hw.Logic):
         
         # Outputs
         self.sreg_val = self.addOut('sreg_val', sreg_val)
-        self.out_byte0 = self.addOut('out_byte0', out_byte0)
-        self.out_byte1 = self.addOut('out_byte1', out_byte1)
+        
 
     def propagate(self):
 
@@ -148,28 +149,27 @@ class ALU_MergerAndLogic(py4hw.Logic):
 # =====================================================================
 class ALU(py4hw.Logic):
     def __init__(self, parent, name:str,
-                 ImputRegA0, ImputRegA1, ImputRegB0, ImputRegB1, ALUInstruction, SREG_STATE, BitPos, IOreg,
-                 ALUOUTPUTByte0, ALUOUTPUTByte1, SREG_VAL, eSREG_VAL, BRANCH, SKIP):
+                 A0, A1, B0, B1, op, SREG_STATE, BitPos, IOreg, R0, R1, SREG_VAL, eSREG_VAL, BRANCH, SKIP):
         super().__init__(parent, name)
 
         # --- Define External Inputs ---
-        self.ImputRegA0 = self.addIn('ImputRegA0', ImputRegA0)
-        self.ImputRegA1 = self.addIn('ImputRegA1', ImputRegA1)
-        self.ImputRegB0 = self.addIn('ImputRegB0', ImputRegB0)
-        self.ImputRegB1 = self.addIn('ImputRegB1', ImputRegB1)
+        self.addIn('A0', A0)
+        self.addIn('A1', A1)
+        self.addIn('B0', B0)
+        self.addIn('B1', B1)
 
-        self.ALUins = self.addIn('ALUInstruction', ALUInstruction)
-        self.SREG_state = self.addIn('SREG_STATE', SREG_STATE)
-        self.BitPos = self.addIn('BitPos', BitPos)
-        self.IOreg = self.addIn('IOreg', IOreg)
+        self.addIn('op', op)
+        self.addIn('SREG_STATE', SREG_STATE)
+        self.addIn('BitPos', BitPos)
+        self.addIn('IOreg', IOreg)
 
         # --- Define External Outputs ---
-        self.OUTByte0 = self.addOut('ALUOUTPUTByte0', ALUOUTPUTByte0)
-        self.OUTByte1 = self.addOut('ALUOUTPUTByte1', ALUOUTPUTByte1)
-        self.SREG_VAL = self.addOut('SREG_VAL', SREG_VAL)
-        self.eSREG_VAL = self.addOut('eSREG_VAL', eSREG_VAL)
-        self.BRANCH = self.addOut('BRANCH', BRANCH)
-        self.SKIP = self.addOut('SKIP', SKIP)
+        self.addOut('R0', R0)
+        self.addOut('R1', R1)
+        self.addOut('SREG_VAL', SREG_VAL)
+        self.addOut('eSREG_VAL', eSREG_VAL)
+        self.addOut('BRANCH', BRANCH)
+        self.addOut('SKIP', SKIP)
 
         # ==========================================
         # INTERNAL WIRES
@@ -198,152 +198,100 @@ class ALU(py4hw.Logic):
         self.w_nin = py4hw.Wire(self, 'w_nin',1)
         self.w_vin = py4hw.Wire(self, 'w_vin',1)
         self.w_tin = py4hw.Wire(self, 'w_tin',1)
+        w_arith_ctrl = py4hw.Wire(self, 'w_arith_ctrl', 8)
+        w_copp = py4hw.Wire(self, 'w_copp',4)
+        w_zopp = py4hw.Wire(self, 'w_zopp',3)
+        w_nopp = py4hw.Wire(self, 'w_nopp',3)
+        w_vopp = py4hw.Wire(self, 'w_vopp',4)
+        w_sopp = py4hw.Wire(self, 'w_sopp',3)
+        w_hopp = py4hw.Wire(self, 'w_hopp',2)
+        w_topp = py4hw.Wire(self, 'w_topp',2)
+        w_iopp = py4hw.Wire(self, 'w_iopp',1)
+        w_branchOpp = py4hw.Wire(self, 'w_branchOpp', 3)
+
+
+        # Individual Flag Inputs (Split from SREG_STATE bus)
+        w_cin = py4hw.Wire(self, 'w_cin',1)
+        w_zin = py4hw.Wire(self, 'w_zin',1)
+        w_nin = py4hw.Wire(self, 'w_nin',1)
+        w_vin = py4hw.Wire(self, 'w_vin',1)
 
         # Individual Flag Outputs (Calculated by Handlers)
-        self.w_cout = py4hw.Wire(self, 'w_cout',1)
-        self.w_zout = py4hw.Wire(self, 'w_zout',1)
-        self.w_nout = py4hw.Wire(self, 'w_nout',1)
-        self.w_vout = py4hw.Wire(self, 'w_vout',1)
-        self.w_sout = py4hw.Wire(self, 'w_sout',1)
-        self.w_hout = py4hw.Wire(self, 'w_hout',1)
-        self.w_tout = py4hw.Wire(self, 'w_tout',1)
-        self.w_iout = py4hw.Wire(self, 'w_iout',1)
+        w_cout = py4hw.Wire(self, 'w_cout',1)
+        w_zout = py4hw.Wire(self, 'w_zout',1)
+        w_nout = py4hw.Wire(self, 'w_nout',1)
+        w_vout = py4hw.Wire(self, 'w_vout',1)
+        w_sout = py4hw.Wire(self, 'w_sout',1)
+        w_hout = py4hw.Wire(self, 'w_hout',1)
+        w_tout = py4hw.Wire(self, 'w_tout',1)
+        w_iout = py4hw.Wire(self, 'w_iout',1)
 
         # --- Combined 16-bit Data Wires ---
-        self.w_regA_16 = py4hw.Wire(self, 'w_regA_16', 16)
-        self.w_regB_16 = py4hw.Wire(self, 'w_regB_16', 16)
-        self.w_res_16 = py4hw.Wire(self, 'w_res_16',16)
+        w_regA_16 = py4hw.Wire(self, 'w_regA_16', 16)
+        w_regB_16 = py4hw.Wire(self, 'w_regB_16', 16)
+        w_res_16 = py4hw.Wire(self, 'w_res_16',16)
 
         # ==========================================
         # SUB-COMPONENT INSTANTIATION
         # ==========================================
         
         # 0. SREG Splitter
-        self.sreg_splitter = SREG_Splitter(self, 'SREGSplitter',
-            self.SREG_state, self.w_cin, self.w_zin, self.w_nin, self.w_vin, self.w_tin)
+        SREG_Splitter(self, 'SREGSplitter', SREG_STATE, w_cin, w_zin, w_nin, w_vin)
         
-        self.concat_A = WireCombiner16(self, 'ConcatA', self.ImputRegA1, self.ImputRegA0, self.w_regA_16)
-        self.concat_B = WireCombiner16(self, 'ConcatB', self.ImputRegB1, self.ImputRegB0, self.w_regB_16)
-        # FIX: arguments were (w_res_l, w_res_H, ...) i.e. (in_high, in_low)
-        # with the LOW byte passed as in_high and the HIGH byte passed as
-        # in_low -- WireCombiner16 shifts in_high left by 8 and ORs in_low
-        # in unshifted, so this was silently byte-swapping every 16-bit
-        # result (ADIW/SBIW/MUL family) before HandleC/HandleZ/HandleN ever
-        # saw it. Corrected to (in_high=w_res_H, in_low=w_res_l).
-        self.concat_res = WireCombiner16(self, 'ConcatRes', self.w_res_H, self.w_res_l, self.w_res_16)
+        # @todo substitute this by py4hw.Concatenate
+        py4hw.ConcatenateLSBF(self, 'A', [A0, A1], w_regA_16)
+        py4hw.ConcatenateLSBF(self, 'B', [B0, B1], w_regB_16)
+        
+        WireCombiner16(self, 'ConcatRes', R0, R1, w_res_16)
 
 
         # 1. Configuration & Control Unit
-        self.conf_calc = ALU_ConfCodeCalc(
+        # @todo what is this ?
+        conf_calc = ALU_ConfCodeCalc(
                     self, 'ConfCodeCalc',
-                    self.ALUins,          # ALUInstruction
-                    self.BitPos,          # BitPos
-                    self.w_arith_ctrl,    # ArithmeticControl
-                    self.w_copp,          # Copp
-                    self.w_zopp,          # Zopp
-                    self.w_nopp,          # Nopp
-                    self.w_vopp,          # Vopp
-                    self.w_sopp,          # Sopp
-                    self.w_hopp,          # Hopp
-                    self.w_topp,          # Topp
-                    self.w_iopp,          # Iopp
-                    self.eSREG_VAL,        # eSREG
-                    self.w_branchOpp 
+                    op,              # ALUInstruction
+                    BitPos,          # BitPos
+                    w_arith_ctrl,    # ArithmeticControl
+                    w_copp,          # Copp
+                    w_zopp,          # Zopp
+                    w_nopp,          # Nopp
+                    w_vopp,          # Vopp
+                    w_sopp,          # Sopp
+                    w_hopp,          # Hopp
+                    w_topp,          # Topp
+                    w_iopp,          # Iopp
+                    eSREG_VAL,        # eSREG
+                    w_branchOpp 
                 )
         # 2. Arithmetic And Logic Units
-        self.au = AU(
+        au = AU(
                     self, 'AU',
-                    self.w_cin,           # Cval
-                    self.ImputRegA0,      # RegAL
-                    self.ImputRegA1,      # RegAH
-                    self.ImputRegB0,      # RegBL
-                    self.ImputRegB1,      # RegBH
-                    self.w_arith_ctrl,    # Operation
-                    self.BitPos,          # BitPos (SBI/CBI only)
-                    self.w_res_l,  # ResL
-                    self.w_res_H,   # ResH
-                    self.w_mul_carry,  # MulCarryOut
-                    Tval=self.w_tin,  # FIX: BLD's real T-flag source (current SREG bit 6) -- was never wired at all before this fix
+                    w_cin,           # Cval
+                    A0,      # RegAL
+                    A1,      # RegAH
+                    B0,      # RegBL
+                    B1,      # RegBH
+                    w_arith_ctrl,    # Operation
+                    BitPos,          # BitPos (SBI/CBI only)
+                    R0,  # ResL
+                    R1   # ResH
                 )
 
-        self.BranchUnit = BranchUnit(
-            self,'LU',
-            self.SREG_state,
-            self.ImputRegA0,
-            self.ImputRegB0,      # RegisterB (Rr), for CPSE only
-            self.IOreg ,
-            self.BitPos,
-            self.w_branchOpp,
-            self.SKIP,
-            self.BRANCH,
-        )
+        # @todo why branch unit is in the ALU ?
+        BranchUnit(self,'LU', SREG_STATE, A0,
+            B0,      # RegisterB (Rr), for CPSE only
+            IOreg , BitPos, w_branchOpp, SKIP, BRANCH)
 
         # 3. Flag Handlers
-        self.handle_c = HandleC(self, 'HC', self.w_regB_16, self.w_regA_16, self.w_res_16, self.w_copp, self.w_mul_carry, self.w_cout)
-        self.handle_z = HandleZ(self, 'HZ', self.w_res_16, self.w_zopp, self.w_zin, self.w_zout) 
-        self.handle_n = HandleN(self, 'HN', self.w_res_16, self.w_nopp, self.w_nout)
-        self.handle_v = HandleV(self, 'HV', self.w_regB_16, self.w_regA_16, self.w_res_16, self.w_nin, self.w_cin, self.w_vopp, self.w_vout)
-        self.handle_h = HandleH(self, 'HH', self.w_regB_16, self.w_regA_16, self.w_res_16, self.w_hopp, self.w_hout)
-        # FIX: BST's register operand is decoded into the Rr slot, not Rd
-        # (see Instruction_decoder.py: `elif code in [41, 42, 75]: out_rr =
-        # rd_d5` — BST is deliberately routed onto Rr). That means the
-        # actual byte to test lands on w_regB_16 (RegB/Rr), while RegA
-        # holds whatever Rd defaulted to (register r0, since BST leaves
-        # out_rd unset). HandleT was wired to w_regA_16 and so always
-        # tested a bit of r0 instead of the register the instruction
-        # named, silently breaking BST (and, downstream, BLD, since BLD's
-        # test cases rely on BST/SET having set T correctly first).
-        self.handle_t = HandleT(self, 'HT', self.w_regB_16, self.BitPos, self.w_topp, self.w_tout)
-        self.handle_i = HandleI(self, 'HI', self.w_iopp, self.w_iout)
-        self.handle_s = HandleS(self, 'HS', self.w_nout, self.w_vout, self.w_sopp, self.w_sout)
+        HandleC(self, 'HC', w_regB_16, w_regA_16, w_res_16, w_copp, w_cout)
+        HandleZ(self, 'HZ', w_res_16, w_zopp, w_zin, w_zout) 
+        HandleN(self, 'HN', w_res_16, w_nopp, w_nout)
+        HandleV(self, 'HV', w_regB_16, w_regA_16, w_res_16, w_nin, w_vopp, w_vout)
+        HandleH(self, 'HH', w_regB_16, w_regA_16, w_res_16, w_hopp, w_hout)
+        HandleT(self, 'HT', w_regA_16, BitPos, w_topp, w_tout)
+        HandleI(self, 'HI', w_iopp, w_iout)
+        HandleS(self, 'HS', w_nout, w_vout, w_sopp, w_sout)
 
         # 4. Merger and Output Logic
-        self.alu_merger = ALU_MergerAndLogic(
-            self, 'ALUMerger',
-            self.w_cout, self.w_zout, self.w_nout, self.w_vout,
-            self.w_sout, self.w_hout, self.w_tout, self.w_iout,
-            self.w_res_l, self.w_res_H,
-            self.SREG_VAL, self.OUTByte0, self.OUTByte1
-        )
-
-
-if __name__ == '__main__':
-    # Cross-compilation entry point: instantiate the top-level ALU and
-    # generate Verilog for the whole hierarchy (ALU + every sub-component:
-    # AU, BranchUnit, ALU_ConfCodeCalc, all eight Handle* flag units,
-    # WireCombiner16, SREG_Splitter, and ALU_MergerAndLogic).
-    import os
-
-    hw = py4hw.HWSystem()
-
-    ImputRegA0 = hw.wire('ImputRegA0', 8)
-    ImputRegA1 = hw.wire('ImputRegA1', 8)
-    ImputRegB0 = hw.wire('ImputRegB0', 8)
-    ImputRegB1 = hw.wire('ImputRegB1', 8)
-    ALUInstruction = hw.wire('ALUInstruction', 8)
-    SREG_STATE = hw.wire('SREG_STATE', 8)
-    BitPos = hw.wire('BitPos', 3)
-    IOreg = hw.wire('IOreg', 8)
-
-    ALUOUTPUTByte0 = hw.wire('ALUOUTPUTByte0', 8)
-    ALUOUTPUTByte1 = hw.wire('ALUOUTPUTByte1', 8)
-    SREG_VAL = hw.wire('SREG_VAL', 8)
-    eSREG_VAL = hw.wire('eSREG_VAL', 8)
-    BRANCH = hw.wire('BRANCH', 1)
-    SKIP = hw.wire('SKIP', 1)
-
-    dut = ALU(hw, 'ALU',
-              ImputRegA0, ImputRegA1, ImputRegB0, ImputRegB1, ALUInstruction, SREG_STATE, BitPos, IOreg,
-              ALUOUTPUTByte0, ALUOUTPUTByte1, SREG_VAL, eSREG_VAL, BRANCH, SKIP)
-
-    rtl = py4hw.rtl_generation.VerilogGenerator(dut)
-    # getVerilogForHierarchy walks the whole sub-component tree and
-    # concatenates a separate `module` block for each one (skipping only
-    # primitives py4hw considers inlinable, which none of these are).
-    verilog = rtl.getVerilogForHierarchy(forceName='ALU')
-    print(verilog)
-
-    out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ALU.v')
-    with open(out_path, 'w') as f:
-        f.write(verilog)
-    print(f'Verilog written to {out_path}')
+        self.alu_merger = ALU_MergerAndLogic(self, 'ALUMerger',
+            w_cout, w_zout, w_nout, w_vout, w_sout, w_hout, w_tout, w_iout, SREG_VAL)

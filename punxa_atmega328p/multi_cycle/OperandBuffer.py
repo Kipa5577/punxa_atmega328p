@@ -2,6 +2,9 @@ import py4hw
 
 class OperandBuffer(py4hw.Logic):
 
+    # @todo this circuit implements the Rd Rr registers, we should implement 
+    # them with real registers. No need to encapsulate this.
+    # OB_WE signals makes things more complicated instead of making them simpler
     def __init__(self, parent, name,
                  OB_DATA_IN,
                  OB_K,
@@ -63,6 +66,7 @@ class OperandBuffer(py4hw.Logic):
                 self.IOBuffer = self.DATA.get() & 0xFF
 
 
+        # @todo BUG! clock circuits must use prepare instead of put
         self.A0.put(self.valueRd0)
         self.A1.put(self.valueRd1)
         self.B0.put(self.valueRr0)
