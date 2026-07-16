@@ -127,6 +127,7 @@ class AU(py4hw.Logic):
             res_l = 0x00 - A
             
         elif op == 17: # CBR (Clear bits)
+
             res_l = A & (0xFF - B)
             
         elif op == 18: # INC

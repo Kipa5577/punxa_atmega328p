@@ -277,7 +277,11 @@ class multicycleProcessor(py4hw.Logic):
             OB_IOout=W_IOBuffer_MIH_OB
         )
 
-        ALU(
+        # NOTE: swapped ALU -> ALU_STRUC. Same port names/order, so the
+        # keyword-argument call below is unchanged. ALU_STRUC internally
+        # instantiates AU_STRUC / ALU_ConfCodeCalc_STRUC / Handle*_STRUC
+        # instead of the (presumably behavioral) ALU sub-blocks.
+        ALU_STRUC(
             self, 'ALU',
             A0=W_ImputRegA0_OB_ALU,
             A1=W_ImputRegA1_OB_ALU,
