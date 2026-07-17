@@ -1,5 +1,6 @@
 import py4hw 
 
+
 #ALU_STRUC COMPONENTS
 from .ALU_struc_components.AU_STRUC import *
 from .ALU_struc_components.LU_STRUC import *
@@ -13,7 +14,6 @@ from .ALU_struc_components.HandleT_STRUC import *
 from .ALU_struc_components.HandleS_STRUC import *
 from .ALU_struc_components.HandleV_STRUC import *
 from .ALU_struc_components.HandleZ_STRUC import *
-
 
 
 """
@@ -110,7 +110,6 @@ class ALU_MergerAndLogic(py4hw.Logic):
         self.sreg_val.put(new_sreg)
 
 
-
 class ALU_STRUC(py4hw.Logic):
     def __init__(self, parent, name: str,
                  A0, A1, B0, B1, op, SREG_STATE, BitPos, IOreg, R0, R1, SREG_VAL, eSREG_VAL, BRANCH, SKIP,
@@ -174,6 +173,10 @@ class ALU_STRUC(py4hw.Logic):
         w_zin = py4hw.Wire(self, 'w_zin', 1)
         w_nin = py4hw.Wire(self, 'w_nin', 1)
         w_vin = py4hw.Wire(self, 'w_vin', 1)
+        # FIX: pre-existing bug -- SREG_Splitter requires w_tin (its 6th
+        # positional arg) but this call site never declared/passed it.
+        # Unused downstream, same as the behavioral ALU class above --
+        # throwaway sink wire to satisfy the constructor signature.
         w_tin = py4hw.Wire(self, 'w_tin_sink', 1)
  
         # Individual Flag Outputs (Calculated by Handlers)

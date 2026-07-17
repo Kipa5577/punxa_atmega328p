@@ -118,7 +118,15 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_opp_done                   = py4hw.Wire(self, 'w_opp_done',                   1)
         self.w_opp_NotExecute             = py4hw.Wire(self, 'w_opp_NotExecute',             1)
         self.w_opp_LoadSelectMux          = py4hw.Wire(self, 'w_opp_LoadSelectMux',          1)
-        self.w_opp_LoadingMux             = py4hw.Wire(self, 'w_opp_LoadingMux',             4)
+        # FIX: widened 4->5 bits. LOAD_R1_BUFFER=16 (SPM's high-byte
+        # operand load, see LPM.py's SPM path) needs 5 bits to represent;
+        # a 4-bit wire silently truncated it to 0, so SPM_LOAD_R1 never
+        # actually loaded MemoryInterfaceHandler's R1Buffer even though
+        # every other LoadingMux code (max 15, LOAD_R0_BUFFER) fit fine.
+        # All six per-FSM LoadingMux wires below share this fix for
+        # consistency with the already-5-bit merged W_LoadingMux wire in
+        # MulticycleProcessor.py.
+        self.w_opp_LoadingMux             = py4hw.Wire(self, 'w_opp_LoadingMux',             5)
         self.w_opp_Input_Select           = py4hw.Wire(self, 'w_opp_Input_Select',           5)
         self.w_opp_WE                     = py4hw.Wire(self, 'w_opp_WE',                     1)
         self.w_opp_Read_Write             = py4hw.Wire(self, 'w_opp_Read_Write',             2)
@@ -143,7 +151,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_mov_done                   = py4hw.Wire(self, 'w_mov_done',                   1)
         self.w_mov_NotExecute             = py4hw.Wire(self, 'w_mov_NotExecute',             1)
         self.w_mov_LoadSelectMux          = py4hw.Wire(self, 'w_mov_LoadSelectMux',          1)
-        self.w_mov_LoadingMux             = py4hw.Wire(self, 'w_mov_LoadingMux',             4)
+        self.w_mov_LoadingMux             = py4hw.Wire(self, 'w_mov_LoadingMux',             5)
         self.w_mov_Input_Select           = py4hw.Wire(self, 'w_mov_Input_Select',           5)
         self.w_mov_WE                     = py4hw.Wire(self, 'w_mov_WE',                     1)
         self.w_mov_Read_Write             = py4hw.Wire(self, 'w_mov_Read_Write',             2)
@@ -167,7 +175,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_poppush_done                   = py4hw.Wire(self, 'w_poppush_done',                   1)
         self.w_poppush_NotExecute             = py4hw.Wire(self, 'w_poppush_NotExecute',             1)
         self.w_poppush_LoadSelectMux          = py4hw.Wire(self, 'w_poppush_LoadSelectMux',          1)
-        self.w_poppush_LoadingMux             = py4hw.Wire(self, 'w_poppush_LoadingMux',             4)
+        self.w_poppush_LoadingMux             = py4hw.Wire(self, 'w_poppush_LoadingMux',             5)
         self.w_poppush_Input_Select           = py4hw.Wire(self, 'w_poppush_Input_Select',           5)
         self.w_poppush_WE                     = py4hw.Wire(self, 'w_poppush_WE',                     1)
         self.w_poppush_Read_Write             = py4hw.Wire(self, 'w_poppush_Read_Write',             2)
@@ -191,7 +199,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_ldst_done                   = py4hw.Wire(self, 'w_ldst_done',                   1)
         self.w_ldst_NotExecute             = py4hw.Wire(self, 'w_ldst_NotExecute',             1)
         self.w_ldst_LoadSelectMux          = py4hw.Wire(self, 'w_ldst_LoadSelectMux',          1)
-        self.w_ldst_LoadingMux             = py4hw.Wire(self, 'w_ldst_LoadingMux',             4)
+        self.w_ldst_LoadingMux             = py4hw.Wire(self, 'w_ldst_LoadingMux',             5)
         self.w_ldst_Input_Select           = py4hw.Wire(self, 'w_ldst_Input_Select',           5)
         self.w_ldst_WE                     = py4hw.Wire(self, 'w_ldst_WE',                     1)
         self.w_ldst_Read_Write             = py4hw.Wire(self, 'w_ldst_Read_Write',             2)
@@ -215,7 +223,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_callret_done                   = py4hw.Wire(self, 'w_callret_done',                   1)
         self.w_callret_NotExecute             = py4hw.Wire(self, 'w_callret_NotExecute',             1)
         self.w_callret_LoadSelectMux          = py4hw.Wire(self, 'w_callret_LoadSelectMux',          1)
-        self.w_callret_LoadingMux             = py4hw.Wire(self, 'w_callret_LoadingMux',             4)
+        self.w_callret_LoadingMux             = py4hw.Wire(self, 'w_callret_LoadingMux',             5)
         self.w_callret_Input_Select           = py4hw.Wire(self, 'w_callret_Input_Select',           5)
         self.w_callret_WE                     = py4hw.Wire(self, 'w_callret_WE',                     1)
         self.w_callret_Read_Write             = py4hw.Wire(self, 'w_callret_Read_Write',             2)
@@ -239,7 +247,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.w_lpm_done                   = py4hw.Wire(self, 'w_lpm_done',                   1)
         self.w_lpm_NotExecute             = py4hw.Wire(self, 'w_lpm_NotExecute',             1)
         self.w_lpm_LoadSelectMux          = py4hw.Wire(self, 'w_lpm_LoadSelectMux',          1)
-        self.w_lpm_LoadingMux             = py4hw.Wire(self, 'w_lpm_LoadingMux',             4)
+        self.w_lpm_LoadingMux             = py4hw.Wire(self, 'w_lpm_LoadingMux',             5)
         self.w_lpm_Input_Select           = py4hw.Wire(self, 'w_lpm_Input_Select',           5)
         self.w_lpm_WE                     = py4hw.Wire(self, 'w_lpm_WE',                     1)
         self.w_lpm_Read_Write             = py4hw.Wire(self, 'w_lpm_Read_Write',             2)

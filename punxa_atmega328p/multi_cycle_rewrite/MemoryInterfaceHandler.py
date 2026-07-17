@@ -273,7 +273,7 @@ class MemoryInterfaceHandler(py4hw.Logic):
 
         self.BusData = 0
         self.Databuffer = 0
-        self.debug = 1
+        self.debug = 0
 
     # ==========================================================
     # Helpers

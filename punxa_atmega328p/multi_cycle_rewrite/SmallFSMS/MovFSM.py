@@ -116,7 +116,7 @@ class MOV_FSM(py4hw.Logic):
         self.current_state = 'STOP'
         # Remember the instruction across multi-cycle sequences
         self._latched_inst = 0
-        self.debug = 0
+        self.debug = 1
 
 
     def clock(self):

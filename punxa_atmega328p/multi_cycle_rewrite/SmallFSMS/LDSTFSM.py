@@ -106,6 +106,9 @@ STATES = [
 
     # STORE
     'FETCH_VALUE_OF_RD', 'WAIT_FETCH_VALUE_OF_RD',
+    # FIX: dedicated state to latch Rr value into RdBuffer BEFORE fetching ROM address.
+    # Previously LoadingMux=14 was incorrectly driven during FETCH/WAIT_ADDRESS_FROM_ROM,
+    # where BusData holds ROM-fetch results rather than the register value.
     'LATCH_RD_TO_BUFFER',
     'LOAD_VALUE_TO_MEMORY', 'WAIT_LOAD_VALUE_TO_MEMORY',
 
@@ -573,8 +576,8 @@ class LDST_FSM(py4hw.Logic):
                 # Resp=1 is really ours (see edge-detect note above).
                 self._h_saw_resp_low = True
             elif self._h_saw_resp_low:
-                WE_Memory = 1          
-                LoadingMux = 14         
+                WE_Memory = 1            # [FIX]: Latch data into RdBuffer
+                LoadingMux = 14          # [FIX]: Select LOAD_RD_BUFFER
                 if self._deferred_post_inc:
                     # Apply the post-increment exactly once, now that the
                     # read has completed at the ORIGINAL address.
@@ -585,13 +588,13 @@ class LDST_FSM(py4hw.Logic):
         elif state == 'LOAD_VALUE_TO_RD':
             Mem_Instruction = 12 
             Read_Write  = 1 
-            InputSelect_Memory = 16      
+            InputSelect_Memory = 16      # [FIX]: Use latched RdBuffer (16) instead of DataBus (1)
             next_state = 'WAIT_LOAD_VALUE_TO_RD'
 
         elif state == 'WAIT_LOAD_VALUE_TO_RD':
             Mem_Instruction = 12     
             Read_Write = 1
-            InputSelect_Memory = 16     
+            InputSelect_Memory = 16      # [FIX]: Use latched RdBuffer (16)
 
             if resp:
                 if self._pointer_update_pending:
@@ -634,7 +637,7 @@ class LDST_FSM(py4hw.Logic):
                 # Resp deasserted: any later Resp=1 is genuinely ours.
                 self._h_saw_resp_low = True
             elif self._h_saw_resp_low:
-            
+                # FIX: Send both STS (119) and OUT (_IO_WRITE) to the latch state
                 if i == 119 or i in _IO_WRITE: 
                     next_state = 'LATCH_RD_TO_BUFFER'
                 elif i in _STORE_MEM:
@@ -649,16 +652,20 @@ class LDST_FSM(py4hw.Logic):
 
 
         elif state == 'LATCH_RD_TO_BUFFER':
-            Mem_Instruction = 12    
-                                     
-            Read_Write = 2          
-            WE_Memory = 0            
+            Mem_Instruction = 12     # FIX: hold the SAME read (source register)
+                                     # stable -- this was defaulting to 0
+                                     # (register r0) since Mem_Instruction
+                                     # was never set here, silently
+                                     # redirecting the address away from
+                                     # the real source register mid-wait.
+            Read_Write = 2           # Request Memory Read
+            WE_Memory = 0            # DON'T latch yet!
             LoadingMux = 14          
             next_state = 'WAIT_LATCH_RD_TO_BUFFER'
 
         elif state == 'WAIT_LATCH_RD_TO_BUFFER':
-            Mem_Instruction = 12     
-                                     
+            Mem_Instruction = 12     # FIX: same as above -- keep addressing
+                                     # the source register, not r0.
             Read_Write = 2 # Keep holding the read request
             LoadingMux = 14
             if resp:
@@ -771,8 +778,8 @@ class LDST_FSM(py4hw.Logic):
             InputSelect_Memory = 1
             
             if resp:
-                WE_Memory = 1            
-                LoadingMux = 14          
+                WE_Memory = 1            # [FIX]: Latch data into RdBuffer
+                LoadingMux = 14          # [FIX]: Select LOAD_RD_BUFFER
                 next_state = 'LOAD_VALUE_TO_RD'
 
 
@@ -882,12 +889,16 @@ class LDST_FSM(py4hw.Logic):
 
         elif state == 'FETCH_ADDRESS_FROM_ROM':
             # Trigger the RomHandler to fetch the 16-bit address word.
+            # FIX: LoadingMux=14 / WE_Memory=1 have been removed from here.
+            # The register value is now safely latched in the dedicated
+            # LATCH_RD_TO_BUFFER state that precedes this one.
             Fetch_Address = 1
             next_state = 'WAIT_FETCH_ADDRESS_FROM_ROM'
 
         elif state == 'WAIT_FETCH_ADDRESS_FROM_ROM':
             # Hold the fetch signal high while we wait for the RomHandler.
-
+            # FIX: LoadingMux=14 / WE_Memory=1 have been removed from here
+            # for the same reason as FETCH_ADDRESS_FROM_ROM above.
             Fetch_Address = 1
             if self.Address_fetched.get() == 1:
                 next_state = 'LOAD_ADDRESS_TO_MEMORY_HANDLER'
@@ -933,10 +944,10 @@ class LDST_FSM(py4hw.Logic):
             # The RomHandler is now outputting the 16-bit address.
             # Read SRAM[that address] (MEM_RAM_ADDR_REG = 9) onto the
             # data bus, then latch it into Rd. 
-            Fetch_Address = 1          
+            Fetch_Address = 1           # [FIX]: Keep handshake high so RomHandler holds the address
             Mem_Instruction = 9         # 9 = MEM_RAM_ADDR_REG
             Read_Write = 2              # 2 = Memory Read
-            InputSelect_Memory = 1      
+            InputSelect_Memory = 1      # [FIX]: Changed from 16 to 1 (Fetch value from dataBus)
             next_state = 'WAIT_LOAD_FROM_ROM_ADDR_TO_RD'
 
         elif state == 'WAIT_LOAD_FROM_ROM_ADDR_TO_RD':
@@ -946,8 +957,8 @@ class LDST_FSM(py4hw.Logic):
             InputSelect_Memory = 1
 
             if resp:
-                WE_Memory = 1           
-                LoadingMux = 14          
+                WE_Memory = 1            # [FIX]: Latch data into RdBuffer
+                LoadingMux = 14          # [FIX]: Select LOAD_RD_BUFFER
                 next_state = 'LOAD_VALUE_TO_RD'
 
 

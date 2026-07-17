@@ -17,1034 +17,509 @@ UCSRA_PE = 1 << 2     # Parity Error
 UCSRA_2X = 1 << 1     # Double Transmission Speed
 UCSRA_MPCM = 1        # Multi-processor Communication Mode
 
-class USART(py4hw.Logic):
-    def __init__(self,parent,name:str,memory:MemoryInterface,RXD,TXD,USART_CLK,RXC_INT,TXC_INT,UDRE_INT):
+class USART0(py4hw.Logic):
+    """
+    Behavioral model of the ATmega328P's single hardware USART.
+
+    This replaces the old `USART`/`USART_1` classes. Register semantics,
+    frame timing (start/data/parity/stop, oversampled at 16x/8x/2x the
+    baud rate depending on mode), the 2-byte-deep receive buffer, and
+    interrupt behavior are all cycle-accurate against the datasheet.
+
+    Deliberately *behavioral* rather than a literal gate-level TX/RX
+    finite-state-machine translation: control-register fields are decoded
+    declaratively as properties of the two raw config bytes (UCSR0B/
+    UCSR0C) instead of being re-parsed bit-by-bit every clock cycle, and
+    a frame (TX) or a fixed-length sample list (RX) is built/consumed as
+    a single sequence walked by one index, instead of a hand-duplicated
+    case-per-phase (IDLE/START/DATA/PARITY/STOP) state machine with a
+    separate tick counter for each phase.
+
+    Register map (byte offsets *relative* to wherever this component is
+    mapped on the bus -- e.g. 0xC0 in the CPU memory map -- matching the
+    module-level UCSRA_REG/UCSRB_REG/.../UDR_REG constants above, and the
+    relative addressing `MultiplexedBus` already hands every other
+    peripheral on this bus):
+        0x00  UCSR0A   0x01  UCSR0B   0x02  UCSR0C
+        0x04  UBRR0L   0x05  UBRR0H   0x06  UDR0
+    """
+
+    def __init__(self, parent, name: str, memory: MemoryInterface, RXD, TXD,
+                 USART_CLK, RXC_INT, TXC_INT, UDRE_INT):
         super().__init__(parent, name)
 
-        self.interface = self.addInterfaceSink('port',memory)
+        self.interface = self.addInterfaceSink('port', memory)
 
-        #Physical Pins
-        self.RXD = self.addIn('RXD',RXD)
-        self.TXD = self.addOut('TXD',TXD)
-        self.USART_CLK = self.addOut('USART_CLK',USART_CLK)
+        # Physical pins
+        self.RXD = self.addIn('RXD', RXD)
+        self.TXD = self.addOut('TXD', TXD)
+        self.USART_CLK = self.addOut('USART_CLK', USART_CLK)
 
-        #Interrupts
-        self.RXC_INT = self.addOut('RXC_INIT',RXC_INT)
+        # Interrupts -- all three are outputs of this peripheral, driven
+        # into InterruptUnit/SimpleInterruptUnit's USART_RX/USART_UDRE/
+        # USART_TX vectors.
+        self.RXC_INT = self.addOut('RXC_INT', RXC_INT)
         self.TXC_INT = self.addOut('TXC_INT', TXC_INT)
         self.UDRE_INT = self.addOut('UDRE_INT', UDRE_INT)
 
-        self.TXD_val = 1
-        self.RXC_INT_val = 0
-        self.TXC_INT_val = 0
-        self.USART_CLK_val = 0
-        self.UDRE_INT_val = 0
-
-        self.UCSR0A = 0x20 # Bit5: UDRE0 is 1 by default (Buffer Empty)
-        self.UCSR0A_addr_LS = 0xC0
-
-        self.UCSR0B = 0
-        self.UCSR0B_addr_LS = 0xC1
-
-        self.UCSR0C = 0x06 # Default: Async, No parity, 1 stop bit, 8 data bits
-        self.UCSR0C_addr_LS = 0xC2
-
-        self.UBRR0L = 0
-        self.UBRR0L_addr_LS = 0xC4
-
-        self.UBRR0H = 0
-        self.UBRR0H_addr_LS = 0xC5
-
-#       self.UDR0 = 0
-        self.UDR0_addr_LS = 0xC6
-
-        #Internal Data Buffers
-        self.RXB_buffer = 0
-        self.readBuffer = 0
-        self.TXB_buffer = 0
-        self.TXDB_full = False
-
-        #Control & Status Bits
-        #UCSR0A
-        self.RXC0 = 0 
+        # --- Raw, software-facing config registers ---
+        # UCSR0A's status bits (RXC0/TXC0/UDRE0/FE0/DOR0/UPE0) are
+        # hardware-driven, not just decoded from a byte the CPU wrote, so
+        # they're kept as individual fields (see pack_ucsr0a()) rather
+        # than folded into a raw UCSR0A byte. U2X0/MPCM0 are the only
+        # UCSR0A bits software actually writes.
+        self.U2X0 = 0
+        self.MPCM0 = 0
+        self.RXC0 = 0
         self.TXC0 = 0
-        self.UDRE0 = 1  
         self.FE0 = 0
         self.DOR0 = 0
         self.UPE0 = 0
-        self.U2X0 = 0
-        self.MPCM0 = 0
 
-        #UCSR0B
-        self.RXCIE0 = 0
-        self.TXCIE0 = 0
-        self.UDRIE0 = 0
-        self.RXEN0 = 0
-        self.TXEN0 = 0
-        self.UCSZ02 = 0
-        self.RXB80 = 0
-        self.TXB80 = 0
+        self.UCSR0B = 0x00
+        self.UCSR0C = 0x06     # reset default: async, no parity, 1 stop, 8 data bits
+        self.UBRR0L = 0x00
+        self.UBRR0H = 0x00
 
-        #UCSR0C
-        self.UMSEL01 = 0
-        self.UMSEL00 = 0
-        self.UPM01 = 0
-        self.UPM00 = 0
-        self.USBS0 = 0
-        self.UCSZ01 = 1
-        self.UCSZ00 = 1
-        self.UCPOL0 =0
+        # --- Baud tick generator ---
+        self.tick_counter = 0
+        self.baud_tick = False
+        self.USART_CLK_val = 0
 
-        self.ticks_per_bit = 0
+        # --- Transmit side ---
+        # TXB_buffer holds (data, txb8) once written to UDR0, until the
+        # baud clock picks it up and builds a frame from it. UDRE0 is
+        # derived straight from "is the buffer free" (see pack_ucsr0a),
+        # matching real hardware -- no separate flag to keep in sync.
+        self.TXB_buffer = None
+        self.tx_frame = None
+        self.tx_index = 0
+        self.tx_subtick = 0
+        self.TXD_val = 1
 
-        self.opp_mode = 'Asynchronous'
-        self.nbBits = 8
-        self.nbStopBits = 1
-        self.ParityMode = 'Disabled' #Disabled even odd
+        # --- Receive side ---
+        # A 2-entry FIFO models the real chip's double-buffered receiver
+        # (one byte can be fully received and waiting in UDR0 while the
+        # next one is already shifting in). Each entry carries the data
+        # byte alongside the FE/UPE/9th-bit status that belongs to *that*
+        # byte specifically, so back-to-back frames with different error
+        # status don't get mixed up.
+        self.rx_fifo = []          # list of dicts: {data, fe, upe, rxb8}
+        self.rx_active = False
+        self.rx_start_confirmed = False
+        self.rx_subtick = 0
+        self.rx_samples = []
+        self.rx_frame_len = 0
 
-        # Transmit/Receive State Machines
-        self.baud_counter = 0
-        self.tx_state = 'IDLE' # 'IDLE' START' 'DATA' 'PARITY' 'STOP'  
-        self.tx_shift_reg = 0
-        self.tx_bits_left = 0
-        self.tx_stop_cnt = 0
-        self.tx_parity = 0
-        self.tx_tick_cnt = 0
-        
-        self.rx_state = 'IDLE' # 'IDLE' START' 'DATA' 'PARITY' 'STOP'  
-        self.rx_shift_reg = 0
-        self.rx_bits_rcvd = 0
-        self.rx_stop_cnt = 0
-        self.rx_tick_cnt = 0
-        self.rx_parity = 0 
-        self.rx_fe = 0
-        self.rx_upe = 0
-        
-        self.rx_shift_reg_full = False
+        self.RXC_INT_val = 0
+        self.TXC_INT_val = 0
+        self.UDRE_INT_val = 0
 
-        self.baud_Tick = False
-        self.tickCounter = 0
+        # UDR0's read/write have genuine one-shot side effects (dequeue
+        # /enqueue a byte) unlike every other register here, which just
+        # store a value and are harmless to re-apply. The bus's write/
+        # read strobes stay asserted for more than one cycle per real
+        # CPU instruction (observed: a single `sts UDR0` produced two
+        # distinct transmitted frames without this), so UDR0 needs
+        # rising-edge gating -- same pattern already used elsewhere in
+        # this project for the identical class of bug (VirtualUSART's
+        # is_new_write, InterruptFSM's _prev_entrance).
+        self._prev_udr_write = False
+        self._prev_udr_read = False
+        self._last_udr_read_value = 0
 
+    # -----------------------------------------------------------------
+    # Declarative register decode. Computed on demand from the raw
+    # config bytes instead of re-parsed into shadow attributes every
+    # clock tick.
+    # -----------------------------------------------------------------
+    @property
+    def RXCIE0(self): return (self.UCSR0B >> 7) & 1
+    @property
+    def TXCIE0(self): return (self.UCSR0B >> 6) & 1
+    @property
+    def UDRIE0(self): return (self.UCSR0B >> 5) & 1
+    @property
+    def RXEN0(self): return (self.UCSR0B >> 4) & 1
+    @property
+    def TXEN0(self): return (self.UCSR0B >> 3) & 1
+    @property
+    def UCSZ02(self): return (self.UCSR0B >> 2) & 1
+    @property
+    def RXB80(self): return (self.UCSR0B >> 1) & 1
+    @property
+    def TXB80(self): return self.UCSR0B & 1
+
+    @property
+    def UMSEL(self): return (self.UCSR0C >> 6) & 0b11
+    @property
+    def UPM(self): return (self.UCSR0C >> 4) & 0b11
+    @property
+    def USBS0(self): return (self.UCSR0C >> 3) & 1
+    @property
+    def UCSZ01_00(self): return (self.UCSR0C >> 1) & 0b11
+    @property
+    def UCPOL0(self): return self.UCSR0C & 1
+
+    @property
+    def UBRR0(self): return ((self.UBRR0H & 0x0F) << 8) | self.UBRR0L
+
+    @property
+    def nbBits(self):
+        ucsz = (self.UCSZ02 << 2) | self.UCSZ01_00
+        return {0: 5, 1: 6, 2: 7, 3: 8, 7: 9}.get(ucsz, 8)   # reserved -> 8
+
+    @property
+    def nbStopBits(self):
+        return 2 if self.USBS0 else 1
+
+    @property
+    def ParityMode(self):
+        return {0: 'Disabled', 2: 'even', 3: 'odd'}.get(self.UPM, 'Disabled')
+
+    @property
+    def opp_mode(self):
+        return {0: 'Asynchronous', 1: 'Synchronous', 2: 'Master SPI'}.get(self.UMSEL, '(Reserved)')
+
+    @property
+    def ticks_per_bit(self):
+        if self.opp_mode == 'Asynchronous':
+            return 8 if self.U2X0 else 16
+        return 2   # synchronous / master SPI: one sample per XCK edge pair
+
+    @property
+    def UDRE0(self):
+        # Buffer-empty is exactly "no byte waiting to start a frame" --
+        # true at reset (buffer starts empty) and again the instant a
+        # queued byte gets picked up by the baud clock.
+        return 1 if self.TXB_buffer is None else 0
+
+    def pack_ucsr0a(self):
+        return ((self.RXC0 << 7) | (self.TXC0 << 6) | (self.UDRE0 << 5) |
+                (self.FE0 << 4) | (self.DOR0 << 3) | (self.UPE0 << 2) |
+                (self.U2X0 << 1) | self.MPCM0)
+
+    # -----------------------------------------------------------------
+    # Bus interface
+    # -----------------------------------------------------------------
     def Memory_access(self):
-        ADDR = self.interface.address.get()
-        read_opp = (self.interface.read.get() == 1) and (self.interface.write.get() == 0)
-        write_opp = (self.interface.read.get() == 0) and (self.interface.write.get() == 1)
-        valid_ins = (self.interface.instype.get() == 1)
+        addr = self.interface.address.get()
+        read_op = (self.interface.read.get() == 1) and (self.interface.write.get() == 0)
+        write_op = (self.interface.read.get() == 0) and (self.interface.write.get() == 1)
 
-        if valid_ins:
-            if ADDR == self.UCSR0A_addr_LS:
-                if read_opp:
-                    self.interface.read_data.prepare(self.UCSR0A)
-                    self.interface.resp.prepare(1)
-                elif write_opp:
-                    data =  self.interface.write_data.get()
-                    if data & (1<<6):
-                        self.UCSR0A &= ~(1<<6) # clear TXC0
-                    self.UCSR0A = (self.UCSR0A & 0b11111100) | (data & 0b00000011)
+        # Edge-tracking for UDR0's one-shot read/write side effects must
+        # update every cycle regardless of address or early-return below
+        # -- otherwise a deassertion cycle (addr/read/write all back to
+        # 0, which takes the early-return path) never resets these,
+        # and the next real UDR0 transaction wrongly looks like a
+        # continuation of the previous one instead of a fresh edge.
+        is_udr_read = (addr == UDR_REG) and read_op
+        is_udr_write = (addr == UDR_REG) and write_op
+        new_udr_read = is_udr_read and not self._prev_udr_read
+        new_udr_write = is_udr_write and not self._prev_udr_write
 
-                    self.interface.resp.prepare(1)
-                else:
-                    self.interface.resp.prepare(0)
+        if not (read_op or write_op):
+            self.interface.resp.prepare(0)
+            self._prev_udr_read = False
+            self._prev_udr_write = False
+            return
 
-            elif ADDR == self.UCSR0B_addr_LS:
-                if read_opp:
-                    self.interface.read_data.prepare(self.UCSR0B)
-                    self.interface.resp.prepare(1)
-                elif write_opp:
+        if addr == UCSRA_REG:
+            if read_op:
+                self.interface.read_data.prepare(self.pack_ucsr0a())
+            elif write_op:
+                data = self.interface.write_data.get()
+                if data & UCSRA_TXC:
+                    self.TXC0 = 0          # write-1-to-clear
+                self.U2X0 = (data >> 1) & 1
+                self.MPCM0 = data & 1
+                # RXC0/FE0/DOR0/UPE0/UDRE0 are hardware read-only: ignored
+            self.interface.resp.prepare(1)
 
-                    data = self.interface.write_data.get()
-                    self.UCSR0B = (data & ~(1 << 1)) | (self.UCSR0B & (1 << 1))
+        elif addr == UCSRB_REG:
+            if read_op:
+                self.interface.read_data.prepare(self.UCSR0B)
+            elif write_op:
+                data = self.interface.write_data.get()
+                # RXB80 (bit1) is hardware read-only -- preserve it
+                self.UCSR0B = (data & ~(1 << 1)) | (self.UCSR0B & (1 << 1))
+            self.interface.resp.prepare(1)
 
-                    self.interface.resp.prepare(1)
-                else:
-                    self.interface.resp.prepare(0)
-            elif ADDR == self.UCSR0C_addr_LS:
-                if read_opp:
-                    self.interface.read_data.prepare(self.UCSR0C)
-                    self.interface.resp.prepare(1)
-                elif write_opp:
-                    self.UCSR0C = self.interface.write_data.get()
-                    self.interface.resp.prepare(1)
-                else:
-                    self.interface.resp.prepare(0)
-            elif ADDR == self.UBRR0L_addr_LS:
-                if read_opp:
-                    self.interface.read_data.prepare(self.UBRR0L)
-                    self.interface.resp.prepare(1)
-                elif write_opp:
-                    self.UBRR0L = self.interface.write_data.get()
-                    self.interface.resp.prepare(1)
-                else:
-                    self.interface.resp.prepare(0)
-            elif ADDR == self.UBRR0H_addr_LS:
-                if read_opp:
-                    self.interface.read_data.prepare(self.UBRR0H)
-                    self.interface.resp.prepare(1)
-                elif write_opp:
-                    self.UBRR0H = self.interface.write_data.get() & 0x0F
-                    self.interface.resp.prepare(1)
-                else:
-                    self.interface.resp.prepare(0)
-            elif ADDR == self.UDR0_addr_LS:
-                if read_opp:
-                    self.interface.read_data.prepare(self.RXB_buffer)
+        elif addr == UCSRC_REG:
+            if read_op:
+                self.interface.read_data.prepare(self.UCSR0C)
+            elif write_op:
+                self.UCSR0C = self.interface.write_data.get()
+            self.interface.resp.prepare(1)
 
-                    self.RXB_buffer = self.readBuffer # advance the fifo
-                    self.readBuffer = 0
+        elif addr == UBRRL_REG:
+            if read_op:
+                self.interface.read_data.prepare(self.UBRR0L)
+            elif write_op:
+                self.UBRR0L = self.interface.write_data.get() & 0xFF
+            self.interface.resp.prepare(1)
 
-                    #reading UDR0 clears the RXC0 flag in hardware
-                    if self.RXB_buffer != 0:
-                        self.RXC0 = 1
-                    else:
-                        self.RXC0 = 0
+        elif addr == UBRRH_REG:
+            if read_op:
+                self.interface.read_data.prepare(self.UBRR0H)
+            elif write_op:
+                self.UBRR0H = self.interface.write_data.get() & 0x0F
+            self.interface.resp.prepare(1)
 
-                    self.update_UCSR0A()
+        elif addr == UDR_REG:
+            if read_op:
+                self.interface.read_data.prepare(self._read_udr() if new_udr_read else self._peek_udr())
+            elif write_op:
+                if new_udr_write:
+                    self._write_udr(self.interface.write_data.get() & 0xFF)
+            self.interface.resp.prepare(1)
 
-                    self.interface.resp.prepare(1)
-                elif write_opp:
-                    data = self.interface.write_data.get() & 0xFF
-
-                    if not self.TXDB_full:
-                        self.TXB_buffer = data
-                        self.TXDB_full = True
-                        # Clear UDRE0 — buffer is now occupied
-                        self.UDRE0 = 0
-                        self.TXC0 = 0
-                        self.update_UCSR0A()
-
-                    self.interface.resp.prepare(1)
-                else:
-                    self.interface.resp.prepare(0)
-            else:
-                self.interface.resp.prepare(0)
-
-    def Parse_control_registers(self):
-        #Control & Status Bits
-        #UCSR0A
-        self.RXC0 = (self.UCSR0A>>7)&1
-        self.TXC0 = (self.UCSR0A>>6)&1
-        self.UDRE0 = (self.UCSR0A>>5)&1  
-        self.FE0 = (self.UCSR0A>>4)&1
-        self.DDR0 = (self.UCSR0A>>3)&1
-        self.UPE0 = (self.UCSR0A>>2)&1
-        self.U2X0 = (self.UCSR0A>>1)&1
-        self.MPCM0 = (self.UCSR0A>>0)&1
-
-        #UCSR0B
-        self.RXCIE0 = (self.UCSR0B>>7)&1
-        self.TXCIE0 = (self.UCSR0B>>6)&1
-        self.UDRIE0 = (self.UCSR0B>>5)&1
-        self.RXEN0 = (self.UCSR0B>>4)&1
-        self.TXEN0 = (self.UCSR0B>>3)&1
-        self.UCSZ02 = (self.UCSR0B>>2)&1
-        self.RXB80 = (self.UCSR0B>>1)&1
-        self.TXB80 = (self.UCSR0B>>0)&1
-
-        #UCSR0C
-        self.UMSEL01 = (self.UCSR0C>>7)&1
-        self.UMSEL00 = (self.UCSR0C>>6)&1
-        self.UPM01 = (self.UCSR0C>>5)&1
-        self.UPM00 = (self.UCSR0C>>4)&1
-        self.USBS0 = (self.UCSR0C>>3)&1
-        self.UCSZ01 = (self.UCSR0C>>2)&1
-        self.UCSZ00 = (self.UCSR0C>>1)&1
-        self.UCPOL0 = (self.UCSR0C>>0)&1
-
-        # Composed fields
-        self.UBRR0 = ((self.UBRR0H&0xF)<<8) | self.UBRR0L
-        self.UCSZ = (self.UCSZ02 << 2) | (self.UCSZ01<<1) | (self.UCSZ00<<0) 
-        self.UMSEL = (self.UMSEL01<<1) | self.UMSEL00
-        self.UPM = (self.UPM01<<1) | self.UPM00
-
-    def update_UCSR0A(self):
-        self.UCSR0A = (
-            (self.RXC0 << 7 ) |
-            (self.TXC0 << 6 ) |
-            (self.UDRE0 << 5) |
-            (self.FE0 << 4  ) |
-            (self.DOR0 << 3 ) |
-            (self.UPE0 << 2 ) |
-            (self.U2X0 << 1 ) |
-            (self.MPCM0 << 0)
-        )
-
-    def setSettings(self): 
-        #NB of bits
-        match self.UCSZ:
-            case 0: self.nbBits = 5
-            case 1: self.nbBits = 6
-            case 2: self.nbBits = 7
-            case 3: self.nbBits = 8
-            case 7: self.nbBits = 9
-            case _: self.nbBits = 8   # reserved → treat as 8
-
-        self.nbStopBits = 2 if self.USBS0 else 1
-
-        #UMSEL0 Bits Settings
-        match self.UMSEL:
-            case 0: self.opp_mode = 'Asynchronous'
-            case 1: self.opp_mode = 'Synchronous'
-            case 2: self.opp_mode = 'Master SPI'
-            case _: self.opp_mode = '(Reserved)'
-
-        match self.UPM:
-            case 0: self.ParityMode = 'Disabled'
-            case 2: self.ParityMode = 'even'
-            case 3: self.ParityMode = 'odd'
-            case _: self.ParityMode = 'Disabled'
-
-    def Clock_Generator(self):
-        self.baud_Tick = False
-        
-        if self.tickCounter >= self.UBRR0:
-            self.baud_Tick = True
-            self.tickCounter = 0 
         else:
-            self.tickCounter += 1
+            self.interface.resp.prepare(0)
 
-        self.tickCounter += 1
-        self.tickCounter &= 0xFFFF
+        self._prev_udr_read = is_udr_read
+        self._prev_udr_write = is_udr_write
 
-        if self.baud_Tick:
-            if self.USART_CLK_val == 0:
-                self.USART_CLK_val = 1
-            else:
-                self.USART_CLK_val = 0
+    def _read_udr(self):
+        if not self.rx_fifo:
+            self._last_udr_read_value = 0
+            return 0
+        entry = self.rx_fifo.pop(0)
+        self.DOR0 = 0
+        self._refresh_rx_front_status()
+        self._last_udr_read_value = entry['data']
+        return entry['data']
+
+    def _peek_udr(self):
+        # Any cycle after the first of a held read strobe: must not pop
+        # the FIFO again, but the bus data must stay stable at whatever
+        # the real (first) read cycle returned -- a real register's
+        # output doesn't change just because the FIFO advanced
+        # underneath it mid-strobe.
+        return self._last_udr_read_value
+
+    def _write_udr(self, data):
+        # Legal whenever UDRE0=1 (self.TXB_buffer is None), whether or
+        # not a previous frame is still shifting out on the wire -- that
+        # in-flight frame lives in tx_frame, a separate slot from the
+        # buffer register. Writing while UDRE0=0 (buffer still full) is
+        # ignored, matching real hardware.
+        if self.TXB_buffer is None:
+            self.TXB_buffer = (data, self.TXB80)
+
+    def _refresh_rx_front_status(self):
+        # FE0/UPE0/RXB80 must reflect whichever byte is now at the front
+        # of the FIFO (the one the next UDR0 read will return), *before*
+        # that read happens -- matching the real chip's documented
+        # "read UCSR0B/UCSR0A, then read UDR0" ordering for 9-bit/error
+        # status to correspond to the right byte.
+        if self.rx_fifo:
+            front = self.rx_fifo[0]
+            self.FE0 = front['fe']
+            self.UPE0 = front['upe']
+            self.UCSR0B = (self.UCSR0B & ~(1 << 1)) | (front['rxb8'] << 1)
+        self.RXC0 = 1 if self.rx_fifo else 0
+
+    # -----------------------------------------------------------------
+    # Baud clock
+    # -----------------------------------------------------------------
+    def Clock_Generator(self):
+        self.baud_tick = False
+        if self.tick_counter >= self.UBRR0:
+            self.baud_tick = True
+            self.tick_counter = 0
+        else:
+            self.tick_counter += 1
+        if self.baud_tick:
+            self.USART_CLK_val ^= 1
+
+    # -----------------------------------------------------------------
+    # Transmit: build the whole frame once as a bit sequence, then walk
+    # it one bit per `ticks_per_bit` baud ticks.
+    # -----------------------------------------------------------------
+    def _build_tx_frame(self, data, txb8):
+        bits = [0]                                            # start bit
+        for i in range(self.nbBits):
+            bits.append((data >> i) & 1 if i < 8 else (txb8 & 1))
+        if self.ParityMode != 'Disabled':
+            mask = (1 << min(self.nbBits, 8)) - 1
+            ones = bin(data & mask).count('1')
+            if self.nbBits == 9 and txb8:
+                ones += 1
+            parity = ones & 1
+            bits.append(parity if self.ParityMode == 'even' else parity ^ 1)
+        bits += [1] * self.nbStopBits                          # stop bit(s)
+        return bits
+
+    def _begin_tx_frame(self):
+        data, txb8 = self.TXB_buffer
+        self.TXB_buffer = None                          # frees UDRE0
+        self.tx_frame = self._build_tx_frame(data, txb8)
+        self.tx_subtick = 0
+        self.TXD_val = self.tx_frame[0]
+        self.tx_index = 1
 
     def TX_logic(self):
-    
-        if self.baud_Tick == True:
-            if self.TXEN0 == 1: # Enable Transmit
+        if not self.baud_tick:
+            return
 
-                if self.opp_mode == 'Asynchronous':
-                    self.ticks_per_bit = 8 if self.U2X0 else 16
-                else:
-                    self.ticks_per_bit = 2
+        if not self.TXEN0:
+            self.tx_frame = None
+            self.TXD_val = 1
+            return
 
-                if self.TXD != 0 :
-                    match self.tx_state:
-                        case 'IDLE':
-                            self.TXD_val = 1
-                            if self.TXDB_full:
-                                self.tx_shift_reg = self.TXB_buffer
-                                self.TXDB_full = False
-                                self.TXB_buffer = 0 
-                                self.UDRE0 = 1
-                                self.update_UCSR0A()
-                                if self.nbBits == 9:
-                                    self.tx_shift_reg |= (self.TXB80 << 8)
-                                self.tx_bits_left = self.nbBits
-                                mask = (1 << self.nbBits) - 1
-                                self.tx_parity = bin(self.tx_shift_reg & mask).count('1') & 1
-                                self.tx_stop_cnt = self.nbStopBits
-                                self.tx_tick_cnt = 0
-                                self.tx_state = 'START'
-                        
-                        case 'START':
-                            self.TXD_val = 0
-                            self.tx_tick_cnt += 1
-                            if self.tx_tick_cnt >= self.ticks_per_bit:
-                                self .tx_tick_cnt = 0
-                                self.tx_state = 'DATA'
-                                
-                        case 'DATA':
-                            self.tx_tick_cnt += 1
-                            if self.tx_tick_cnt >= self.ticks_per_bit:
-                                self.tx_tick_cnt = 0
-                                self.TXD_val = self.tx_shift_reg & 1                         
-                                self.tx_shift_reg >>= 1
-                                self.tx_bits_left -= 1 
-
-                                if self.tx_bits_left <= 0:
-                                    if self.ParityMode != 'Disabled':
-                                        self.tx_state = 'PARITY'
-                                    else:
-                                        self.tx_state = 'STOP'
-
-                        case 'PARITY':
-                            self.tx_tick_cnt += 1
-                            if self.tx_tick_cnt >= self.ticks_per_bit:
-                                self.tx_tick_cnt = 0
-                                if self.ParityMode == 'even':
-                                    self.TXD_val = self.tx_parity
-                                else:
-                                    self.TXD_val = self.tx_parity ^ 1
-                                self.tx_state = 'STOP'
-                        
-                        case 'STOP':
-                            self.TXD_val = 1
-                            self.tx_stop_cnt -= 1 
-                            if self.tx_tick_cnt >= self.ticks_per_bit:
-                                self.tx_tick_cnt = 0
-                                self.tx_stop_cnt -= 1
-                                if self.tx_stop_cnt == 0:
-                                    self.TXC0 = 1
-                                    self.update_UCSR0A()
-                                    self.tx_state = 'IDLE'
-
-                else:
-                    self.TXD_val = 1
-                    self.tx_state = 'IDLE' 
-
-    def RX_logic(self):
-            
-        if self.baud_Tick == True:
-            
-            if self.RXEN0 == 1: # Enable Recive
-                #Ticks per bit (oversampleing)
-
-                if self.opp_mode == 'Asynchronous':
-                    self.ticks_per_bit = 8 if self.U2X0 else 16
-                else:
-                    self.ticks_per_bit = 2
-
-                sample_tick = self.ticks_per_bit >> 1 # midpoint
-
-                rxd = self.RXD.get() & 1 
-
-                match self.rx_state:
-                    case 'IDLE':
-                        # Wait for falling edge (START bit = logic 0)
-                        if rxd == 0:
-                            self.rx_tick_cnt = 0 
-                            self.rx_shift_reg = 0
-                            self.rx_bits_rcvd = 0 
-                            self.rx_parity = 0
-                            self.rx_fe = 0
-                            self.rx_upe = 0
-                            self.rx_state = 'START'
-
-                    case 'START':
-                        self.rx_tick_cnt += 1
-
-                        if self.rx_tick_cnt == sample_tick:
-
-                            if rxd == 1:
-                                self.rx_state = 'IDLE'
-                            else:
-                                self.rx_state = 'DATA'
-                                self.rx_tick_cnt = 0
-                        
-                    case 'DATA':
-                        self.rx_tick_cnt += 1
-                        if self.rx_tick_cnt == self.ticks_per_bit:
-                            self.rx_tick_cnt = 0
-                            bit = rxd # retriving the bit
-                            self.rx_shift_reg |= (bit << self.rx_bits_rcvd)
-                            self.rx_parity ^= bit # calculating the parity 
-                            self.rx_bits_rcvd += 1
-
-                            if self.rx_bits_rcvd == self.nbBits:
-                                if self.ParityMode != 'Disabled':
-                                    self.rx_state = 'PARITY'
-                                else:
-                                    self.rx_stop_cnt = self.nbStopBits
-                                    self.rx_state = 'STOP'
-
-                    case 'PARITY':
-                        self.rx_tick_cnt += 1
-                        if self.rx_tick_cnt == self.ticks_per_bit:
-                            self.rx_tick_cnt = 0
-                            parity_bit =  rxd 
-                            expected_even = self.rx_parity
-                            expected_odd = self.rx_parity ^ 1
-                            
-                            if (self.ParityMode == 'even') and (parity_bit != expected_even):
-                                self.rx_upe = 1
-                            elif (self.ParityMode == 'odd') and (parity_bit != expected_odd):
-                                self.rx_upe = 1 
-                            self.rx_stop_cnt = self.nbStopBits
-                            self.rx_state = 'STOP'
-
-                    case 'STOP':
-                        self.rx_tick_cnt += 1 
-                        if self.rx_tick_cnt == self.ticks_per_bit:
-                            self.rx_tick_cnt = 0
-                            stop_bit = rxd
-                            self.rx_stop_cnt -= 1
-
-                            if stop_bit != 1:
-                                self.rx_fe = 1
-
-                            if self.rx_stop_cnt == 0:
-
-                                self.DOR0 = 1 if self.RXC0 else 0
-                                
-                                if self.readBuffer == 0 :
-                                    self.readBuffer = self.rx_shift_reg & 0xFF
-                                    self.rx_shift_reg_full = False
-                                else:
-                                    self.DOR0 = 1 # Data OverRun
-                                    self.update_UCSR0A()
-
-                                if self.nbBits == 9:
-                                    bit8 = (self.rx_shift_reg >> 8) & 1
-                                    self.UCSR0B = (self.UCSR0B & ~(1<<1)) | (bit8 << 1)
-
-                                self.FE0 =self.rx_fe
-                                self.UPE0 = self.rx_upe 
-                                self.RXC0 = 1 
-                                self.update_UCSR0A()
-                                self.rx_state = 'IDLE'
-
+        if self.tx_frame is None:
+            if self.TXB_buffer is not None:
+                self._begin_tx_frame()
             else:
-                self.rx_state = 'IDLE'
+                self.TXD_val = 1
+            return
 
+        self.tx_subtick += 1
+        if self.tx_subtick < self.ticks_per_bit:
+            return
+        self.tx_subtick = 0
+
+        if self.tx_index >= len(self.tx_frame):
+            # The last bit placed has now held for its full period.
+            # Finish this frame, and if another byte is already queued
+            # (UDR0 was written again while this one was shifting out),
+            # start its frame's start bit in this *same* tick -- this
+            # is what gives true back-to-back transmission with no gap
+            # and no truncated stop bit. TXC0 only sets when there's
+            # genuinely nothing left to send next, matching the
+            # datasheet (TXC0 requires both the shift register and the
+            # buffer to be empty).
+            self.tx_frame = None
+            self.tx_index = 0
+            if self.TXB_buffer is not None:
+                self._begin_tx_frame()
+            else:
+                self.TXC0 = 1
+                self.TXD_val = 1
+            return
+
+        self.TXD_val = self.tx_frame[self.tx_index]
+        self.tx_index += 1
+
+    # -----------------------------------------------------------------
+    # Receive: once a start edge is confirmed, sample exactly
+    # nbBits + parity? + stopBits bits, one every `ticks_per_bit` baud
+    # ticks (first sample offset by an extra half-bit to land mid-bit,
+    # matching real oversampled receivers), then decode the whole frame
+    # at once.
+    # -----------------------------------------------------------------
+    def RX_logic(self):
+        if not self.RXEN0:
+            self.rx_active = False
+            return
+        if not self.baud_tick:
+            return
+
+        rxd = self.RXD.get() & 1
+
+        if not self.rx_active:
+            if rxd == 0:                       # possible start bit
+                self.rx_active = True
+                self.rx_start_confirmed = False
+                self.rx_subtick = 0
+                self.rx_samples = []
+                self.rx_frame_len = (self.nbBits +
+                                      (1 if self.ParityMode != 'Disabled' else 0) +
+                                      self.nbStopBits)
+            return
+
+        self.rx_subtick += 1
+        half = self.ticks_per_bit >> 1
+
+        if not self.rx_start_confirmed and self.rx_subtick == half:
+            # Midpoint of the start bit only (rx_start_confirmed is set
+            # True right below, so this never re-fires on a later data
+            # bit that happens to also cross the same subtick count):
+            # confirm it's still low (glitch rejection), and resync so
+            # every following sample lands on a bit center exactly
+            # `ticks_per_bit` apart.
+            if rxd == 1:
+                self.rx_active = False
+            else:
+                self.rx_subtick = 0
+                self.rx_start_confirmed = True
+            return
+
+        if self.rx_subtick == self.ticks_per_bit:
+            self.rx_subtick = 0
+            self.rx_samples.append(rxd)
+            if len(self.rx_samples) == self.rx_frame_len:
+                self._finish_rx_frame()
+                self.rx_active = False
+
+    def _finish_rx_frame(self):
+        nb = self.nbBits
+        data_bits = self.rx_samples[:nb]
+        idx = nb
+        value = 0
+        for i, b in enumerate(data_bits):
+            value |= (b << i)
+
+        upe = 0
+        if self.ParityMode != 'Disabled':
+            parity_bit = self.rx_samples[idx]
+            idx += 1
+            mask = (1 << min(nb, 8)) - 1
+            ones = bin(value & mask).count('1')
+            if nb == 9 and ((value >> 8) & 1):
+                ones += 1
+            expected = ones & 1
+            if self.ParityMode == 'odd':
+                expected ^= 1
+            if parity_bit != expected:
+                upe = 1
+
+        # Real hardware only samples/validates the *first* stop bit for
+        # framing error, regardless of how many stop bits are configured.
+        stop_bits = self.rx_samples[idx:]
+        fe = 1 if (stop_bits and stop_bits[0] != 1) else 0
+
+        entry = {
+            'data': value & 0xFF,
+            'rxb8': (value >> 8) & 1 if nb == 9 else 0,
+            'fe': fe,
+            'upe': upe,
+        }
+
+        if len(self.rx_fifo) >= 2:
+            # Both buffer slots already occupied: the real chip keeps
+            # the two buffered bytes and drops the new one, flagging
+            # overrun.
+            self.DOR0 = 1
+            return
+
+        self.rx_fifo.append(entry)
+        self._refresh_rx_front_status()
+
+    # -----------------------------------------------------------------
     def update_interrupts(self):
-        self.RXC_INT_val = 1 if (self.RXCIE0 and self.RXC0) else 0 
+        self.RXC_INT_val = 1 if (self.RXCIE0 and self.RXC0) else 0
         self.TXC_INT_val = 1 if (self.TXCIE0 and self.TXC0) else 0
         self.UDRE_INT_val = 1 if (self.UDRIE0 and self.UDRE0) else 0
 
     def update_Outputs(self):
         self.TXD.prepare(self.TXD_val)
-        self.RXC_INT.prepare(self.RXC_INT_val)
-        self.TXC_INT.prepare(self.TXC_INT_val)
-        self.UDRE_INT.prepare(self.UDRE_INT_val)
         self.USART_CLK.prepare(self.USART_CLK_val)
-
-    def clock(self):
-
-        self.Memory_access() # Handle any bus transactions  
-        self.Parse_control_registers() # Decode control bits 
-        self.setSettings() # Figure out the Settings
-        self.Clock_Generator() # determine if it is a baud tick or not
-
-        #update state machines
-        self.TX_logic()
-        self.RX_logic()
-
-        #update interrupts lines
-        self.update_interrupts()
-
-        #Drive all output wires
-        self.update_Outputs()
-
-class USART_1(py4hw.Logic):
-    def __init__(self,parent,name:str,memory:MemoryInterface,RXD,TXD,USART_CLK,RXC_INT,TXC_INT,UDRE_INT):
-        super().__init__(parent, name)
-
-        self.interface = self.addInterfaceSink('port',memory)
-
-        #Physical Pins
-        self.RXD = self.addIn('RXD',RXD)
-        self.TXD = self.addOut('TXD',TXD)
-        self.USART_CLK = self.addIn('USART_CLK',USART_CLK)
-
-        #Interrupts
-        self.RXC_INT = self.addOut('RXC_INIT',RXC_INT)
-        self.TXC_INT = self.addOut('TXC_INT', TXC_INT)
-        self.UDRE_INT = self.addIn('UDRE_INT', UDRE_INT)
-
-        self.TXD_val = 1
-        self.RXC_INT_val = 0
-        self.TXC_INT_val = 0
-        self.USART_CLK_val = 0
-        self.UDRE_INT_val = 0
-
-        self.UCSR0A = 0x20 # Bit5: UDRE0 is 1 by default (Buffer Empty)
-        self.UCSR0A_addr_LS = 0xC0
-
-        self.UCSR0B = 0
-        self.UCSR0B_addr_LS = 0xC1
-
-        self.UCSR0C = 0x06 # Default: Async, No parity, 1 stop bit, 8 data bits
-        self.UCSR0C_addr_LS = 0xC2
-
-        self.UBRR0L = 0
-        self.UBRR0L_addr_LS = 0xC4
-
-        self.UBRR0H = 0
-        self.UBRR0H_addr_LS = 0xC5
-
-#       self.UDR0 = 0
-        self.UDR0_addr_LS = 0xC6
-
-        #Internal Data Buffers
-        self.RXB_buffer = 0
-        self.readBuffer = 0
-        self.TXB_buffer = 0
-        self.TXDB_full = False
-
-        #Control & Status Bits
-        #UCSR0A
-        self.RXC0 = 0 
-        self.TXC0 = 0
-        self.UDRE0 = 1  
-        self.FE0 = 0
-        self.DOR0 = 0
-        self.UPE0 = 0
-        self.U2X0 = 0
-        self.MPCM0 = 0
-
-        #UCSR0B
-        self.RXCIE0 = 0
-        self.TXCIE0 = 0
-        self.UDRIE0 = 0
-        self.RXEN0 = 0
-        self.TXEN0 = 0
-        self.UCSZ02 = 0
-        self.RXB80 = 0
-        self.TXB80 = 0
-
-        #UCSR0C
-        self.UMSEL01 = 0
-        self.UMSEL00 = 0
-        self.UPM01 = 0
-        self.UPM00 = 0
-        self.USBS0 = 0
-        self.UCSZ01 = 1
-        self.UCSZ00 = 1
-        self.UCPOL0 =0
-
-
-        self.opp_mode = 'Asynchronous'
-        self.nbBits = 8
-        self.nbStopBits = 1
-        self.ParityMode = 'Disabled' #Disabled even odd
-
-
-        self.rx_fifo = []
-        self.rx_dor_flag = 0
-
-        self.TXB_buffer = 0
-        self.TXDB_full = False
-
-        # Transmit/Receive State Machines
-        self.baud_counter = 0
-        self.tx_state = 'IDLE' # 'IDLE' START' 'DATA' 'PARITY' 'STOP'  
-        self.tx_shift_reg = 0
-        self.tx_bits_left = 0
-        self.tx_stop_cnt = 0
-        self.tx_parity = 0
-        self.tx_tick_cnt = 0
-        
-        self.rx_state = 'IDLE' # 'IDLE' START' 'DATA' 'PARITY' 'STOP'  
-        self.rx_shift_reg = 0
-        self.rx_bits_rcvd = 0
-        self.rx_stop_cnt = 0
-        self.rx_tick_cnt = 0
-        self.rx_parity = 0 
-        self.rx_fe = 0
-        self.rx_upe = 0
-        
-        self.rx_shift_reg_full = False
-
-        self.baud_Tick = False
-        self.tickCounter = 0
-
-        # RX FIFO Level 0 (Front of the queue - what the CPU reads)
-        self.rx_fifo_data_0 = 0
-        self.rx_fifo_fe_0 = 0
-        self.rx_fifo_upe_0 = 0
-
-        # RX FIFO Level 1 (Back of the queue)
-        self.rx_fifo_data_1 = 0
-        self.rx_fifo_fe_1 = 0
-        self.rx_fifo_upe_1 = 0
-
-        #Hardware Counters/Flags
-        self.rx_fifo_items = 0
-        self.readValue = 0
-
-    def Update_fifo(self):
-        self.rx_fifo_data_0 = self.rx_fifo_data_1
-        self.rx_fifo_fe_0 = self.rx_fifo_fe_1
-        self.rx_fifo_upe_0 = self.rx_fifo_upe_1
-
-        #self.rx_fifo_data_1 
-        #self.rx_fifo_fe_1 =
-        #self.rx_fifo_upe_1 =
-
-    def Memory_access(self):
-        ADDR = self.interface.address.get()
-        read_opp = (self.interface.read.get() == 1) and (self.interface.write.get() == 0)
-        write_opp = (self.interface.read.get() == 0) and (self.interface.write.get() == 1)
-        valid_ins = self.interface.instype.get() == 1 
-
-        if valid_ins:
-            if ADDR == self.UCSR0A_addr_LS:
-                if read_opp:
-                    self.interface.read_data.prepare(self.UCSR0A)
-                    self.interface.resp.prepare(1)
-                elif write_opp:
-                    data =  self.interface.write_data.get()
-                    if data & (1<<6):
-                        self.UCSR0A &= ~(1<<6) # clear TXC0
-                    self.UCSR0A = (self.UCSR0A & 0b11111100) | (data & 0b00000011)
-
-                    self.interface.resp.prepare(1)
-                else:
-                    self.interface.resp.prepare(0)
-            elif ADDR == self.UCSR0B_addr_LS:
-                if read_opp:
-                    self.interface.read_data.prepare(self.UCSR0B)
-                    self.interface.resp.prepare(1)
-                elif write_opp:
-
-                    data = self.interface.write_data.get()
-                    self.UCSR0B = (data & ~(1 << 1)) | (self.UCSR0B & (1 << 1))
-
-                    self.interface.resp.prepare(1)
-                else:
-                    self.interface.resp.prepare(0)
-            elif ADDR == self.UCSR0C_addr_LS:
-                if read_opp:
-                    self.interface.read_data.prepare(self.UCSR0C)
-                    self.interface.resp.prepare(1)
-                elif write_opp:
-                    self.UCSR0C = self.interface.write_data.get()
-                    self.interface.resp.prepare(1)
-                else:
-                    self.interface.resp.prepare(0)
-            elif ADDR == self.UBRR0L_addr_LS:
-                if read_opp:
-                    self.interface.read_data.prepare(self.UBRR0L)
-                    self.interface.resp.prepare(1)
-                elif write_opp:
-                    self.UBRR0L = self.interface.write_data.get()
-                    self.interface.resp.prepare(1)
-                else:
-                    self.interface.resp.prepare(0)
-            elif ADDR == self.UBRR0H_addr_LS:
-                if read_opp:
-                    self.interface.read_data.prepare(self.UBRR0H)
-                    self.interface.resp.prepare(1)
-                elif write_opp:
-                    self.UBRR0H = self.interface.write_data.get() & 0x0F
-                    self.interface.resp.prepare(1)
-                else:
-                    self.interface.resp.prepare(0)
-            elif ADDR == self.UDR0_addr_LS:
-                if read_opp:
-                    if len(self.rx_fifo) > 0:
-
-                        packet = self.rx_fifo.pop(0)
-                        self.interface.read_data.prepare(self.rx_fifo[0])
-
-                        self.FE0 = 0
-
-
-                    self.interface.resp.prepare(1)
-                elif write_opp:
-                    data = self.interface.write_data.get() & 0xFF
-
-                    if not self.TXDB_full:
-                        self.TXB_buffer = data
-                        self.TXDB_full = True
-                        # Clear UDRE0 — buffer is now occupied
-                        self.UDRE0 = 0
-                        self.TXC0 = 0
-                        self.update_UCSR0A()
-
-                    self.interface.resp.prepare(1)
-                else:
-                    self.interface.resp.prepare(0)
-            else:
-                self.interface.resp.prepare(0)
-
-    def Parse_control_registers(self):
-        #Control & Status Bits
-        #UCSR0A
-        self.RXC0 = (self.UCSR0A>>7)&1
-        self.TXC0 = (self.UCSR0A>>6)&1
-        self.UDRE0 = (self.UCSR0A>>5)&1  
-        self.FE0 = (self.UCSR0A>>4)&1
-        self.DDR0 = (self.UCSR0A>>3)&1
-        self.UPE0 = (self.UCSR0A>>2)&1
-        self.U2X0 = (self.UCSR0A>>1)&1
-        self.MPCM0 = (self.UCSR0A>>0)&1
-
-        #UCSR0B
-        self.RXCIE0 = (self.UCSR0B>>7)&1
-        self.TXCIE0 = (self.UCSR0B>>6)&1
-        self.UDRIE0 = (self.UCSR0B>>5)&1
-        self.RXEN0 = (self.UCSR0B>>4)&1
-        self.TXEN0 = (self.UCSR0B>>3)&1
-        self.UCSZ02 = (self.UCSR0B>>2)&1
-        self.RXB80 = (self.UCSR0B>>1)&1
-        self.TXB80 = (self.UCSR0B>>0)&1
-
-        #UCSR0C
-        self.UMSEL01 = (self.UCSR0C>>7)&1
-        self.UMSEL00 = (self.UCSR0C>>6)&1
-        self.UPM01 = (self.UCSR0C>>5)&1
-        self.UPM00 = (self.UCSR0C>>4)&1
-        self.USBS0 = (self.UCSR0C>>3)&1
-        self.UCSZ01 = (self.UCSR0C>>2)&1
-        self.UCSZ00 = (self.UCSR0C>>1)&1
-        self.UCPOL0 = (self.UCSR0C>>0)&1
-
-        # Composed fields
-        self.UBRR0 = ((self.UBRR0H&0xF)<<8) | self.UBRR0L
-        self.UCSZ = (self.UCSZ02 << 2) | (self.UCSZ01<<1) | (self.UCSZ00<<0) 
-        self.UMSEL = (self.UMSEL01<<1) | self.UMSEL00
-        self.UPM = (self.UPM01<<1) | self.UPM00
-
-    def update_UCSR0A(self):
-        self.UCSR0A = (
-            (self.RXC0 << 7 ) |
-            (self.TXC0 << 6 ) |
-            (self.UDRE0 << 5) |
-            (self.FE0 << 4  ) |
-            (self.DDR0 << 3 ) |
-            (self.UPE0 << 2 ) |
-            (self.U2X0 << 1 ) |
-            (self.MPCM0 << 0)
-        )
-
-    def setSettings(self): 
-        #NB of bits
-        match self.UCSZ:
-            case 0: self.nbBits = 5
-            case 1: self.nbBits = 6
-            case 2: self.nbBits = 7
-            case 3: self.nbBits = 8
-            case 7: self.nbBits = 9
-            case _: self.nbBits = 8   # reserved → treat as 8
-
-
-        self.nbStopBits = 2 if self.USBS0 else 1
-
-        #UMSEL0 Bits Settings
-        match self.UMSEL:
-            case 0: self.opp_mode = 'Asynchronous'
-            case 1: self.opp_mode = 'Synchronous'
-            case 2: self.opp_mode = 'Master SPI'
-            case _: self.opp_mode = '(Reserved)'
-
-        match self.UPM:
-            case 0: self.ParityMode = 'Disabled'
-            case 2: self.ParityMode = 'even'
-            case 3: self.ParityMode = 'odd'
-            case _: self.ParityMode = 'Disabled'
-
-    def Clock_Generator(self):
-        self.baud_Tick = False
-        
-        if self.tickCounter >= self.UBRR0:
-            self.baud_Tick = True
-            self.tickCounter = 0 
-        else:
-            self.tickCounter += 1
-
-        if self.baud_Tick:
-            self.USART_CLK_val = 1 ^ self.USART_CLK_val
-
-    def TX_logic(self):
-        if self.baud_Tick == True:
-            if self.TXEN0 == 1: # Enable Transmit
-
-                if self.opp_mode == 'Asynchronous':
-                    self.ticks_per_bit = 8 if self.U2X0 else 16
-                else:
-                    self.ticks_per_bit = 2
-
-                if self.TXD != 0 :
-                    match self.tx_state:
-                        case 'IDLE':
-                            self.TXD_val = 1
-                            if self.TXDB_full:
-
-                                self.tx_shift_reg = self.TXB_buffer
-                                self.TXDB_full = False
-                                self.TXB = 0 
-                                self.UDRE0 = 1
-                                self.update_UCSR0A()
-
-                                if self.nbBits == 9:
-                                    self.tx_shift_reg |= (self.TXB80 << 8)
-                                self.tx_bits_left = self.nbBits
-
-                                mask = (1 << self.nbBits) - 1
-                                
-                                self.tx_parity = bin(self.tx_shift_reg & mask).count('1') & 1
-                                self.tx_stop_cnt = self.nbStopBits
-                                self.tx_tick_cnt = 0
-                                self.tx_state = 'START'
-                        
-                        case 'START':
-
-                            self.TXD_val = 0
-                            self.tx_tick_cnt += 1
-                            if self.tx_tick_cnt >= self.ticks_per_bit:
-                                self.tx_tick_cnt = 0
-                                self.tx_state = 'DATA'
-                                
-
-                        case 'DATA':
-                            
-                            self.tx_tick_cnt += 1
-                            if self.tx_tick_cnt >= self.ticks_per_bit:
-                                self.tx_tick_cnt = 0
-                                self.TXD_val = self.tx_shift_reg & 1                         
-                                self.tx_shift_reg >>= 1
-                                self.tx_bits_left -= 1 
-                                if self.tx_bits_left == 0:
-                                    if self.ParityMode != 'Disabled':
-                                        self.tx_state = 'PARITY'
-                                    else:
-                                        self.tx_state = 'STOP'
-
-                        case 'PARITY':
-                            self.tx_tick_cnt += 1
-                            if self.tx_tick_cnt >= self.ticks_per_bit:
-                                self.tx_tick_cnt = 0
-                                if self.ParityMode == 'even':
-                                    self.TXD_val = self.tx_parity
-                                else:
-                                    self.TXD_val = self.tx_parity ^ 1
-                                self.tx_state = 'STOP'
-                        
-
-                        case 'STOP':
-
-                            self.TXD_val = 1
-                            self.tx_stop_cnt -= 1 
-                            if self.tx_tick_cnt >= self.ticks_per_bit:
-                                self.tx_tick_cnt = 0
-                                self.tx_stop_cnt -= 1
-                                if self.tx_stop_cnt == 0:
-                                    self.TXC0 = 1
-                                    self.update_UCSR0A()
-                                    self.tx_state = 'IDLE'
-
-            
-                else:
-                    self.TXD_val = 1
-                    self.tx_state = 'IDLE' 
-
-    def RX_logic(self):
-            
-        if self.baud_Tick == True:
-            
-            if self.RXEN0 == 1: # Enable Recive
-                #Ticks per bit (oversampleing)
-
-                if self.opp_mode == 'Asynchronous':
-                    self.ticks_per_bit = 8 if self.U2X0 else 16
-                else:
-                    self.ticks_per_bit = 2
-
-                sample_tick = self.ticks_per_bit >>1 # midpoint
-
-                rxd = self.RXD.get() & 1 
-
-                match self.rx_state:
-                    case 'IDLE':
-                        # Wait for falling edge (START bit = logic 0)
-                        if rxd == 0:
-                            self.rx_tick_cnt = 0 
-                            self.rx_shift_reg = 0
-                            self.rx_bits_rcvd = 0 
-                            self.rx_parity = 0
-                            self.rx_fe = 0
-                            self.rx_upe = 0
-                            self.rx_state = 'START'
-
-                    case 'START':
-                        self.rx_tick_cnt += 1
-
-                        if self.rx_tick_cnt == sample_tick:
-
-                            if rxd == 1:
-                                self.rx_state = 'IDLE'
-                            else:
-                                self.rx_state = 'DATA'
-                                self.rx_tick_cnt = 0
-                        
-                    case 'DATA':
-                        self.rx_tick_cnt += 1
-                        if self.rx_tick_cnt == self.ticks_per_bit:
-                            self.rx_tick_cnt = 0
-                            bit = rxd # retriving the bit
-                            self.rx_shift_reg |= (bit << self.rx_bits_rcvd)
-                            self.rx_parity ^= bit # calculating the parity 
-                            self.rx_bits_rcvd += 1
-                            if self.rx_bits_rcvd == self.nbBits:
-                                if self.ParityMode != 'Disabled':
-                                    self.rx_state = 'PARITY'
-                                else:
-                                    self.rx_stop_cnt = self.nbStopBits
-                                    self.rx_state = 'STOP'
-
-                    case 'PARITY':
-                        self.rx_tick_cnt += 1
-                        if self.rx_tick_cnt == self.ticks_per_bit:
-                            self.rx_tick_cnt = 0
-                            parity_bit =  rxd 
-                            expected_even = self.rx_parity
-                            expected_odd = self.rx_parity ^ 1
-                            if (self.ParityMode == 'even') and (parity_bit != expected_even):
-                                self.rx_upe = 1
-                            elif (self.ParityMode == 'odd') and (parity_bit != expected_odd):
-                                self.rx_upe = 1 
-                            self.rx_stop_cnt = self.nbStopBits
-                            self.rx_state = 'STOP'
-
-                    case 'STOP':
-                        self.rx_tick_cnt += 1 
-                        if self.rx_tick_cnt == self.ticks_per_bit:
-                            self.rx_tick_cnt = 0
-                            stop_bit = rxd
-                            self.rx_stop_cnt -= 1
-
-                            if stop_bit != 1:
-                                self.rx_fe = 1
-
-                            if self.rx_stop_cnt == 0:
-
-                                self.DOR0 = 1 if self.RXC0 else 0
-                                
-                                if self.readBuffer == 0 :
-                                    self.readBuffer = self.rx_shift_reg & 0xFF
-                                    self.rx_shift_reg_full = False
-                                else:
-                                    self.DOR0 = 1 # Data OverRun
-                                    self.update_UCSR0A()
-
-                                if self.nbBits == 9:
-                                    bit8 = (self.rx_shift_reg >> 8) & 1
-                                    self.UCSR0B = (self.UCSR0B & ~(1<<1)) | (bit8 << 1)
-
-                                self.FE0 = self.rx_fe
-                                self.UPE0 = self.rx_upe 
-                                self.RXC0 = 1 
-                                self.update_UCSR0A()
-                                self.rx_state = 'IDLE'
-
-            
-            else:
-                self.rx_state = 'IDLE'
-
-    def update_interrupts(self):
-        self.RXC_INT_val = 1 if (self.RXCIE0 and self.RXC0) else 0 
-        self.TXC_INT_val = 1 if (self.TXCIE0 and self.TXC0) else 0
-        self.UDRE_INT_val = 1 if (self.UDRIE0 and self.UDRE0) else 0
-
-    def update_Outputs(self):
-        self.TXD.prepare(self.TXD_val)
         self.RXC_INT.prepare(self.RXC_INT_val)
         self.TXC_INT.prepare(self.TXC_INT_val)
         self.UDRE_INT.prepare(self.UDRE_INT_val)
-        #self.USART_CLK.prepare(self.USART_CLK_val)
 
     def clock(self):
-
-        self.Memory_access() # Handle any bus transactions  
-        self.Parse_control_registers() # Decode control bits 
-        self.setSettings() # Figure out the Settings
-        self.Clock_Generator() # determine if it is a baud tick or not
-
-        #update state machines
+        self.Memory_access()
+        self.Clock_Generator()
         self.TX_logic()
         self.RX_logic()
-
-        #update interrupts lines
         self.update_interrupts()
-
-        #Drive all output wires
         self.update_Outputs()
-        
-        
+
+
+
 class VirtualUSART(py4hw.Logic):
     def __init__(self, parent, name, mem: MemoryInterface, debug: bool = False):
         super().__init__(parent, name)

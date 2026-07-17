@@ -19,7 +19,9 @@ class multicycleProcessor(py4hw.Logic):
     any changes.
     """
 
-    def __init__(self, parent, name, Interrupt, Interrupt_Enable, ins_mem, memory, reset, reset_address=0,
+    def __init__(self, parent, name, Interrupt, Interrupt_Enable, ins_mem, memory, reset,
+                 PROG_MOSI, PROG_SCK, PROG_MISO,
+                 reset_address=0,
                  Bus_Passthrough_Ranges=None):
         super().__init__(parent, name)
 
@@ -28,6 +30,16 @@ class multicycleProcessor(py4hw.Logic):
         self.Interrupt_Enable = self.addOut('Interrupt_Enable', Interrupt_Enable)
         self.ins_mem = self.addInterfaceSource('ins_mem', ins_mem)
         self.memory = self.addInterfaceSource('memory', memory)
+
+        # Flash programming interface (see ROM_FLASHING_DESIGN.md).
+        # Required, same as `reset` -- py4hw leaf components (RomHandler,
+        # at the bottom of this chain) can't bind a None wire, so callers
+        # that don't care about flashing still need to pass real Wire
+        # objects, just tied low and left unread, the same way many
+        # existing testbenches never read Interrupt_Enable.
+        self.PROG_MOSI = self.addIn('PROG_MOSI', PROG_MOSI)
+        self.PROG_SCK = self.addIn('PROG_SCK', PROG_SCK)
+        self.PROG_MISO = self.addOut('PROG_MISO', PROG_MISO)
 
         # -------------------------
         # Datapath <-> ControlBox boundary wires
@@ -91,6 +103,9 @@ class multicycleProcessor(py4hw.Logic):
             reset_address=reset_address,
             Interrupt_Enable=self.Interrupt_Enable,
             Bus_Passthrough_Ranges=Bus_Passthrough_Ranges,
+            PROG_MOSI=self.PROG_MOSI,
+            PROG_SCK=self.PROG_SCK,
+            PROG_MISO=self.PROG_MISO,
 
             D_Resp=W_Resp,
             D_Branch=W_Branch,

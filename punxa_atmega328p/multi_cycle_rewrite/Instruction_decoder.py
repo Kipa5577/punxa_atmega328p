@@ -203,7 +203,12 @@ class Instruction_decoder(py4hw.Logic):
 
         # Format 1: Arithmetic & Logic with Two Registers — Rd[d5], Rr[r5]
         #   ADC, ADD, AND, CP, CPC, EOR, MOV, MUL, OR, SBC, SUB, ...
-
+        # FIX: 24-28 (MULS/MULSU/FMUL/FMULS/FMULSU) removed from this
+        # group — they do NOT use the d5/r5 format. Treating them as
+        # Format 1 made the r5 extractor swallow opcode bits as register
+        # bits (e.g. `fmul r16, r17` = 0x0309 decoded as Rr = r25, so the
+        # multiply silently read a random, usually-zero register instead
+        # of r17). Only MUL (23) genuinely uses d5/r5.
         if code in [1, 2, 4, 6, 9, 11, 13, 20, 23, 37, 38, 39, 93]:
             out_rd = rd_d5
             out_rr = rr_r5
@@ -237,6 +242,9 @@ class Instruction_decoder(py4hw.Logic):
         elif code in [3, 8]:
             out_rd = rd_d2
             out_K6 = K_6bit
+            # FIX: W_K6_ID_OB (out_K6's wire) is never connected to anything
+            # downstream -- OperandBuffer only ever receives K8. Without
+            # this, ADIW/SBIW's immediate never reaches the ALU at all.
             out_K8 = K_6bit
 
         # Format 4: Single Register Operations — Rd[d5]
@@ -258,6 +266,10 @@ class Instruction_decoder(py4hw.Logic):
         # Format 7: Long Jump / Call — k[k22] (upper 6 bits from word 1)
         #   JMP, CALL
         elif code in [31, 34]:
+            # FIX: was `out_k22 = k_22bit`, a variable that doesn't exist
+            # elsewhere — k7_22 output was silently never driven (always 0).
+            # k_22bit already has the upper bits pre-shifted to [21:16];
+            # the k7_22 wire is 7 bits wide, so pass bits [22:16] only.
             out_k7_22 = (k_22bit >> 16) & 0x7F
 
         # Format 8: Bit Test / Skip on Register — Rd or Rr, b[b3]
@@ -280,6 +292,13 @@ class Instruction_decoder(py4hw.Logic):
         #   BSET, BCLR, BRBS, BRBC
         elif code in [73, 74] or (77 <= code <= 92):
             out_s = s_bit
+            # FIX: W_s_ID_ALU (out_s's wire) is never connected to anything
+            # downstream -- ALU.BitPos only ever receives out_b (W_b_ID_ALU).
+            # Without this, every BSET/BCLR/SEx/CLx instruction always
+            # targeted bit 0 (C) regardless of which flag it actually
+            # encoded (e.g. SET/CLT, meant to target T at bit 6, silently
+            # operated on C instead), since BitPos read the wrong wire and
+            # that wire's default value is 0.
             out_b = s_bit
 
         # Format 11: General I/O — Rd[d5], A[A6]

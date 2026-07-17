@@ -121,6 +121,7 @@ class FSM_SELECTOR(py4hw.Logic):
         self.RUN_POPPUSHFSM = self.addOut('RUN_POPPUSHFSM', RUN_POPPUSHFSM)
         self.RUN_LDSTFSM = self.addOut('RUN_LDSTFSM', RUN_LDSTFSM)
         self.RUN_CALLRETFSM = self.addOut('RUN_CALLRETFSM', RUN_CALLRETFSM)
+        # Fixed: Added output name and wire parameter
         self.RUN_LPMFSM = self.addOut('RUN_LPMFSM', RUN_LPMFSM) 
  
         self.debug = 1

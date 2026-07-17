@@ -395,6 +395,16 @@ class CallRet_FSM(py4hw.Logic):
             next_state = 'JUMP_I'
 
         elif state == 'JUMP_I':
+            # FIX: RomHandler's STOP-state jump logic has two independent
+            # paths: Load_Z (PC <- {ZH,ZL} from MemoryInterfaceHandler's
+            # address_ZL/address_ZH outputs) and Load_Jump+relative_Absolute
+            # (PC <- K-mux value | latched_addr_word, driven by K_select).
+            # ICALL/IJMP just spent 6 states loading the Z register into
+            # MIH's internal ZregL/ZregH — but asserting Load_Jump here
+            # takes the WRONG path: K_select defaults to 0 (K7), so this
+            # jumped using a stale/unrelated K7 offset combined with
+            # whatever latched_addr_word was left over from the last
+            # JMP/CALL/LDS/STS, landing PC on garbage instead of Z.
             Load_Z = 1
             if executed_jump == 1:
                 done = 1

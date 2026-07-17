@@ -47,8 +47,38 @@ STATES = [
     # R0Buffer/R1Buffer, then trigger RomHandler's SPM_req path, which
     # writes R1:R0 to ROM[Z] directly (Z is read continuously via
     # address_ZL/address_ZH -- no PC detour needed, unlike LPM).
+    #
+    # FIX: RomHandler's address_ZL/address_ZH inputs are driven by
+    # MemoryInterfaceHandler's *own* ZregL/ZregH shadow registers (see
+    # MIH.address_ZL/address_ZH.prepare(self.ZregL/self.ZregH)), not
+    # directly by the r30/r31 GP registers. That shadow is only ever
+    # updated when something explicitly loads it via LOAD_ZL/LOAD_ZH
+    # (LoadingMux 5/6) -- which is exactly what the LPM path's own
+    # FETCH_ADDRESS_XYZ_BEGIN_L/H states do before touching ROM. The SPM
+    # path used to skip straight to SPM_FETCH_R0_BEGIN and trigger the
+    # ROM write against whatever stale ZregL/ZregH happened to be left
+    # over from the last LPM/LD Z/ST Z instruction (0 if none had ever
+    # run), silently writing to the wrong Flash address regardless of
+    # what the program had just loaded into r30/r31. These six states
+    # mirror the LPM Z-fetch/settle sequence (read r30 -> ZregL, read
+    # r31 -> ZregH, wait one extra cycle for the shadow write to actually
+    # propagate) before falling into the existing R0/R1 fetch + trigger
+    # states, so SPM ends up targeting the Z the program actually set.
+    'SPM_FETCH_Z_L_BEGIN', 'SPM_WAIT_Z_L', 'SPM_LOAD_Z_L_IN_BUFFER',
+    'SPM_FETCH_Z_H_BEGIN', 'SPM_WAIT_Z_H', 'SPM_LOAD_Z_H_IN_BUFFER',
+    'SPM_SETTLE_Z',
+
     'SPM_FETCH_R0_BEGIN', 'SPM_WAIT_R0', 'SPM_LOAD_R0',
     'SPM_FETCH_R1_BEGIN', 'SPM_WAIT_R1', 'SPM_LOAD_R1',
+    # FIX: SPM_LOAD_R1 used to fall straight into SPM_TRIGGER. R0 gets
+    # away without an equivalent settle state only because the
+    # FETCH_R1_BEGIN/WAIT_R1 x4/LOAD_R1 states in between give its
+    # buffer write several cycles to become visible; R1's own write (in
+    # SPM_LOAD_R1) has no such runway before SPM_TRIGGER reads it, so
+    # RomHandler was committing R1Buffer's still-stale value (0) into
+    # the high byte of every SPM write. One settle cycle here, same
+    # reasoning as SPM_SETTLE_Z above.
+    'SPM_SETTLE_R1',
     'SPM_TRIGGER', 'SPM_WAIT_DONE',
 ]
 
@@ -154,7 +184,7 @@ class LPM_FSM(py4hw.Logic):
         # Resp=1 left over from the previous memory operation (this is
         # the same hazard that corrupted the ZH read in LDST_FSM).
         self._saw_resp_low = False
-        self.debug = 1
+        self.debug = 0
 
 
     def clock(self):
@@ -237,7 +267,7 @@ class LPM_FSM(py4hw.Logic):
                 if inst in _LPM_INSTRUCTIONS:
                     next_state = 'FETCH_ADDRESS_XYZ_BEGIN_L'
                 elif inst in _SPM_INSTRUCTIONS:
-                    next_state = 'SPM_FETCH_R0_BEGIN'
+                    next_state = 'SPM_FETCH_Z_L_BEGIN'
                 else:
                     # Failsafe for non-LPM/SPM instructions
                     done = 1 
@@ -450,6 +480,74 @@ class LPM_FSM(py4hw.Logic):
                 next_state = 'STOP'
 
         # ================================================================
+        # SPM: sync MemoryInterfaceHandler's ZregL/ZregH shadow from the
+        # r30/r31 GP registers before touching ROM (see the STATES-list
+        # comment above for why this is needed). Mirrors the LPM path's
+        # own FETCH_ADDRESS_XYZ_BEGIN_L/H + settle sequence exactly.
+        # ================================================================
+        elif state == 'SPM_FETCH_Z_L_BEGIN':
+            self._wb_addr_val = 30   # R30 (ZL)
+            WB_Addr = 30
+            Mem_Instruction = 14     # MEM_WB_ADDR
+            Read_Write = 2           # Read
+            Input_Select = 1         # Receive from DataBus
+            self._saw_resp_low = False
+            next_state = 'SPM_WAIT_Z_L'
+
+        elif state == 'SPM_WAIT_Z_L':
+            WB_Addr = self._wb_addr_val
+            Mem_Instruction = 14
+            Read_Write = 2
+            Input_Select = 1
+            if not resp:
+                self._saw_resp_low = True
+            elif self._saw_resp_low:
+                next_state = 'SPM_LOAD_Z_L_IN_BUFFER'
+
+        elif state == 'SPM_LOAD_Z_L_IN_BUFFER':
+            WE = 1
+            LoadingMux = 5           # LOAD_ZL
+            next_state = 'SPM_FETCH_Z_H_BEGIN'
+
+        elif state == 'SPM_FETCH_Z_H_BEGIN':
+            self._wb_addr_val = 31   # R31 (ZH)
+            WB_Addr = 31
+            Mem_Instruction = 14
+            Read_Write = 2
+            Input_Select = 1
+            # Same hazard as every other back-to-back register read in
+            # this FSM: reset the edge-detect flag so a stale Resp=1 left
+            # over from the ZL read can't be mistaken for the ZH read's
+            # own completion.
+            self._saw_resp_low = False
+            next_state = 'SPM_WAIT_Z_H'
+
+        elif state == 'SPM_WAIT_Z_H':
+            WB_Addr = self._wb_addr_val
+            Mem_Instruction = 14
+            Read_Write = 2
+            Input_Select = 1
+            if not resp:
+                self._saw_resp_low = True
+            elif self._saw_resp_low:
+                next_state = 'SPM_LOAD_Z_H_IN_BUFFER'
+
+        elif state == 'SPM_LOAD_Z_H_IN_BUFFER':
+            WE = 1
+            LoadingMux = 6           # LOAD_ZH
+            next_state = 'SPM_SETTLE_Z'
+
+        elif state == 'SPM_SETTLE_Z':
+            # MIH's address_ZL/address_ZH outputs are prepared from
+            # self.ZregL/self.ZregH *before* this cycle's register-load
+            # section runs (see MemoryInterfaceHandler.clock()), so the
+            # ZH write just latched won't be visible on address_ZH until
+            # the next cycle. Burn one cycle so RomHandler's SPM_REQ
+            # state reads a fully-settled Z, same reason LPM's own
+            # SETTLE_Z state exists.
+            next_state = 'SPM_FETCH_R0_BEGIN'
+
+        # ================================================================
         # SPM: fetch R0
         # ================================================================
         elif state == 'SPM_FETCH_R0_BEGIN':
@@ -504,6 +602,9 @@ class LPM_FSM(py4hw.Logic):
         elif state == 'SPM_LOAD_R1':
             WE = 1
             LoadingMux = 16          # LOAD_R1_BUFFER
+            next_state = 'SPM_SETTLE_R1'
+
+        elif state == 'SPM_SETTLE_R1':
             next_state = 'SPM_TRIGGER'
 
         # ================================================================

@@ -34,6 +34,11 @@ class Datapath(py4hw.Logic):
                  reset, ins_mem, memory, reset_address, Interrupt_Enable,
                  Bus_Passthrough_Ranges=None,
 
+                 # ---- Flash programming interface passthrough (see
+                 #      ROM_FLASHING_DESIGN.md) -- straight through to
+                 #      RomHandler, same pattern as `reset` above ----
+                 PROG_MOSI=None, PROG_SCK=None, PROG_MISO=None,
+
                  # ==============================================================
                  # Boundary to ControlBox
                  # ==============================================================
@@ -60,6 +65,11 @@ class Datapath(py4hw.Logic):
         self.ins_mem = self.addInterfaceSource('ins_mem', ins_mem)
         self.memory = self.addInterfaceSource('memory', memory)
         self.Interrupt_Enable = self.addOut('Interrupt_Enable', Interrupt_Enable)
+
+        self.PROG_MOSI = self.addIn('PROG_MOSI', PROG_MOSI)
+        self.PROG_SCK = self.addIn('PROG_SCK', PROG_SCK)
+        self.PROG_MISO = self.addOut('PROG_MISO', PROG_MISO)
+        self.reset_address = reset_address
 
         # ---- Boundary pins (mirrored for hierarchy/visualization; the
         #      actual driving happens in the leaf sub-components/registers
@@ -219,6 +229,10 @@ class Datapath(py4hw.Logic):
             RH_fetch_address=self.D_Fetch_Address,
             RH_Address_fetched=self.D_Address_fetched,
             RH_Load_Byte=self.D_Load_Byte,
+            RH_PROG_MOSI=self.PROG_MOSI,
+            RH_PROG_SCK=self.PROG_SCK,
+            RH_PROG_MISO=self.PROG_MISO,
+            RH_default_reset_address=self.reset_address,
             RH_reset=self.reset,
         )
 

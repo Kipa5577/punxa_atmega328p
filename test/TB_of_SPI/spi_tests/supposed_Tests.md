@@ -1,0 +1,98 @@
+# SPI Configuration
+
+test_spi_reset_values
+test_spi_enable
+test_spi_disable
+test_spi_master_mode
+test_spi_slave_mode
+test_spi_master_slave_switch_runtime
+
+# Clock Configuration
+
+test_spi_clock_div2
+test_spi_clock_div4
+test_spi_clock_div8
+test_spi_clock_div16
+test_spi_clock_div32
+test_spi_clock_div64
+test_spi_clock_div128
+
+# Clock Polarity / Phase
+
+test_spi_mode0
+test_spi_mode1
+test_spi_mode2
+test_spi_mode3
+
+# Data Order
+
+test_spi_msb_first
+test_spi_lsb_first
+
+# Data Transfer
+
+test_spi_single_byte_transfer
+test_spi_multiple_byte_transfer
+test_spi_full_duplex_transfer
+test_spi_receive_only
+test_spi_transmit_only
+test_spi_back_to_back_transfers
+test_spi_transfer_after_reset
+
+# SS Pin Behaviour
+
+test_spi_master_ss_held_high
+test_spi_master_ss_driven_low
+test_spi_slave_ss_enable
+test_spi_slave_ss_disable
+test_spi_master_mode_lost_on_ss_low
+
+# Status Flags
+
+test_spi_spif_flag
+test_spi_wcol_flag
+test_spi_interrupt_flag_clearing
+
+# Interrupts
+
+test_spi_interrupt_enable
+test_spi_interrupt_disable
+test_spi_transfer_complete_interrupt
+
+# Register Behaviour
+
+test_spi_spdr_write_while_busy
+test_spi_spdr_read_before_transfer_complete
+test_spi_register_reset_values
+
+# Runtime Configuration
+
+test_spi_change_clock_runtime
+test_spi_change_mode_runtime
+test_spi_change_data_order_runtime
+test_spi_enable_disable_runtime
+
+# Error / Corner Cases
+
+test_spi_write_collision
+test_spi_transfer_without_enable
+test_spi_invalid_configuration_transition
+test_spi_zero_data_transfer
+test_spi_all_ones_data_transfer
+test_spi_alternating_bit_pattern
+test_spi_continuous_stream_transfer
+test_spi_idle_bus_behavior
+
+# Timing
+
+test_spi_sck_frequency
+test_spi_sampling_edge
+test_spi_output_edge
+test_spi_setup_hold_timing
+
+# Loopback / Verification
+
+test_spi_internal_loopback
+test_spi_master_slave_loopback
+test_spi_long_data_stream
+test_spi_random_data_transfer

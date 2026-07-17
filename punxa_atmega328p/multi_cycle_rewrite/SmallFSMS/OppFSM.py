@@ -360,6 +360,14 @@ class OPP_FSM(py4hw.Logic):
             next_state = 'WAIT_FETCH_RD_B2'
 
         elif state == 'WAIT_FETCH_RD_B2':
+            # FIX: this state previously asserted nothing while waiting, so
+            # the read request (Mem_Instruction=15, Read_Write=2) was
+            # dropped the instant FETCH_RD_B2 finished its one cycle.
+            # `resp` would then fire (if at all) disconnected from this
+            # specific request, and LOAD_VAL_RD_IN_BUFFER_B2 would latch
+            # whatever stale value happened to be on the bus instead of
+            # Rd+1's real content -- exactly mirrors WAIT_FETCH_RD's own
+            # structure for the low byte.
             Mem_Instruction = 15   # RD+1 pointer
             Read_Write = 2         # read opp
             InputSelect_Memory = 1
@@ -367,6 +375,11 @@ class OPP_FSM(py4hw.Logic):
                 next_state = 'LOAD_VAL_RD_IN_BUFFER_B2'
 
         elif state == 'LOAD_VAL_RD_IN_BUFFER_B2':
+            # FIX: this state previously only set next_state and nothing
+            # else -- it never asserted WE_Buffer, so the just-fetched high
+            # byte of Rd was silently discarded instead of being latched
+            # into the buffer's Rd1 slot. Mirrors LOAD_VAL_RD_IN_BUFFER's
+            # own byte-0 latch structure.
             Mem_Instruction = 15   # RD+1 pointer (keep address/bus stable)
             InputSelect_Memory = 1
             WE_Buffer = 2          # latch into Rd1
@@ -422,6 +435,8 @@ class OPP_FSM(py4hw.Logic):
             next_state = 'WAIT_FETCH_RR_B2'
 
         elif state == 'WAIT_FETCH_RR_B2':
+            # Same fix as WAIT_FETCH_RD_B2: hold the read request stable
+            # while waiting for resp, instead of letting it drop to IDLE.
             Mem_Instruction = 16   # RR+1 pointer
             Read_Write = 2         # read opp
             InputSelect_Memory = 1
@@ -451,6 +466,15 @@ class OPP_FSM(py4hw.Logic):
                 next_state = 'LOAD_FETCH_IO_REG_TO_BUFFER'
 
         elif state == 'LOAD_FETCH_IO_REG_TO_BUFFER':
+            # FIX: SBI/CBI (65/66) need the fetched I/O value to reach AU's
+            # RegAL input, which is hard-wired to ImputRegA0 (buffer slot
+            # WE=1) -- not IOBuffer (WE=5). IOBuffer only feeds BranchUnit,
+            # which is used exclusively by SBIC/SBIS's skip evaluation.
+            # Previously this state always used WE=5 regardless of which
+            # instruction got here, so SBI/CBI's AU computation silently
+            # read stale/zero data from ImputRegA0 instead of the real I/O
+            # register value (e.g. CBI on 0xFF, bit 0 produced 0x00 instead
+            # of 0xFE, because AU saw RegAL=0 and 0 & ~1 == 0).
             WE_Buffer = 1 if i in {65, 66} else 5     # write DATA into A0 (SBI/CBI) or IOBuffer (SBIC/SBIS)
             InputSelect_Buffer = 1
 
@@ -538,6 +562,16 @@ class OPP_FSM(py4hw.Logic):
 
         elif state == 'LOAD_RESULT':
             if i in {23, 24, 25, 26, 27, 28}:
+                # FIX: MUL/MULS/MULSU/FMUL/FMULS/FMULSU always write their
+                # result to the FIXED register pair R1:R0, regardless of
+                # what Rd/Rr the instruction encoded. Mem_Instruction=12
+                # (MEM_RD) addresses *Rd itself* -- so this was silently
+                # overwriting one of the instruction's own operand
+                # registers (e.g. `fmul r16, r17` was clobbering r16)
+                # instead of writing to r0. Mem_Instruction=14
+                # (MEM_WB_ADDR) with an explicit WB_Addr is the path meant
+                # for exactly this case (see WB_Addr's own doc comment:
+                # "R0/R1 for MUL").
                 Mem_Instruction = 14  # MEM_WB_ADDR
                 WB_Addr = 0           # R0
             else:
@@ -574,12 +608,23 @@ class OPP_FSM(py4hw.Logic):
 
         elif state == 'LOAD_RESULT_B2':
             if i in {23, 24, 25, 26, 27, 28}:
+                # FIX: same reasoning as LOAD_RESULT above -- the high
+                # byte of a MUL-family result always goes to the fixed
+                # R1, not to "Rd+1" (Mem_Instruction=15 / MEM_RD_1),
+                # which was clobbering the register right after Rd
+                # (e.g. `fmul r16, r17` was overwriting r17 instead of r1).
                 Mem_Instruction = 14  # MEM_WB_ADDR
                 WB_Addr = 1           # R1
             else:
                 Mem_Instruction = 15  # RD+1 pointer
                 WB_Addr = 0
             Read_Write = 1 # Write 
+            # FIX: this is the HIGH byte of the result. InputSelect_Memory=2
+            # is INPUT_RESL (ResL) -- the same source LOAD_RESULT just used
+            # for the low byte. Writing ResL here again means R1 ends up
+            # with the same value as R0 instead of the high byte, no matter
+            # how correct the destination address (WB_Addr) is.
+            # INPUT_RESH (3) reads AU's ResH output instead.
             InputSelect_Memory = 3
             next_state = 'WAIT_LOAD_RESULT_B2'
 
@@ -591,7 +636,7 @@ class OPP_FSM(py4hw.Logic):
                 Mem_Instruction = 15
                 WB_Addr = 0
             Read_Write = 1       # Write 
-            InputSelect_Memory = 3  
+            InputSelect_Memory = 3  # FIX: INPUT_RESH, see LOAD_RESULT_B2 above
             if resp:
                 done = 1
                 next_state = 'STOP'

@@ -146,6 +146,22 @@ class InterruptFSM(py4hw.Logic):
         self.current_state = 'STOP'
         self.debug = 0
 
+        # FIX (double-entrance race): MainFSM.Interrupt_Entrance is a LEVEL
+        # signal held high for the CPU's entire time parked in
+        # INTERRUPT_ENTRY (many cycles), not a one-shot pulse. Entrance/
+        # Interrupt_Done cross the same one-cycle-lag Datapath<->ControlBox
+        # boundary as every other signal here: MainFSM doesn't see this
+        # FSM's Interrupt_Done (pulsed during SIGNAL_DONE) until the cycle
+        # after, and doesn't drop Interrupt_Entrance until the cycle after
+        # THAT. Meanwhile this FSM reaches STOP the cycle right after
+        # SIGNAL_DONE and, with a plain `entrance == 1` level check, sees
+        # Entrance still asserted (stale, MainFSM hasn't reacted to Done
+        # yet) and immediately re-triggers a second, spurious CLEAR_I for
+        # the SAME interrupt event -- double-pushing the return address
+        # and double-fetching the vector before anything ever gets fetched
+        # again. Confirmed on test_mcu_SEI.asm. Fixed by triggering only on
+        # a RISING EDGE of Entrance (0->1), the same idiom MainFSM already
+        # uses for Instruction_fetched (`_prev_instr_fetched`).
         self._prev_entrance = 0
 
     def clock(self):
@@ -273,6 +289,21 @@ class InterruptFSM(py4hw.Logic):
                 next_state = 'FETCH_VEC_L_LATCH'
 
         elif state == 'FETCH_VEC_L_LATCH':
+            # FIX (vector-byte capture race): keep re-asserting the SAME
+            # read request here instead of going idle. MIH only re-latches
+            # BusData/PCL_LOAD_VAL from the bus on cycles where it still
+            # sees Read_Write==READ -- dropping to idle the instant `resp`
+            # is first observed (this FSM's own Resp input, one hop behind
+            # MIH's) risks landing exactly one cycle before MIH's own copy
+            # of the response data has actually settled, so MIH captures
+            # whatever stale byte was on the bus a cycle earlier instead.
+            # Confirmed on test_mcu_SEI.asm's SECOND interrupt (the first
+            # happened to land on a cycle where this raced favorably; the
+            # second didn't -- PCL ended up 0x00 instead of the real 0x20,
+            # sending the CPU to the reset vector instead of the ISR).
+            # Re-asserting the read for one more cycle here gives MIH
+            # another chance to latch the now-genuinely-settled value
+            # before FETCH_VEC_L_STORE pulses LOAD_PCL off of it.
             Read_Write = READ
             Mem_Instruction = MEM_INT_VECTOR_L
             next_state = 'FETCH_VEC_L_STORE'
@@ -295,7 +326,7 @@ class InterruptFSM(py4hw.Logic):
                 next_state = 'FETCH_VEC_H_LATCH'
 
         elif state == 'FETCH_VEC_H_LATCH':
-
+            # Same fix as FETCH_VEC_L_LATCH above.
             Read_Write = READ
             Mem_Instruction = MEM_INT_VECTOR_H
             next_state = 'FETCH_VEC_H_STORE'

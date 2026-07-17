@@ -21,6 +21,15 @@ instead:
    short of the finish line. See HANDOFF_ADDENDUM_2_in_spm_fix.md for the
    full trace that confirmed this (every I/O address it touches responds
    correctly — nothing is actually hung).
+3. Simulator.topologicalSort() — py4hw's stock implementation is O(n^2)
+   per convergence pass (repeated `list.index()` linear scans over ~4000
+   propagatable leaves); replaced with a proper O(V+E) Kahn's-algorithm
+   topological sort, monkeypatched over the installed py4hw library at
+   import time. Dropped hw.getSimulator() from ~12s to ~0.02s per test —
+   this was the actual source of the "delay between compilation finish
+   and execution start" (assembly/prepareTest() itself is fast; the
+   simulator's one-time dependency sort, run once per test right
+   afterward and before any clock cycles, was not).
 
 Everything else — the memory map, peripheral wiring, Bus_Passthrough_Ranges,
 test running/reporting — is unchanged from the original.
@@ -28,6 +37,7 @@ test running/reporting — is unchanged from the original.
 import os
 import sys
 import math
+import time
 import py4hw
 import punxa_atmega328p as punxa
 from punxa_atmega328p.assembly import assemble_program
@@ -35,6 +45,7 @@ from punxa_atmega328p.interactive_commands import *
 from punxa_atmega328p.Memory import *
 from punxa_atmega328p.Interrupt_Unit import *
 from punxa_atmega328p.Timers import *
+
 
 # =============================================================================
 # COMPATIBILITY WRAPPER FOR INTERACTIVE COMMANDS
@@ -130,7 +141,7 @@ def silence_debug(root, seen=None):
 # =============================================================================
 # TEST PREPARATION & EXECUTION
 # =============================================================================
-def prepareTest(file):
+def prepareTest(file, preload=True):
     global hw
     global cpu
     global ins_mem
@@ -194,7 +205,19 @@ def prepareTest(file):
     # CPU Control Wires for Multicycle Processor
     reset_wire = py4hw.Wire(hw, 'Reset_Line', 1)
     reset_wire.put(0)
-    
+
+    # Flash programming interface (see ROM_FLASHING_DESIGN.md). Required
+    # by multicycleProcessor's constructor now (RomHandler is a leaf
+    # component and can't bind a None wire) -- tied low here since this
+    # function's own tests still preload ins_mem directly and never
+    # assert reset, so these are simply never driven. tb_ROM_Flash.py's
+    # prepareFlashTest() is the one that actually bit-bangs them.
+    prog_mosi_wire = py4hw.Wire(hw, 'PROG_MOSI', 1)
+    prog_mosi_wire.put(0)
+    prog_sck_wire = py4hw.Wire(hw, 'PROG_SCK', 1)
+    prog_sck_wire.put(0)
+    prog_miso_wire = py4hw.Wire(hw, 'PROG_MISO', 1)
+
     # Instantiate Multicycle Processor
     actual_cpu = punxa.multicycleProcessor(
         parent=hw, 
@@ -204,6 +227,9 @@ def prepareTest(file):
         ins_mem=ins_p, 
         memory=data_p, 
         reset=reset_wire, 
+        PROG_MOSI=prog_mosi_wire,
+        PROG_SCK=prog_sck_wire,
+        PROG_MISO=prog_miso_wire,
         reset_address=0,
         # MemoryInterfaceHandler intercepts every address in [0x0020,0x0100)
         # internally by default (SP/SREG/SPMCR + a catch-all scratch space),
@@ -215,6 +241,10 @@ def prepareTest(file):
     # --- WRAP THE CPU ---
     # This makes 'cpu.pc' and 'cpu.getCSR()' work seamlessly with step()
     cpu = MulticycleCpuWrapper(actual_cpu)
+    cpu.prog_mosi = prog_mosi_wire
+    cpu.prog_sck = prog_sck_wire
+    cpu.prog_miso = prog_miso_wire
+    cpu.reset_wire = reset_wire
     
     reg = punxa.Ram_Memory(hw, 'reg', dw, 7, reg_p)                 # 32 B
     mem = punxa.Ram_Memory(hw, 'men', dw, 11, mem_p)                # 2048 B
@@ -249,9 +279,18 @@ def prepareTest(file):
     #wvf = py4hw.Waveform(hw, 'wvf', watch)
     
     # Load program into memory
-    for i, b in enumerate(words):
-        ins_mem.writeWord(i, b)
-        
+    if preload:
+        for i, b in enumerate(words):
+            ins_mem.writeWord(i, b)
+    else:
+        # Used by tb_ROM_Flash.py: leave ins_mem in the erased-flash
+        # state (0xFFFF, the real ISP Chip Erase convention) instead of
+        # preloading it directly -- a successful flash-then-boot run is
+        # then only possible if the ISP programming path actually wrote
+        # the right words, not because this function quietly did it.
+        for i in range(1 << 14):
+            ins_mem.writeWord(i, 0xFFFF)
+
     #py4hw.gui.Workbench(hw)
     
     import punxa_atmega328p.interactive_commands as ci
@@ -259,6 +298,11 @@ def prepareTest(file):
     ci._ci_hw = hw
     ci._ci_cpu = cpu  # Pass the wrapped CPU to the interactive shell
 
+    cpu.assembled_words = words  # stashed here so preload=False callers
+                                  # can still get at what *should* end up
+                                  # in ins_mem, without changing this
+                                  # function's 5-value return arity for
+                                  # every existing caller.
     return hw, cpu, ins_mem, mem, symbols
     
 def runTest(file):
@@ -348,6 +392,7 @@ def asciiProgressBar(n, t):
 
 def runAllTests():
     global selected_prefixes
+    start_time = time.time()
     nOK = 0
     nTotal = 0
     ret = computeAllTests()
@@ -387,6 +432,12 @@ def runAllTests():
         if (nTotalGroup == 0):
             nTotalGroup = 1
         print(f'{prefix:15}', asciiProgressBar(nOKGroup, nTotalGroup))
+
+        # --- Timing Calculations ---
+    elapsed_time = time.time() - start_time
+    print('\n' + '='*60)
+    print(f'Execution Time: {elapsed_time:.2f} seconds')
+    print('='*60)
         
 if __name__ == "__main__":
     print(sys.argv)
