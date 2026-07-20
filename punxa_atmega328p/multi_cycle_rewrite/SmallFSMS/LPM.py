@@ -184,7 +184,7 @@ class LPM_FSM(py4hw.Logic):
         # Resp=1 left over from the previous memory operation (this is
         # the same hazard that corrupted the ZH read in LDST_FSM).
         self._saw_resp_low = False
-        self.debug = 0
+        self.debug = 1
 
 
     def clock(self):

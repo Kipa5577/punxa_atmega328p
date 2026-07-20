@@ -38,13 +38,15 @@ test1:
     ldi r16, 50
     ldi r17, 50
     cp r16, r17
-    
-    brne fail             ; Fail if Z is 0 (Not Equal)
-    brcs fail             ; Fail if C is 1 (Carry/Borrow)
-    
+
+    brne fail_t1          ; Fail if Z is 0 (Not Equal)
+    brcs fail_t1          ; Fail if C is 1 (Carry/Borrow)
+
     cpi r16, 50           ; Ensure r16 wasn't modified!
-    brne fail
-    
+    brne fail_t1
+    rjmp test1_ok
+fail_t1: jmp fail
+test1_ok:
     rcall inc_case
 
 ; ============================================================
@@ -55,13 +57,15 @@ test2:
     ldi r16, 100
     ldi r17, 50
     cp r16, r17
-    
-    breq fail             ; Fail if Z is 1
-    brcs fail             ; Fail if C is 1
-    
-    cpi r16, 100          ; Ensure r16 wasn't modified
-    brne fail
 
+    breq fail_t2          ; Fail if Z is 1
+    brcs fail_t2          ; Fail if C is 1
+
+    cpi r16, 100          ; Ensure r16 wasn't modified
+    brne fail_t2
+    rjmp test2_ok
+fail_t2: jmp fail
+test2_ok:
     rcall inc_case
 
 ; ============================================================
@@ -72,13 +76,15 @@ test3:
     ldi r16, 50
     ldi r17, 100
     cp r16, r17
-    
-    breq fail             ; Fail if Z is 1
-    brcc fail             ; Fail if C is 0 (Needs Carry/Borrow)
-    
-    cpi r16, 50           ; Ensure r16 wasn't modified
-    brne fail
 
+    breq fail_t3          ; Fail if Z is 1
+    brcc fail_t3          ; Fail if C is 0 (Needs Carry/Borrow)
+
+    cpi r16, 50           ; Ensure r16 wasn't modified
+    brne fail_t3
+    rjmp test3_ok
+fail_t3: jmp fail
+test3_ok:
     rcall inc_case
 
 ; ============================================================
@@ -89,8 +95,11 @@ test4:
     ldi r16, 50
     ldi r17, 100
     cp r16, r17
-    
-    brpl fail             ; Fail if N is 0 (Plus/Positive)
+
+    brpl fail_t4          ; Fail if N is 0 (Plus/Positive)
+    rjmp test4_ok
+fail_t4: jmp fail
+test4_ok:
     rcall inc_case
 
 ; ============================================================
@@ -101,9 +110,12 @@ test5:
     ldi r16, 0
     ldi r17, 0
     cp r16, r17
-    
-    brne fail             ; Fail if Z is 0
-    brcs fail             ; Fail if C is 1
+
+    brne fail_t5          ; Fail if Z is 0
+    brcs fail_t5          ; Fail if C is 1
+    rjmp test5_ok
+fail_t5: jmp fail
+test5_ok:
     rcall inc_case
 
 ; ============================================================
@@ -114,9 +126,12 @@ test6:
     ldi r16, 0
     ldi r17, 1
     cp r16, r17
-    
-    breq fail             ; Fail if Z is 1
-    brcc fail             ; Fail if C is 0
+
+    breq fail_t6          ; Fail if Z is 1
+    brcc fail_t6          ; Fail if C is 0
+    rjmp test6_ok
+fail_t6: jmp fail
+test6_ok:
     rcall inc_case
 
 ; ============================================================
@@ -128,11 +143,14 @@ test7:
     ldi r17, 0xAA
     mov r0, r16
     mov r1, r17
-    
+
     cp r0, r1             ; 0xAA == 0xAA
-    
-    brne fail             ; Fail if Z is 0
-    brcs fail             ; Fail if C is 1
+
+    brne fail_t7          ; Fail if Z is 0
+    brcs fail_t7          ; Fail if C is 1
+    rjmp test7_ok
+fail_t7: jmp fail
+test7_ok:
     rcall inc_case
 
 ; ============================================================
@@ -144,8 +162,11 @@ test8:
     ldi r16, 10
     ldi r17, 10
     cp r16, r17           ; 10 - 10 = 0. (If it used C, 10 - 10 - 1 = -1)
-    
-    brne fail             ; Fail if Z is 0 (meaning it subtracted the carry)
+
+    brne fail_t8          ; Fail if Z is 0 (meaning it subtracted the carry)
+    rjmp test8_ok
+fail_t8: jmp fail
+test8_ok:
     rcall inc_case
 
 ; ============================================================
@@ -156,8 +177,11 @@ test9:
     ldi r16, 255
     ldi r17, 255
     cp r16, r17
-    
-    brne fail
+
+    brne fail_t9
+    rjmp test9_ok
+fail_t9: jmp fail
+test9_ok:
     rcall inc_case
 
 ; ============================================================
@@ -168,9 +192,12 @@ test10:
     ldi r16, 255
     ldi r17, 254
     cp r16, r17
-    
-    breq fail
-    brcs fail
+
+    breq fail_t10
+    brcs fail_t10
+    rjmp test10_ok
+fail_t10: jmp fail
+test10_ok:
     rcall inc_case
 
 ; ============================================================

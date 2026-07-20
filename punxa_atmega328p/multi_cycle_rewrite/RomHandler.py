@@ -228,7 +228,7 @@ class RomHandler(py4hw.Logic):
 
         self._prev_reset = 0           # for the reset *falling*-edge check (§4.6)
 
-        self.debug = 0
+        self.debug = 1
 
     def _select_K(self):
         """

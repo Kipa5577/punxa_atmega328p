@@ -99,9 +99,142 @@ def silence_debug(root, seen=None):
 DEFAULT_UBRR0 = 10
 DEFAULT_TICKS_PER_BIT = 16
 
+# Per-test PeerUART overrides, keyed by filename. Only needed for tests
+# whose DUT-side config isn't the suite's 8N1/no-parity default -- most
+# tests need nothing here. Consulted by both runTest() (when the caller
+# didn't pass explicit peer_kwargs) and computeAllTests()/runAllTests(),
+# so a test is fully self-configuring just by being listed once here;
+# no per-test Python driver script needed for the ones that only need a
+# different static PeerUART shape (nbBits/parity/nbStopBits/echo).
+TEST_PEER_KWARGS = {
+    # 9-bit character mode (UCSZ02+UCSZ01+UCSZ00=111): the peer must
+    # frame/decode 9 data bits too, or its echo would silently truncate
+    # the 9th bit (TXB80/RXB80) the test depends on.
+    'test_usart_9bit_mode.asm': dict(nbBits=9),
+    # Sweeps 5/6/7-bit character sizes in one run (UCSZ changes three
+    # times). The peer's frame width must track the DUT's live UCSZ
+    # config after each change, or its echo frame length falls out of
+    # sync with what the DUT is actually shifting -- see PeerUART's
+    # track_format docstring in peer_uart.py.
+    'test_usart_char_size_mask.asm': dict(track_format=True),
+    # Changes UBRR0 from 10 to 20 mid-run (only between frames, after
+    # confirming TXC0). The peer must follow that change or its own
+    # fixed-baud assumption desyncs from the DUT's new bit timing --
+    # see PeerUART's track_baud docstring. Deliberately NOT applied to
+    # test_usart_baud_sabotage.asm, which wants the opposite behavior.
+    'test_usart_dynamic_baud.asm': dict(track_baud=True),
+    # Sweeps UBRR0 across its full range (0, 10, 255, 4095) in one run.
+    # Same track_baud need as dynamic_baud, above.
+    'test_usart_baud_sweep.asm': dict(track_baud=True),
+    # Even parity throughout (set once, never changed) -- the peer
+    # must generate/check the same parity or its default-echo test
+    # (test 1) would never come back clean.
+    'test_usart_parity.asm': dict(parity='even'),
+}
+
+
+# -----------------------------------------------------------------------
+# Per-test custom peer drivers, keyed by filename. Each entry is a
+# function(peer) that configures peer.on_frame_received (see
+# PeerUART's docstring in peer_uart.py) to react to a specific
+# trigger byte from the DUT instead of the default echo -- for tests
+# whose whole point is to exercise something the DUT does in response
+# to a deliberately malformed or otherwise-not-a-clean-echo frame.
+# Called once, right after the peer is constructed in prepareTest().
+# -----------------------------------------------------------------------
+def _driver_break_condition(peer):
+    def on_frame(peer, entry):
+        if entry['data'] == 0xBB:
+            # Trigger byte: instead of echoing it, hold RXD low long
+            # enough to fill exactly one bad (break) frame -- see
+            # PeerUART.send_break's docstring for why *exactly* one
+            # frame's worth and not "a bit more for safety".
+            peer.send_break()
+            return True   # suppress the default echo for this frame
+        return False       # let 0xCC (the recovery byte) echo normally
+    peer.on_frame_received = on_frame
+
+
+def _driver_parity(peer):
+    def on_frame(peer, entry):
+        if entry['data'] == 0xFF:
+            # Trigger byte: reply with a deliberately wrong-parity
+            # frame instead of a clean echo, to exercise the DUT's
+            # UPE0 detection. Payload value doesn't matter to the
+            # test (it only reads UDR0 to drain the buffer after
+            # checking UPE0), so any byte works.
+            peer.send_bad_parity(0x5A)
+            return True
+        return False
+    peer.on_frame_received = on_frame
+
+
+TEST_DRIVERS = {
+    'test_usart_break_condition.asm': _driver_break_condition,
+    'test_usart_parity.asm': _driver_parity,
+}
+
+
+# -----------------------------------------------------------------------
+# Per-test post-run Python-side checks, keyed by filename. For tests
+# that can't be fully self-checking through the CPU-visible
+# test_case/final_result convention alone. Each entry is a
+# function(peer, cpu, mem) called once after the main step loop
+# finishes (and after confirming final_result != 255); raise an
+# Exception to fail the test, same as final_result==255 does.
+# -----------------------------------------------------------------------
+def _check_baud_sabotage(peer, cpu, mem):
+    # test_usart_baud_sabotage.asm deliberately rewrites UBRR0
+    # mid-transmission. The DUT's own registers can't tell us whether
+    # that actually corrupted anything -- it's the transmitter here,
+    # not the receiver -- so the only place to observe the effect is
+    # the peer's independent, fixed-baud (UBRR0=10 the whole time,
+    # since this test is deliberately absent from TEST_PEER_KWARGS'
+    # track_baud entries) decode of what actually appeared on the wire.
+    #
+    # A severe enough mismatch (here, UBRR0 10->200) can make the peer
+    # decode the single, now-badly-stretched DUT transmission as
+    # several spurious frames rather than one obviously-broken one, so
+    # checking only the last entry isn't reliable -- instead, confirm
+    # a *clean* 0x55 never shows up anywhere in what the peer decoded.
+    if not peer.received:
+        raise Exception('baud_sabotage: peer never decoded anything off TXD at all')
+    if any(r['data'] == 0x55 and r['fe'] == 0 for r in peer.received):
+        raise Exception(
+            f"baud_sabotage: expected the mid-frame UBRR0 rewrite to corrupt "
+            f"the transmission (framing error or wrong data byte) in every "
+            f"frame the peer decoded, but a clean 0x55 with fe=0 showed up -- "
+            f"either the sabotage had no effect (unexpected: real AVR's baud "
+            f"generator has no double-buffering, so this should have desynced "
+            f"the remaining bits) or it landed too early/late to matter. "
+            f"Got: {peer.received}"
+        )
+
+
+TEST_POST_CHECKS = {
+    'test_usart_baud_sabotage.asm': _check_baud_sabotage,
+}
+
+# Per-test step_limit overrides, keyed by filename. Only needed for
+# tests whose own timing genuinely exceeds the suite's normal headroom
+# -- most tests don't need an entry here. test_usart_baud_sweep.asm's
+# slowest sub-test (UBRR0=4095, the 12-bit maximum) needs roughly
+# (4095+1) ticks/bit-count * 16 ticks/bit * 10 bits ~= 655,360 cycles
+# for *one* byte's round trip alone (transmit + echo), on top of the
+# other three sub-tests and normal CPU polling overhead -- three orders
+# of magnitude past the default 200,000-cycle budget, so it gets its
+# own much larger limit rather than inflating the default for every
+# other test.
+TEST_STEP_LIMITS = {
+    'test_usart_baud_sweep.asm': 3_000_000,
+}
+
 
 def prepareTest(file, preload=True, peer_kwargs=None):
     global hw, cpu, ins_mem, mem, usart, peer
+
+    if peer_kwargs is None:
+        peer_kwargs = TEST_PEER_KWARGS.get(file)
 
     with open(os.path.join(ex_dir, file), 'r') as f:
         program = f.read()
@@ -121,6 +254,7 @@ def prepareTest(file, preload=True, peer_kwargs=None):
     sp_p = punxa.MemoryInterface(hw, 'sp_port', dw, 2)
     mem_p = punxa.MemoryInterface(hw, 'mem', dw, 11)
     int_unit_p = punxa.MemoryInterface(hw, 'int_unit_p', dw, 1)
+    gpio_p = punxa.MemoryInterface(hw, 'gpio', dw, 5)
 
     interrupt_wire = py4hw.Wire(hw, 'Interrupt_Line', 1)
     interrupt_wire.put(0)
@@ -137,6 +271,7 @@ def prepareTest(file, preload=True, peer_kwargs=None):
 
     punxa.MultiplexedBus(hw, 'bus', data_p,
                          [(reg_p, 0x0, 0x20),
+                          (gpio_p, 0x20, 0x20),
                           (sp_p, 0x5D, 0x02),
                           (int_unit_p, 0xFE, 0x2),
                           (usart_p, 0xC0, 0x8),
@@ -178,6 +313,7 @@ def prepareTest(file, preload=True, peer_kwargs=None):
     mem = punxa.Ram_Memory(hw, 'men', dw, 11, mem_p)
     ins_mem = punxa.Ram_Memory(hw, 'ins_men', 16, 14, ins_p)
     sp_component = StackPointer(hw, 'stack_pointer', sp_p)
+    gpio = punxa.VirtualGPIO(hw, 'gpio', gpio_p)
 
     usart = punxa.USART0(hw, 'usart0', usart_p,
                           RXD=rxd_wire, TXD=txd_wire, USART_CLK=usart_clk_wire,
@@ -185,13 +321,17 @@ def prepareTest(file, preload=True, peer_kwargs=None):
                           UDRE_INT=usart_udre_wire)
 
     pk = dict(ubrr=DEFAULT_UBRR0, nbBits=8, parity='Disabled', nbStopBits=1,
-              ticks_per_bit=DEFAULT_TICKS_PER_BIT, echo=True)
+              ticks_per_bit=DEFAULT_TICKS_PER_BIT, echo=True, dut=usart)
     if peer_kwargs:
         pk.update(peer_kwargs)
     # peer.RXD_out drives the DUT's RXD pin; peer.TXD_in samples the
     # DUT's TXD pin -- i.e. crossed relative to the DUT's own naming,
     # exactly like connecting two real UARTs together.
     peer = PeerUART(hw, 'peer', RXD_out=rxd_wire, TXD_in=txd_wire, **pk)
+
+    driver_setup = TEST_DRIVERS.get(file)
+    if driver_setup is not None:
+        driver_setup(peer)
 
     interrupt_module = SimpleInterruptUnit(
         hw, 'interrupt_module',
@@ -214,14 +354,15 @@ def prepareTest(file, preload=True, peer_kwargs=None):
     return hw, cpu, ins_mem, mem, symbols
 
 
-def runTest(file, peer_kwargs=None):
+def runTest(file, peer_kwargs=None, step_limit=None):
     hw, cpu, ins_mem, mem, symbols = prepareTest(file, peer_kwargs=peer_kwargs)
 
     # USART tests are byte-serial, not just instruction-serial: one byte
     # at the default UBRR0=10/8N1 takes 10 bits * 16 ticks/bit * 11
     # cycles/tick ~= 1760 cycles, before any CPU polling overhead on top
     # of that. Generous headroom for a handful of bytes per test.
-    step_limit = 200000
+    if step_limit is None:
+        step_limit = TEST_STEP_LIMITS.get(file, 200000)
     step_count = 0
 
     sim = hw.getSimulator()
@@ -241,6 +382,18 @@ def runTest(file, peer_kwargs=None):
 
     if (final_result == 255):
         raise Exception(f'Failed in test case {test_case}')
+
+    # Some tests can't fully self-check through the CPU-visible
+    # test_case/final_result convention alone -- e.g. baud_sabotage
+    # deliberately corrupts its own transmission and only the peer's
+    # independent, fixed-baud decode of the wire (not the DUT's own
+    # registers, since the DUT is the transmitter here) can tell
+    # whether that corruption actually happened. TEST_POST_CHECKS
+    # covers exactly that class of test; raises on failure just like
+    # the final_result==255 case above.
+    post_check = TEST_POST_CHECKS.get(file)
+    if post_check is not None:
+        post_check(peer, cpu, mem)
 
 
 # =============================================================================

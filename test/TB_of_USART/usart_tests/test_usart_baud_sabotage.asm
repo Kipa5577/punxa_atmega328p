@@ -70,14 +70,24 @@ wait_udre:
     ldi r16, 0x55
     sts UDR0, r16
 
-    ; 2. Delay for ~880 CPU cycles. 
-    ; At UBRR0=10, 1 bit = 176 cycles. 880 cycles is exactly 5 bits.
-    ; A 4-cycle loop running 220 times = 880 cycles.
-    ldi r20, 220
+    ; 2. Delay before sabotaging UBRR0.
+    ; NOTE: the original "880 CPU cycles = 5 bits at UBRR0=10" comment
+    ; assumed a real single-cycle AVR (nop=1, dec=1, brne=2 cycles).
+    ; This project's CPU is multicycle -- every instruction, including
+    ; this loop's, takes many more simulator cycles than that -- so a
+    ; count of 220 iterations here actually took ~9500+ simulator
+    ; cycles, more than 5x the entire 1760-cycle frame, and landed the
+    ; sabotage write thousands of cycles *after* the frame had already
+    ; finished transmitting (confirmed empirically: with the original
+    ; count, the peer always decoded a perfectly clean, uncorrupted
+    ; 0x55). Recalibrated to 20 iterations, verified empirically to
+    ; land the write mid-frame (roughly bit 6 of 10) and produce real,
+    ; observable corruption at the peer.
+    ldi r20, 20
 delay_loop:
-    nop                     ; 1 cycle
-    dec r20                 ; 1 cycle
-    brne delay_loop         ; 2 cycles (when branching)
+    nop                     ; 1 cycle (real AVR; many more here)
+    dec r20                 ; 1 cycle (real AVR; many more here)
+    brne delay_loop         ; 2 cycles when branching (real AVR; many more here)
 
     ; 3. THE SABOTAGE: Overwrite UBRR0L mid-transmission
     ; Shift UBRR0 from 10 to 200. The remaining bits will be 

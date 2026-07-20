@@ -36,8 +36,11 @@ test running/reporting — is unchanged from the original.
 """
 import os
 import sys
+import io
 import math
 import time
+import contextlib
+import concurrent.futures
 import py4hw
 import punxa_atmega328p as punxa
 from punxa_atmega328p.assembly import assemble_program
@@ -354,28 +357,86 @@ def runTest(file):
 # TEST SUITE CONFIGURATION & RUNNERS
 # =============================================================================
 ex_dir = 'isa/'
-selected_prefixes = ['test_arith', 'test_bitmap', 'test_logic', 'test_ctrflow', 'test_data', 'test_mcu']
+selected_prefixes = ['test_arith', 'test_bitmap', 'test_branch', 'test_logic', 'test_ctrflow', 'test_ctrlflow', 'test_data', 'test_mcu']
 
-def computeAllTests():
+def _run_one_test_silent(f):
+    """Runs a single test file with ALL of its output forcefully suppressed
+    (every print -- per-cycle FSM/ROM/MIH debug spam, the FINAL RESULT
+    line, everything) and returns (filename, result), where result is
+    'OK' or ('FAILED', exception). This is the function handed to the
+    process pool below.
+
+    Why a process pool instead of threads: every py4hw.Wire instance in
+    a process shares CLASS-level bookkeeping (`Wire.prepared`,
+    `Wire._prepared_lookup`, `Wire.dirty` -- see py4hw/base.py). Threads
+    all live in the same process and would share that same state, which
+    is exactly what caused wrong results when this was first tried with
+    a ThreadPoolExecutor (see HANDOFF.md). A separate OS process has its
+    own interpreter, its own GIL, and its own independent copy of that
+    class state -- there's nothing left to race on, and unlike threads
+    this gets real simultaneous execution across CPU cores, not just
+    interleaved execution on one core.
+    (On Linux this pool forks -- cheap, inherits the already-imported
+    py4hw/punxa_atmega328p from the parent. On Windows/macOS,
+    multiprocessing defaults to spawning a fresh interpreter per worker,
+    which re-imports everything from scratch -- slower to start up, but
+    still correct, and why this function has to be a plain top-level,
+    picklable function rather than a closure.)
+    """
+    with contextlib.redirect_stdout(io.StringIO()):
+        try:
+            runTest(f)
+            return f, 'OK'
+        except Exception as e:
+            return f, ('FAILED', e)
+
+
+def computeAllTests(num_threads=1):
+    """Runs every selected test file and returns {filename: result}.
+
+    num_threads=1 (default): original sequential behavior, unchanged --
+    full per-test logging ("Run test X PASSED/FAILED" as each one
+    finishes) plus every component's own debug output, exactly as
+    before.
+
+    num_threads>1: runs tests concurrently across `num_threads` separate
+    OS processes (concurrent.futures.ProcessPoolExecutor) for genuine
+    parallel execution -- see _run_one_test_silent()'s docstring for why
+    processes rather than threads. Each worker's own INTERNAL output
+    (per-cycle debug spam) is forcefully suppressed, so N workers can't
+    flood the console with interleaved per-cycle noise -- but as each
+    worker finishes, one summary line for that test is printed here
+    (via as_completed(), so it's genuinely as-they-finish, not
+    submission order), giving live progress instead of a long silent
+    wait followed by a wall of results.
+    """
     files = os.listdir(ex_dir)
+    files = [name for name in files if any(name.startswith(prefix) for prefix in selected_prefixes)]
+    files = [name for name in files if name[-4:].lower() == '.asm']
+
     ret = {}
 
-    files = [name for name in files if  any(name.startswith(prefix) for prefix in selected_prefixes)]
-    #files = [name for name in files]
-
-    for f in files:
-        if (f[-4:].lower() == '.asm'):
-            
+    if num_threads is None or num_threads <= 1:
+        for f in files:
             print('Run test', f, end=' ')
             try:
                 runTest(f)
                 print('PASSED')
-                ret[f] = ('OK')
+                ret[f] = 'OK'
             except Exception as e:
                 print('FAILED')
                 ret[f] = ('FAILED', e)
-        else:
-            pass
+    else:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=num_threads) as executor:
+            futures = {executor.submit(_run_one_test_silent, f): f for f in files}
+            done_count = 0
+            total = len(futures)
+            for future in concurrent.futures.as_completed(futures):
+                filename, result = future.result()
+                ret[filename] = result
+                done_count += 1
+                status = 'PASSED' if result == 'OK' else 'FAILED'
+                print('[{}/{}] {} {}'.format(done_count, total, filename, status))
 
     return ret
 
@@ -390,12 +451,21 @@ def asciiProgressBar(n, t):
     s = '{:8} |{}{}|'.format(sp,sok,sko)
     return s
 
-def runAllTests():
+def runAllTests(num_threads=1):
+    """num_threads: how many test files to run concurrently (default 1,
+    matching the original sequential behavior with full logging).
+    num_threads>1 runs tests across that many separate OS processes for
+    genuine parallel execution; each worker's internal per-cycle debug
+    output is suppressed, but a "[k/N] filename PASSED/FAILED" line is
+    printed live as each one finishes (in completion order), followed by
+    this function's usual summary once every test is done. See
+    computeAllTests()'s docstring for why this uses processes rather
+    than threads."""
     global selected_prefixes
     start_time = time.time()
     nOK = 0
     nTotal = 0
-    ret = computeAllTests()
+    ret = computeAllTests(num_threads)
     
     groupResults = {}
     
@@ -433,7 +503,7 @@ def runAllTests():
             nTotalGroup = 1
         print(f'{prefix:15}', asciiProgressBar(nOKGroup, nTotalGroup))
 
-        # --- Timing Calculations ---
+    # --- Timing Calculations ---
     elapsed_time = time.time() - start_time
     print('\n' + '='*60)
     print(f'Execution Time: {elapsed_time:.2f} seconds')

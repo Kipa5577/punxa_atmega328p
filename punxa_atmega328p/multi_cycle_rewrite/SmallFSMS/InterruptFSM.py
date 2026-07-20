@@ -144,7 +144,7 @@ class InterruptFSM(py4hw.Logic):
         self.reset = self.addIn('reset', Reset) if Reset is not None else None
 
         self.current_state = 'STOP'
-        self.debug = 0
+        self.debug = 1
 
         # FIX (double-entrance race): MainFSM.Interrupt_Entrance is a LEVEL
         # signal held high for the CPU's entire time parked in

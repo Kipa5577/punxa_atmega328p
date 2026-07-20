@@ -446,10 +446,10 @@ def parts_to_ins(parts):
         return [((p0 << 12) | (p1 << 8) | (p2 << 4) | p3) ]
     
     elif (op == 'CPC'):
-        p0 = 0b0001
+        p0 = 0b0000
         Rd = reg_to_index(parts[1])
         Rr = reg_to_index(parts[2])
-        p1 = 0b0000 | ((Rr >> 4) << 1) | (Rd>>4)
+        p1 = 0b0100 | ((Rr >> 4) << 1) | (Rd>>4)
         p2 = Rd & 0xF
         p3 = Rr & 0xF
         return [((p0 << 12) | (p1 << 8) | (p2 << 4) | p3) ]

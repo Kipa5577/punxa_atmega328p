@@ -10,11 +10,22 @@
 ; -------------------------
 .equ test_case    = 0x0100
 .equ final_result = 0x0101
+.equ stack_start  = 0x08FF
+.equ SPH          = 0x3E
+.equ SPL          = 0x3D
 .equ SREG         = 0x3F
 ; -------------------------
 ; Reset
 ; -------------------------
 reset:
+    ; init stack (missing in the original file -- SP defaults to 0x0000
+    ; at reset, so the first push/rcall/interrupt would hang forever
+    ; waiting on a memory response that never comes; see HANDOFF.md)
+    ldi r16, high(stack_start)
+    out SPH, r16
+    ldi r16, low(stack_start)
+    out SPL, r16
+
     ldi r16, 0
     sts test_case, r16
     ldi r16, 1

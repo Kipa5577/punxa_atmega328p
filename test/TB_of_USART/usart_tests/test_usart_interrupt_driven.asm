@@ -25,21 +25,35 @@
 .equ rx_buf_start = 0x0115
 
 ; ============================================================
-; Interrupt Vector Table (ATmega328P Word Addresses)
+; Interrupt Vector Table
 ; ============================================================
+; NOTE: this project's SimpleInterruptUnit (Interrupt_Unit.py) does not
+; use the real ATmega328P's word-addressed vector numbers directly as
+; jump targets -- it uses its own vector_table dict, whose values
+; happen to equal the *real chip's byte address* for each vector
+; (USART_RX=0x0024, USART_UDRE=0x0026, USART_TX=0x0028), and those
+; values are loaded into PC as-is (this assembler's PC/.org is
+; word-addressed, so numerically these ARE the correct .org targets
+; for this project, even though they don't match the real chip's own
+; word-address vector table, e.g. USART_RX=18/0x12 on real hardware).
+; Verified empirically against a live run of this harness: placing
+; ISRs at the real chip's word addresses (0x0012/0x0013) never fires
+; -- the CPU spins in wait_loop until the step_limit timeout, exactly
+; the failure mode this file's own comment warns about. 0x0024/0x0026
+; is the address this project's interrupt controller actually jumps to.
 .org 0x0000
     rjmp reset
 
-.org 0x0012 ; USART_RX Complete Vector (Byte Address 0x0024)
+.org 0x0024 ; USART_RX Complete vector, this project's convention
     rjmp usart_rx_isr
 
-.org 0x0013 ; USART_UDRE Data Register Empty Vector (Byte Address 0x0026)
+.org 0x0026 ; USART_UDRE Data Register Empty vector, this project's convention
     rjmp usart_udre_isr
 
 ; ============================================================
 ; Initialization
 ; ============================================================
-.org 0x0020
+.org 0x0030
 reset:
     ; Initialize Stack Pointer
     ldi r16, high(0x08FF)
@@ -104,18 +118,24 @@ wait_loop:
 verify_data:
     lds r16, rx_buf_start
     cpi r16, 0xAA
-    brne fail
+    brne fail_near
 
     lds r16, rx_buf_start + 1
     cpi r16, 0xBB
-    brne fail
+    brne fail_near
 
     lds r16, rx_buf_start + 2
     cpi r16, 0xCC
-    brne fail
+    brne fail_near
 
     rcall inc_case
     rjmp success
+
+; `fail:` sits well past both ISRs below, out of range for a direct
+; `brne` (AVR conditional branches are +-63 words); jmp has a 22-bit
+; range so this local trampoline reaches it fine.
+fail_near:
+    jmp fail
 
 ; ============================================================
 ; Interrupt Service Routines (ISRs)

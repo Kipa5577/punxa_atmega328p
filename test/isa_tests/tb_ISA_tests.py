@@ -125,7 +125,7 @@ def runTest(file):
 
 
 ex_dir = 'isa/'
-selected_prefixes = ['test_arith', 'test_bitmap', 'test_logic', 'test_ctrflow', 'test_data', 'test_mcu']
+selected_prefixes = ['test_arith', 'test_bitmap', 'test_branch', 'test_logic', 'test_ctrflow', 'test_ctrlflow', 'test_data', 'test_mcu']
 
 def computeAllTests():
     files = os.listdir(ex_dir)

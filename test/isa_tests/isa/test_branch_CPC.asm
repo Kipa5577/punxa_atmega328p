@@ -38,6 +38,10 @@ test1:
     clc
     ldi r16, 50
     ldi r17, 50
+    sez                    ; Prime Z=1: CPC's Z = Zprev AND (result==0),
+                            ; by design (chains after a CP/CPI on a lower
+                            ; byte) -- a standalone cpc needs Z primed to
+                            ; behave like a normal compare. See HANDOFF.md.
     cpc r16, r17
     brne fail             ; Fail if Z is 0
     brcs fail             ; Fail if C is 1
@@ -51,6 +55,7 @@ test2:
     sec
     ldi r16, 50
     ldi r17, 50
+    sez                    ; Prime Z=1 (see TEST 1 note)
     cpc r16, r17
     breq fail             ; Fail if Z is 1
     brcc fail             ; Fail if C is 0
@@ -64,6 +69,7 @@ test3:
     clc
     ldi r16, 0x00         ; Low byte
     ldi r17, 0x00
+    sez                    ; Prime Z=1 (see TEST 1 note)
     cpc r16, r17          ; 0x00 - 0x00 - 0 = 0 (Z=1, C=0)
     brne fail
     brcs fail
@@ -76,6 +82,7 @@ test3:
 test4:
     ldi r16, 0x01         ; High byte
     ldi r17, 0x01
+    sez                    ; Prime Z=1 (see TEST 1 note)
     cpc r16, r17          ; 0x01 - 0x01 - 0 = 0 (Z=1, C=0)
     brne fail
     brcs fail

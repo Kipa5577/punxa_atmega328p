@@ -113,7 +113,7 @@ class PopPush_FSM(py4hw.Logic):
         # back to its SRAM-mapped register (R26-R31) once the access
         # sequence completes.
         self._pointer_update_pending = False
-        self.debug = 0
+        self.debug = 1
 
 
     def clock(self):

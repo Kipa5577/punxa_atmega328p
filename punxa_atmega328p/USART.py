@@ -304,7 +304,16 @@ class USART0(py4hw.Logic):
         # in-flight frame lives in tx_frame, a separate slot from the
         # buffer register. Writing while UDRE0=0 (buffer still full) is
         # ignored, matching real hardware.
-        if self.TXB_buffer is None:
+        #
+        # Also gated on TXEN0: real AVR's transmitter simply doesn't
+        # process buffer contents at all while disabled, so a write
+        # that lands while TXEN0=0 has no effect (matches the "no
+        # override of TxDn while disabled" wording -- there's nothing
+        # for it to drive out). This is a *separate* concern from
+        # graceful disable (see TX_logic below): a byte already
+        # accepted into the buffer *before* TXEN0 was cleared is still
+        # "pending" and must still go out.
+        if self.TXB_buffer is None and self.TXEN0:
             self.TXB_buffer = (data, self.TXB80)
 
     def _refresh_rx_front_status(self):
@@ -363,11 +372,16 @@ class USART0(py4hw.Logic):
         if not self.baud_tick:
             return
 
-        if not self.TXEN0:
-            self.tx_frame = None
-            self.TXD_val = 1
-            return
-
+        # NOTE: TXEN0 is deliberately *not* checked here. Real AVR:
+        # clearing TXEN0 doesn't abort an already-buffered or
+        # already-shifting transmission -- it only prevents *new*
+        # writes to UDR0 from being accepted (see _write_udr's TXEN0
+        # gate above). A byte that made it into TXB_buffer while
+        # TXEN0 was still 1 remains "pending" and will still be fully
+        # shifted out even if TXEN0 is cleared (or cleared-then-set
+        # again) before or during that shift -- confirmed against
+        # test_usart_tx_graceful_disable.asm and
+        # test_usart_tx_reenable_glitch.asm.
         if self.tx_frame is None:
             if self.TXB_buffer is not None:
                 self._begin_tx_frame()

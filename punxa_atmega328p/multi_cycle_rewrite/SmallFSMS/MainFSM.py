@@ -78,7 +78,7 @@ class MainFSM(py4hw.Logic):
         # state does its one-shot IRQ check.
         self._boundary_checked = False
 
-        self.debug = 0
+        self.debug = 1
         self.instret_count = 0 
 
     def clock(self):
