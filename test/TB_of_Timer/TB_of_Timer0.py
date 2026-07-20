@@ -5,6 +5,8 @@ import time
 import math
 
 
+#run from top directory using python -m test.TB_of_Timer.TB_of_Timer0
+
 def TestBench_of_Timer0():
 
     sys0 = py4hw.HWSystem()
@@ -47,7 +49,7 @@ def TestBench_of_Timer0():
     #sys.getSimulator().clk(len(TIMER0_WRITE_DATA_TEST))
 
     Testing = True
-    with open("Test/TB_of_Timer/Test_Results.txt",'w+') as results:
+    with open("test/TB_of_Timer/Test_Results.txt",'w+') as results:
         while Testing:
 
             
@@ -82,9 +84,9 @@ def TestBench_of_Timer0():
                     for i in range(255):
                         # counter test 
 
-                        if TIMER0.TCNT0 != i%255:
+                        if TIMER0.TCNT0 != i%256:
                             TEST = False
-                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%255))
+                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%256))
 
                         #Output A
                         if OC0A.get() == 1:# error val
@@ -150,9 +152,9 @@ def TestBench_of_Timer0():
                     for i in range(255):
                         # counter test 
 
-                        if TIMER0.TCNT0 != i%255:
+                        if TIMER0.TCNT0 != i%256:
                             TEST = False
-                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%255))
+                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%256))
 
                         #Output A 
                         if TIMER0.TCNT0 >= TIMER0.OCR0A:
@@ -227,9 +229,9 @@ def TestBench_of_Timer0():
                     for i in range(255):
                         # counter test 
 
-                        if TIMER0.TCNT0 != i%255:
+                        if TIMER0.TCNT0 != i%256:
                             TEST = False
-                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%255))
+                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%256))
 
                         #Output A 
                         if TIMER0.TCNT0 >= TIMER0.OCR0A:
@@ -306,9 +308,9 @@ def TestBench_of_Timer0():
                     for i in range(255):
                         # counter test 
 
-                        if TIMER0.TCNT0 != i%255:
+                        if TIMER0.TCNT0 != i%256:
                             TEST = False
-                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%255))
+                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%256))
 
                         #Output A 
                         if TIMER0.TCNT0 >= TIMER0.OCR0A:
@@ -389,9 +391,9 @@ def TestBench_of_Timer0():
                 ## Testing
                     for i in range(1,255):
                         # counter test 
-                        if TIMER0.TCNT0 != i%255:
+                        if TIMER0.TCNT0 != i%256:
                             TEST = False
-                            ERROR_LIST.append("TCNT0 = {} expected {}| iteration = {}".format(TIMER0.TCNT0,i%255))
+                            ERROR_LIST.append("TCNT0 = {} expected {}| iteration = {}".format(TIMER0.TCNT0,i%256))
 
 
                         #Output A
@@ -460,9 +462,9 @@ def TestBench_of_Timer0():
                 ## Testing
                     for i in range(255):
                         # counter test 
-                        if TIMER0.TCNT0 != i%255:
+                        if TIMER0.TCNT0 != i%256:
                             TEST = False
-                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%255))
+                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%256))
 
                         #Output A
                         if OC0A.get() == 1:# error val
@@ -524,10 +526,18 @@ def TestBench_of_Timer0():
 
                 ## Testing
                     for i in range(255):
-                        # counter test 
-                        if TIMER0.TCNT0 != i%255:
+                        # counter test
+                        # NOTE: TCCR0A low bits = 11 and TCCR0B.WGM02 = 1 (0x09) select
+                        # WGM=7 (Fast PWM, TOP=OCR0A), NOT TOP=0xFF. TCNT0 free-runs
+                        # 0..OCR0A-1 and wraps every OCR0A counts (this DUT resets
+                        # TCNT0 to BOTTOM the instant it would equal TOP, so the
+                        # value TOP=OCR0A itself is never observed - see TimerCounter0
+                        # .Other_modes_Increment), so the expected value must be
+                        # taken modulo OCR0A, not modulo 255.
+                        expected_tcnt0 = i % (TIMER0.OCR0A + 1)
+                        if TIMER0.TCNT0 != expected_tcnt0:
                             TEST = False
-                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%255))
+                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,expected_tcnt0))
 
                         #Output A 
                         if TIMER0.TCNT0 >= TIMER0.OCR0A:
@@ -597,9 +607,9 @@ def TestBench_of_Timer0():
                 ## Testing
                     for i in range(255):
                         # counter test 
-                        if TIMER0.TCNT0 != i%255:
+                        if TIMER0.TCNT0 != i%256:
                             TEST = False
-                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%255))
+                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%256))
 
                         #Output A 
                         if TIMER0.TCNT0 >= TIMER0.OCR0A:
@@ -843,9 +853,9 @@ def TestBench_of_Timer0():
                 ## Testing
                     for i in range(255):
                         # counter test 
-                        if TIMER0.TCNT0 != i%255:
+                        if TIMER0.TCNT0 != i%256:
                             TEST = False
-                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%255))
+                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%256))
 
 
                         #Output A 
@@ -926,9 +936,9 @@ def TestBench_of_Timer0():
                 ## Testing
                     for i in range(255):
                         # counter test 
-                        if TIMER0.TCNT0 != i%255:
+                        if TIMER0.TCNT0 != i%(TIMER0.OCR0A + 1):
                             TEST = False
-                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%255))
+                            ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i%(TIMER0.OCR0A + 1)))
 
                         #Output A 
                         if ((TIMER0.TCNT0 == TIMER0.OCR0A) and i <= 255) or ((TIMER0.TCNT0 == TIMER0.OCR0A) and i>=255):
@@ -1072,6 +1082,88 @@ def TestBench_of_Timer0():
                     results.write('%s\n' %ITEM)
 
 
+                    CURRENT_TEST = 'TEST13'
+                case 'TEST13':# TEST13 :Phase Correct PWM mode Compare Match Output B (Set OC0B on compare match when up-counting. Clear OC0B on compare match when down-counting, inverting mode) and A (Set OC0A on compare match when up-counting. Clear OC0A on compare match when down-counting, inverting mode) (writing using Ls) | No prescaling (X12)
+                    results.write("TEST13\n")
+                    #Setup
+                    TIMER0.TCCR0A = 0xF1
+                    TIMER0.TCCR0B = 0x01
+
+                    TIMER0.OCR0A = 64
+                    TIMER0.OCR0B = 128
+
+                    TIMER0.TCNT0 = 0
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER0.TIMSK0 = 0b111
+                    TIMER0.TIFR0 = 0 # clear interrupts
+
+                    TIMER0.OC0A_val = 0
+                    TIMER0.OC0B_val = 0
+
+                    sys0.getSimulator().clk(1)
+
+                    last_OCR0A = OC0A.get()
+                    TIMER0.TCNT0 = 0
+
+                    counter = 0
+                ## Testing
+                    for i in range(511):
+                        # counter test 
+                        if i < 255:
+                            if TIMER0.TCNT0 != i:
+                                TEST = False
+                                ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,i))
+                        elif i>=255:
+                            if TIMER0.TCNT0 != 255-counter:
+                                TEST = False
+                                ERROR_LIST.append("TCNT0 = {} expected {}".format(TIMER0.TCNT0,255-counter))
+                            counter += 1
+
+                        #Output A (inverting: high inside the [OCR0A, 510-OCR0A] window)
+                        if  64<=i<=445:
+                            if OC0A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC0A = {} expected {}|Iteration {}".format(0,1,i))
+                        else:
+                            if OC0A.get() == 1:
+                                TEST = False
+                                ERROR_LIST.append("OC0A = {} expected {}|Iteration {}".format(1,0,i))
+        
+                        #Output B (inverting)
+                        if  128<=i<=381:
+                            if OC0B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC0B = {} expected {}|Iteration {}".format(0,1,i))
+                        else:
+                            if OC0B.get() == 1:
+                                TEST = False
+                                ERROR_LIST.append("OC0B = {} expected {}|Iteration {}".format(1,0,i))
+
+                        #Interrupt A
+                        if (TIMER0.TCNT0-1) == TIMER0.OCR0A:
+                            if OCF0A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF0A = {} expected {}|Iteration {}".format(0,1,i))
+
+                        #Interrupt B 
+                        if (TIMER0.TCNT0-1) == TIMER0.OCR0B:
+                            if OCF0B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF0B = {} expected {}|Iteration {}".format(0,1,i))
+
+                        sys0.getSimulator().clk(1)
+
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+
                     CURRENT_TEST = 'TEST14'
                 case 'TEST14':# TEST14 :CTC Output B disconnected and A disconnected (writing using Ls to load data) | No prescaling (X13)
                     results.write("TEST14\n")
@@ -1107,9 +1199,9 @@ def TestBench_of_Timer0():
                         # counter test 
 
                         if (TIMER0.TCNT0) <= TIMER0.OCR0A:
-                                if TIMER0.TCNT0 != counter%64:
+                                if TIMER0.TCNT0 != i%(TIMER0.OCR0A + 1):
                                     TEST = False
-                                    ERROR_LIST.append("TCNT0 = {} expected {}|Iteration {}".format(TIMER0.TCNT0,counter%64,i))
+                                    ERROR_LIST.append("TCNT0 = {} expected {}|Iteration {}".format(TIMER0.TCNT0,i%(TIMER0.OCR0A + 1),i))
                         
 
 

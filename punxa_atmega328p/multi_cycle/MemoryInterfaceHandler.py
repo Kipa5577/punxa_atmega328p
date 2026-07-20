@@ -39,6 +39,13 @@ class MemoryInterfaceHandler(py4hw.Logic):
     MEM_A_5bit = 17
     MEM_A_6bit = 18
 
+    # Fixed-address reads for the interrupt vector bytes written by the
+    # external InterruptUnit peripheral (see MEM_A_5bit/A_6bit for the
+    # precedent of a "constant, no pointer-register" addressing mode).
+    # Used exclusively by InterruptFSM's entrance sequence.
+    MEM_INT_VECTOR_L = 19   # fixed address 0x00FE
+    MEM_INT_VECTOR_H = 20   # fixed address 0x00FF
+
     # --- Input select ---
     INPUT_DATABUS = 1
     INPUT_RESL = 2
@@ -103,6 +110,29 @@ class MemoryInterfaceHandler(py4hw.Logic):
             SREG_In,eSREG_In,SREG_Reset,SREG_Out,
             #---- LPM  SPM ---- 
             R0_BUFFER_OUT,R1_BUFFER_OUT,ROM_VAL_IN,ROM_VAL_OUT,
+            #---- Interrupts ----
+            I_Flag_Out,   # 1-bit OUT: bit 7 of SREG (Global Interrupt Enable),
+                          # broken out as its own wire for an external
+                          # InterruptUnit peripheral to gate on.
+            I_Force_WE,      # 1-bit IN: InterruptFSM asserts this for one
+                             # cycle to directly overwrite the I flag,
+                             # bypassing the normal ALU/eSREG (SEI/CLI) path.
+            I_Force_Value,   # 1-bit IN: value to force I to when I_Force_WE=1
+                             # (0 = interrupt entrance clearing I, 1 = RETI
+                             # re-enabling it).
+            Bus_Passthrough_Ranges=None,
+            # List of (start, end) INCLUSIVE address tuples, inside
+            # [0x0020, 0x00FF], that should be forwarded to the real
+            # external bus instead of being swallowed into io_scratch.
+            # Without this, ANY peripheral a testbench maps in that range
+            # (GPIO, a timer, an InterruptUnit, ...) would silently never
+            # be reached — MemoryInterfaceHandler would answer for it
+            # itself out of io_scratch. Defaults to just the interrupt
+            # vector bytes (0x00FE-0x00FF) so InterruptFSM keeps working
+            # even if a testbench doesn't pass anything here; add more
+            # ranges to match whatever else your bus layout maps in
+            # [0x0020, 0x00FF] (e.g. GPIO at 0x20-0x3F, a timer at
+            # 0x40-0x6F — see tb_MultiCycle.py).
         ):
         super().__init__(parent, name)
 
@@ -164,6 +194,19 @@ class MemoryInterfaceHandler(py4hw.Logic):
         self.SREG_Reset = self.addIn('SREG_Reset',SREG_Reset)
         self.SREG_OUT = self.addOut('SREG_OUT',SREG_Out)
 
+        #---- Interrupts ----
+        # Standard AVR SREG bit ordering used throughout this project
+        # (I-T-H-S-V-N-Z-C, see ALU.py): I is bit 7.
+        self.I_FLAG_BIT = 7
+        self.I_Flag_Out = self.addOut('I_Flag_Out', I_Flag_Out)
+        self.I_Force_WE = self.addIn('I_Force_WE', I_Force_WE)
+        self.I_Force_Value = self.addIn('I_Force_Value', I_Force_Value)
+
+        self.Bus_Passthrough_Ranges = (
+            list(Bus_Passthrough_Ranges) if Bus_Passthrough_Ranges
+            else [(0x00FE, 0x00FF)]
+        )
+
 
         self.SREG = 0 
         # Generic placeholder storage for memory-mapped I/O / extended I/O
@@ -195,7 +238,7 @@ class MemoryInterfaceHandler(py4hw.Logic):
 
         self.BusData = 0
         self.Databuffer = 0
-        self.debug = 0
+        self.debug = 1
 
     # ==========================================================
     # Helpers
@@ -225,6 +268,12 @@ class MemoryInterfaceHandler(py4hw.Logic):
     # ==========================================================
     # Address generation
     # ==========================================================
+
+    def isBusPassthrough(self, address):
+        for start, end in self.Bus_Passthrough_Ranges:
+            if start <= address <= end:
+                return True
+        return False
 
     def selectAddress(self):
         mem_instr = self.Mem_instruction.get()
@@ -260,15 +309,15 @@ class MemoryInterfaceHandler(py4hw.Logic):
             pointer_name = None
 
         elif mem_instr == self.MEM_Y_Q:
-            q_val = self.Q.get()
-            if q_val & 0x20:
-                q_val -= 0x40
+            # q is a 6-bit UNSIGNED displacement (0-63) -- LDD/STD Y+q
+            # always indexes forward from Y, never backward. No sign
+            # extension here; q_val is used exactly as decoded.
+            q_val = self.Q.get() & 0x3F
             base_address = self.getY() + q_val
 
         elif mem_instr == self.MEM_Z_Q:
-            q_val = self.Q.get()
-            if q_val & 0x20:
-                q_val -= 0x40
+            # Same as MEM_Y_Q above: q is unsigned, 0-63.
+            q_val = self.Q.get() & 0x3F
             base_address = self.getZ() + q_val
 
         elif mem_instr == self.MEM_RD_1:
@@ -288,6 +337,14 @@ class MemoryInterfaceHandler(py4hw.Logic):
 
         elif mem_instr == self.MEM_A_6bit:
             base_address = self.A_6bit.get() + 0x20
+            pointer_name = None
+
+        elif mem_instr == self.MEM_INT_VECTOR_L:
+            base_address = 0x00FE
+            pointer_name = None
+
+        elif mem_instr == self.MEM_INT_VECTOR_H:
+            base_address = 0x00FF
             pointer_name = None   
             
         # UPDATED: Apply Pre-decrement OR Pre-increment BEFORE accessing memory 
@@ -451,6 +508,14 @@ class MemoryInterfaceHandler(py4hw.Logic):
 
         SREG_ADDR = 0x5F
 
+        # Interrupt vector bytes and any other peripheral windows a
+        # testbench has declared via Bus_Passthrough_Ranges (see __init__)
+        # fall inside the [0x0020, 0x0100) range that would otherwise be
+        # swallowed into io_scratch a few lines down — carved out here so
+        # the peripherals actually mapped there on the real bus (GPIO, a
+        # timer, an InterruptUnit, ...) actually see these transactions
+        # instead of getting silently intercepted.
+
         resp_val = 0
         if rw == 1: # WRITE OPERATION
             self.BusData = self.selectWriteData()
@@ -477,7 +542,8 @@ class MemoryInterfaceHandler(py4hw.Logic):
                 if self.debug:
                     print(f"Intercepted WRITE to SREG: {self.SREG:02X}")
 
-            elif 0x0020 <= address < 0x0100:
+            elif (0x0020 <= address < 0x0100
+                  and not self.isBusPassthrough(address)):
                 # Any other memory-mapped I/O / extended I/O register with
                 # no dedicated hardware model yet (EIMSK, EICRA, SMCR, ...).
                 # Real SRAM starts at 0x0100, so anything below that is
@@ -491,7 +557,10 @@ class MemoryInterfaceHandler(py4hw.Logic):
                     print(f"Intercepted WRITE to I/O[{address:02X}]: {self.BusData:02X}")
 
             else:
-                # Normal SRAM Write
+                # Normal SRAM Write (also used by any Bus_Passthrough_Ranges
+                # address above, which is NOT real SRAM -- it routes to
+                # whatever peripheral a testbench has mapped there on the
+                # real external data bus).
                 self.mem.write_data.prepare(self.BusData)
                 self.mem.write.prepare(1)
                 resp_val = self.mem.resp.get()
@@ -522,7 +591,8 @@ class MemoryInterfaceHandler(py4hw.Logic):
                 if self.debug:
                     print(f"Intercepted READ from SREG: {self.SREG:02X}")
 
-            elif 0x0020 <= address < 0x0100:
+            elif (0x0020 <= address < 0x0100
+                  and not self.isBusPassthrough(address)):
                 # See matching WRITE branch above. Unwritten registers
                 # default to 0 rather than raising, since real hardware
                 # reset state for these is 0 anyway.
@@ -533,7 +603,8 @@ class MemoryInterfaceHandler(py4hw.Logic):
                     print(f"Intercepted READ from I/O[{address:02X}]: {self.BusData:02X}")
 
             else:
-                # Normal SRAM Read
+                # Normal SRAM Read (also used by 0xFE/0xFF, routed to the
+                # external InterruptUnit peripheral -- see WRITE branch).
                 self.BusData = self.mem.read_data.get()
                 self.mem.read.prepare(1)
                 resp_val = self.mem.resp.get()
@@ -622,4 +693,29 @@ class MemoryInterfaceHandler(py4hw.Logic):
 
         if self.eSREG.get() > 0:
             self.SREG = (self.SREG & ~self.eSREG.get()) | (self.SREG_IN.get() & self.eSREG.get()) 
+
+        # InterruptFSM's direct override — always applied AFTER the normal
+        # ALU/eSREG (SEI/CLI) update, so it wins regardless of whatever
+        # stale instruction context the ALU/decoder happen to be holding
+        # at the moment of interrupt entry or RETI (there's no "current
+        # instruction" driving eSREG during INTERRUPT_ENTRY).
+        if self.I_Force_WE.get() == 1:
+            if self.I_Force_Value.get() == 1:
+                self.SREG |= (1 << self.I_FLAG_BIT)
+            else:
+                self.SREG &= ~(1 << self.I_FLAG_BIT)
+
         self.SREG_OUT.prepare(self.SREG)
+
+        # Global Interrupt Enable (I flag) out to the external InterruptUnit.
+        # Always reflects the same committed SREG value as SREG_OUT above,
+        # including changes made this very cycle by SEI/CLI/IN/OUT.
+        self.I_Flag_Out.prepare((self.SREG >> self.I_FLAG_BIT) & 1)
+
+        # FIX: these two outputs were declared via addOut but never
+        # prepared anywhere in this class, so RomHandler's R0_BUFFER_IN/
+        # R1_BUFFER_IN (SPM's register operands) permanently read 0
+        # regardless of what LOAD_R0_BUFFER/LOAD_R1_BUFFER had latched
+        # into self.R0Buffer/self.R1Buffer above.
+        self.R0_BUFFER_out.prepare(self.R0Buffer)
+        self.R1_BUFFER_out.prepare(self.R1Buffer)

@@ -2,7 +2,7 @@ import py4hw
 
 class HandleC(py4hw.Logic):
     def __init__(self, parent, name: str,
-                 Rr, Rd, Res, Mode,
+                 Rr, Rd, Res, Mode, MulCarry,
                  Cout):
         super().__init__(parent, name)
 
@@ -10,6 +10,12 @@ class HandleC(py4hw.Logic):
         self.Rd = self.addIn('Rd', Rd)
         self.Res = self.addIn('Res', Res)
         self.Mode = self.addIn('Mode', Mode)
+        # FIX: dedicated carry-out from AU for the multiply family. Res is
+        # the final (possibly already left-shifted, for FMUL/FMULS/FMULSU)
+        # 16-bit result, so bit 15 of Res is NOT the same bit as the AVR
+        # spec's multiply carry-out once a shift has happened. AU computes
+        # the correct bit before shifting and hands it to us directly here.
+        self.MulCarry = self.addIn('MulCarry', MulCarry)
         
         self.Cout = self.addOut('Cout', Cout)
 
@@ -39,7 +45,7 @@ class HandleC(py4hw.Logic):
             # Mode 0: Explicit Clear (CLC)
             c_out = 0
 
-        if mode == 1:
+        elif mode == 1:
             # Mode 1: Explicit Set (SEC)
             c_out = 1
 
@@ -73,9 +79,14 @@ class HandleC(py4hw.Logic):
             c_out = 1 if (res & 0xFF) != 0 else 0
 
         elif mode == 8:
-            # Mode 8: Multiplication (MUL)
-            # Carry takes the 15th bit of the 16-bit result
-            c_out = r15
+            # Mode 8: Multiplication family (MUL, MULS, MULSU, FMUL,
+            # FMULS, FMULSU). FIX: previously computed as r15 of the
+            # (possibly shifted) 16-bit Res, which is wrong for the
+            # fractional variants -- the true carry-out bit is the one
+            # shifted OUT of R1:R0, not bit 15 of what's left afterward.
+            # AU now computes this correctly pre-shift and hands it to us
+            # via the dedicated MulCarry input.
+            c_out = self.MulCarry.get() & 1
             
         elif mode == 9:
             # Mode 9: Shift Right (LSR, ROR, ASR)

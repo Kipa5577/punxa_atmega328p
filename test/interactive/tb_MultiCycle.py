@@ -136,8 +136,7 @@ STS 0xC6, R17
 
 ; 5. Catch-trap execution pipeline to prevent runaway execution
 RJMP -1              ; Infinite self-loop
-
-
+'''
 
 
 

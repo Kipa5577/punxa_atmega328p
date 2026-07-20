@@ -25,19 +25,56 @@ from deprecated import deprecated
 # interupt wires to add: INT0, INT1, PCINT0, PCINT1, PCINT2, WDT, TIMER2 COMPA, TIMER2 COMPB, TIMER2 OVF, TIMER1 CAPT, TIMER1 COMPA, TIMER1 COMPB, TIMER1 OVF, TIMER0 COMPA, TIMER0 COMPB, TIMER0 OVF, SPI/STC , USART/RX , USART/UDRE , USART/TX , ADC , EE READY , ANALOG COMP, TWI, SPM READY.
  
 
-STATES = [
-    
-    "FETCH_INSTRUCTION",
-    "WAIT_FETCH_INSTRUCTION",
-    "EXECUTE_INSTRUCTION",
+# For this design I want the fetch to happen at the same time as the EXECUTION
 
+
+
+STATES = [
+    "STATE_RESET",
+    "FETCH_INSTRUCTION","WAIT_FETCH_INSTRUCTION","STATE_DECODE_EXEC",
+    "STATE_FETCH_OP2_REQ", "STATE_FETCH_OP2_WAIT",
+    "STATE_FETCH_REQ","STATE_MEM_WAIT",
+    # CALL/RET
+    "STATE_CALL_PUSH_H","STATE_CALL_PUSH_L",
+    "STATE_RET_POP_L","STATE_RET_POP_H",
+    # Indirect load/store , LPM
+    "STATE_INDIRECT_LOAD","STATE_INDIRECT_STORE",
+    "STATE_LPM_REQ","STATE_LPM_WAIT",
+    # I/O bit read-modify-write
+    "STATE_IO_BIT_READ","STATE_IO_BIT_WRITE",
+    # SKIP
+    "STATE_SKIP_FETCH_REQ","STATE_SKIP_FETCH_WAIT"
+]
+
+FETCH_HANDLER_STATES = [
+    "FETCH_INSTRUCTION","WAIT_FETCH_INSTRUCTION","STOP","STATE_RESET"
+]
+
+CPU_STATES = [
+
+    #GENERAL_STATES
+    "STATE_RESET",
+    "EXECUTE_INSTRUCTION",
+    "STATE_SLEEP",
+    "STATE_WDT",
+
+    # CALL/RET
+    "STATE_CALL_PUSH_H","STATE_CALL_PUSH_L",
+    "STATE_RET_POP_L","STATE_RET_POP_H",
+    # Indirect load/store , LPM
+    "STATE_INDIRECT_LOAD","STATE_INDIRECT_STORE",
+    "STATE_LPM_REQ","STATE_LPM_WAIT",
+    # I/O bit read-modify-write
+    "STATE_IO_BIT_READ","STATE_IO_BIT_WRITE",
+    # SKIP
+    "STATE_SKIP_FETCH_REQ","STATE_SKIP_FETCH_WAIT",
 ]
 
 
 
 
-class SingleCycleATmega328P(py4hw.Logic):
-    def __init__(self,parent, name:str , ins_mem:MemoryInterface,memory:MemoryInterface, reset_address)):#INT0,INT1,PCINT0,PCINT1,PCINT2,WDT,TIMER2_COMPA,TIMER2_COMPB,TIMER2_OVF,TIMER1_CAPT,TIMER1_COMPA,TIMER1_COMPB,TIMER1_OVF,TIMER0_COMPA,TIMER0_COMPB,TIMER0_OVF,SPI_STC,USART_RX,USART_UDRE,USART_TX,ADC,EE_READY,ANALOG_COMP,TWI,SPM_READY):
+class MultyCycleATmega328P_V3(py4hw.Logic):
+    def __init__(self,parent, name:str , ins_mem:MemoryInterface,memory:MemoryInterface, reset_address):#INT0,INT1,PCINT0,PCINT1,PCINT2,WDT,TIMER2_COMPA,TIMER2_COMPB,TIMER2_OVF,TIMER1_CAPT,TIMER1_COMPA,TIMER1_COMPB,TIMER1_OVF,TIMER0_COMPA,TIMER0_COMPB,TIMER0_OVF,SPI_STC,USART_RX,USART_UDRE,USART_TX,ADC,EE_READY,ANALOG_COMP,TWI,SPM_READY):
         super().__init__(parent,name)
 
         assert(ins_mem.read_data.getWidth() == 16)
@@ -45,13 +82,12 @@ class SingleCycleATmega328P(py4hw.Logic):
         
         self.ins_mem = self.addInterfaceSource('ins', ins_mem)
         self.mem = self.addInterfaceSource('data', memory)
-        self.pc =  #0x3F00 ##bootloarder
+        self.pc = reset_address,
         self.reg = [0]*32
-        ##self.flash = [0]*16384
 
+        self.reset_pc_address = reset_address
 
-
-        #self.stack_pointer  = 0x08FF ## value sould be known by using a register, I need to verify that it doesent go in to the negatives  
+        
         self.next_cycle = False #varible to indicate that data is ready to read from ram/memeory
         self.ins = 0
         self.opp = 'NOP'
@@ -101,6 +137,7 @@ class SingleCycleATmega328P(py4hw.Logic):
         self.SPMCSR_addr_LS = 0x57
 
 
+        self.skip_next_instruction = False
 
         self.gotToGoFast = False
 
@@ -110,11 +147,40 @@ class SingleCycleATmega328P(py4hw.Logic):
         
         self.temp_page_buffer = [0xFFFF] * self.PAGE_SIZE_WORDS     
 
-        self.state = "FETCH_INSTRUCTION"
+        self.state_fetcher = "STATE_RESET"
+        self.state_executor = "STATE_RESET"
 
         self.last_pc = 0
 
     def clock(self):
+
+        # State Machine for the instruction fetcher 
+
+        match self.state_fetcher:
+            case "STATE_RESET":
+                self.pc = self.reset_pc_val
+                self.ins_mem.read.prepare(0)
+                self.ins_mem.write.prepare(0)
+                self.ins_mem.address.prepare(self.pc)
+
+            case "STOP":
+                self.ins_mem.read.prepare(0)
+                self.ins_mem.write.prepare(0)
+                if self.last_pc != self.pc:
+                    self.state_fetcher = "FETCH_INSTRUCTION"
+                    self.last_pc = self.pc
+            
+            case "FETCH_INSTRUCTION":
+                self.ins_mem.read.prepare(1)
+                self.ins_mem.write.prepare(0)
+                self.ins_mem.address.prepare(self.pc)
+            case "WAIT_FETCH_INSTRUCTION":
+                self.ins_mem.read.prepare(1)
+                self.ins_mem.write.prepare(0)
+                self.ins_mem.address.prepare(self.pc)
+                if  self.ins_mem.resp.get() == 1:
+                    self.state_fetcher = "STOP"
+                    self.ins = self.ins_mem.read_data.get()
 
         match self.state:
 
@@ -129,6 +195,24 @@ class SingleCycleATmega328P(py4hw.Logic):
                 self.execute()
                 if self.last_pc != self.pc:
                     self.state = "FETCH_INSTRUCTION"
+
+        # State Machine for the instrucion executor
+
+        match self.state_executor:
+
+            case "STATE_RESET":
+
+            case "EXECUTE_INSTRUCTION":
+                self.execute()
+
+            case "STATE_SLEEP":
+
+            case "STATE_WDT":
+
+            
+            
+            
+
 
 #    def HandleInterupts(self):
 
@@ -192,7 +276,6 @@ class SingleCycleATmega328P(py4hw.Logic):
 
         match self.opp: 
             case 'ADD':
-                
                 self.Rr = ((self.ins>>8)&0b1)<<4|(self.ins & 0xF)
                 self.Rd = ((self.ins>>9)&0b1)<<4|((self.ins>>4) & 0xF)
                 self.res = (self.reg[self.Rd] + self.reg[self.Rr]) &0xFF

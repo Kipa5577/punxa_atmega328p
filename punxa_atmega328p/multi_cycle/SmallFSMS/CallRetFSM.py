@@ -58,7 +58,10 @@ OPCODE_JMP   = 31
 
 OPCODE_RET   = (
                 35, # RET
-                36  # RETI
+                # 36 (RETI) intentionally NOT here — InterruptFSM owns
+                # RETI now (it also has to re-enable the I flag on return,
+                # which this FSM has no mechanism to do). FSM_SELECTOR no
+                # longer routes RETI's `run` to CallRetFSM at all.
                 )
 OPCODE_RCALL = 32 
 OPCODE_ICALL = 33

@@ -80,9 +80,10 @@ test4:
 test5:
     ldi r16, 0x12
     ldi r17, 0x34
-    cpse r16, r17       ; No skip (unequal)
-    rjmp fail
-    
+    cpse r16, r17       ; No skip (unequal) -> falls through
+    rjmp skip_5         ; Should NOT be skipped
+    rjmp fail           ; Incorrectly skipped
+skip_5:
     cpi r16, 0x12       ; Verify r16
     brne fail
     cpi r17, 0x34       ; Verify r17

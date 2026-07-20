@@ -184,17 +184,33 @@ class Instruction_decoder(py4hw.Logic):
 
         # Format 1: Arithmetic & Logic with Two Registers — Rd[d5], Rr[r5]
         #   ADC, ADD, AND, CP, CPC, EOR, MOV, MUL, OR, SBC, SUB, ...
-        if code in [1, 2, 4, 6, 9, 11, 13, 20, 23, 24, 25, 26, 27, 28, 37, 38, 39, 93]:
+        # FIX: 24-28 (MULS/MULSU/FMUL/FMULS/FMULSU) removed from this
+        # group — they do NOT use the d5/r5 format. Treating them as
+        # Format 1 made the r5 extractor swallow opcode bits as register
+        # bits (e.g. `fmul r16, r17` = 0x0309 decoded as Rr = r25, so the
+        # multiply silently read a random, usually-zero register instead
+        # of r17). Only MUL (23) genuinely uses d5/r5.
+        if code in [1, 2, 4, 6, 9, 11, 13, 20, 23, 37, 38, 39, 93]:
             out_rd = rd_d5
             out_rr = rr_r5
-            # NOTE: If codes 24–28 correspond to MULS / MULSU / FMUL / FMULS / FMULSU,
-            #       they require d4/r4 or d3/r3 variants.  Move them to the dedicated
-            #       groups below once the exact code mapping is confirmed.
 
-        # Format 1b: MOVW (Word copy) — register pairs
+        # Format 1a: MULS — Rd[d4], Rr[r4]  (0000 0010 dddd rrrr, r16-r31)
+        elif code == 24:
+            out_rd = rd_d4
+            out_rr = rr_r4
+
+        # Format 1b: MULSU / FMUL / FMULS / FMULSU — Rd[d3], Rr[r3]
+        #   (0000 0011 xddd xrrr, r16-r23 only; bits 7 and 3 are opcode
+        #   bits distinguishing the four variants, NOT register bits)
+        elif code in (25, 26, 27, 28):
+            out_rd = rd_d3
+            out_rr = rr_r3
+
+        # Format 1c: MOVW (Word copy) — register pairs
         elif code == 94:
             out_rd = ((ins >> 4) & 0x0F) * 2   # d4 pair → 0,2,…,30
             out_rr = (ins & 0x0F) * 2           # r4 pair → 0,2,…,30
+            print(f"DECODE_MOVW | ins:{ins:04X} Rd:{out_rd} Rr:{out_rr}")
 
         # Format 2: Immediate Operations — Rd[d4], K[K8]
         #   ANDI, CPI, LDI, ORI, SBCI, SUBI, ...
@@ -207,6 +223,10 @@ class Instruction_decoder(py4hw.Logic):
         elif code in [3, 8]:
             out_rd = rd_d2
             out_K6 = K_6bit
+            # FIX: W_K6_ID_OB (out_K6's wire) is never connected to anything
+            # downstream -- OperandBuffer only ever receives K8. Without
+            # this, ADIW/SBIW's immediate never reaches the ALU at all.
+            out_K8 = K_6bit
 
         # Format 4: Single Register Operations — Rd[d5]
         #   ASR, COM, DEC, INC, LSR, NEG, ROR, SWAP, PUSH, POP, ...
@@ -253,6 +273,14 @@ class Instruction_decoder(py4hw.Logic):
         #   BSET, BCLR, BRBS, BRBC
         elif code in [73, 74] or (77 <= code <= 92):
             out_s = s_bit
+            # FIX: W_s_ID_ALU (out_s's wire) is never connected to anything
+            # downstream -- ALU.BitPos only ever receives out_b (W_b_ID_ALU).
+            # Without this, every BSET/BCLR/SEx/CLx instruction always
+            # targeted bit 0 (C) regardless of which flag it actually
+            # encoded (e.g. SET/CLT, meant to target T at bit 6, silently
+            # operated on C instead), since BitPos read the wrong wire and
+            # that wire's default value is 0.
+            out_b = s_bit
 
         # Format 11: General I/O — Rd[d5], A[A6]
         #   IN, OUT

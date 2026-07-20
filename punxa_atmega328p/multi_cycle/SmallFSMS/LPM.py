@@ -7,12 +7,20 @@ _LPM_INSTRUCTIONS = {
     122, # LPMZ+ (Rd <- ROM[Z], Z <- Z+1)
 }
 
+# Supported SPM Opcodes -- this FSM's SPM_req/R0_BUFFER/R1_BUFFER outputs
+# were already scaffolded in RomHandler/MemoryInterfaceHandler but never
+# actually driven by any instruction; this class now drives them for real.
+_SPM_INSTRUCTIONS = {
+    123, # SPM (ROM[Z] <- R1:R0)
+}
+
 STATES = [
     'STOP',
     
     # 1. Fetch Z pointer from SRAM
     'FETCH_ADDRESS_XYZ_BEGIN_L', 'WAIT_FETCH_ADDRESS_XYZ_L', 'LOAD_ADDRESS_XYZ_L_IN_BUFFER',
     'FETCH_ADDRESS_XYZ_BEGIN_H', 'WAIT_FETCH_ADDRESS_XYZ_H', 'LOAD_ADDRESS_XYZ_H_IN_BUFFER',
+    'SETTLE_Z',
     
     # 2. Point RomHandler PC to Z
     'JUMP_TO_Z', 'WAIT_JUMP_TO_Z',
@@ -32,6 +40,16 @@ STATES = [
     # 7. Write updated Z pointer back to SRAM
     'LOAD_ADDRESS_XYZ_BEGIN_L', 'LOAD_ADDRESS_XYZ_WAIT_L',
     'LOAD_ADDRESS_XYZ_BEGIN_H', 'LOAD_ADDRESS_XYZ_WAIT_H',
+
+    # SPM: fetch R0 and R1 (the fixed operand pair SPM always writes,
+    # regardless of decoded Rd/Rr -- the decoder leaves both at 0 for
+    # opcode 123), latch them into MemoryInterfaceHandler's dedicated
+    # R0Buffer/R1Buffer, then trigger RomHandler's SPM_req path, which
+    # writes R1:R0 to ROM[Z] directly (Z is read continuously via
+    # address_ZL/address_ZH -- no PC detour needed, unlike LPM).
+    'SPM_FETCH_R0_BEGIN', 'SPM_WAIT_R0', 'SPM_LOAD_R0',
+    'SPM_FETCH_R1_BEGIN', 'SPM_WAIT_R1', 'SPM_LOAD_R1',
+    'SPM_TRIGGER', 'SPM_WAIT_DONE',
 ]
 
 
@@ -78,6 +96,7 @@ class LPM_FSM(py4hw.Logic):
 
                  LPM_req,
                  SPM_req,
+                 SPM_Done,          # 1-bit IN: pulses when RomHandler's SPM_req write has committed
                  ):
         super().__init__(parent, name)
 
@@ -91,6 +110,7 @@ class LPM_FSM(py4hw.Logic):
         self.Branch                = self.addIn('Branch',                Branch)
         self.Executed_Jump         = self.addIn('Executed_Jump',         Executed_Jump)
         self.Address_fetched       = self.addIn('Address_fetched',       Address_fetched)
+        self.SPM_Done              = self.addIn('SPM_Done',              SPM_Done)
 
         # ── Register outputs ─────────────────────────────────────────────
         self.NotExecute            = self.addOut('NotExecute',       NotExecute)
@@ -126,6 +146,12 @@ class LPM_FSM(py4hw.Logic):
         self._latched_inst = 0
         self._wb_addr_val = 0
         self._pointer_update_pending = False
+        # Edge-detect flag: set once Resp has genuinely been observed low
+        # during the current memory read, so a subsequent Resp=1 can be
+        # trusted as THIS read's completion rather than a registered
+        # Resp=1 left over from the previous memory operation (this is
+        # the same hazard that corrupted the ZH read in LDST_FSM).
+        self._saw_resp_low = False
         self.debug = 1
 
 
@@ -159,6 +185,7 @@ class LPM_FSM(py4hw.Logic):
         LOAD_PCL = 0
         LOAD_PCH = 0
         WB_Addr = self._wb_addr_val
+        SPM_req = 0
         done = 0 
 
         state = self.current_state
@@ -179,8 +206,10 @@ class LPM_FSM(py4hw.Logic):
             if run:
                 if inst in _LPM_INSTRUCTIONS:
                     next_state = 'FETCH_ADDRESS_XYZ_BEGIN_L'
+                elif inst in _SPM_INSTRUCTIONS:
+                    next_state = 'SPM_FETCH_R0_BEGIN'
                 else:
-                    # Failsafe for non-LPM instructions
+                    # Failsafe for non-LPM/SPM instructions
                     done = 1 
 
         # ------------------------------------------------
@@ -192,6 +221,9 @@ class LPM_FSM(py4hw.Logic):
             Mem_Instruction = 14     # MEM_WB_ADDR
             Read_Write = 2           # Read
             Input_Select = 1         # Receive from DataBus
+            # New read: discard any Resp=1 sampled before Resp has gone
+            # low — it belongs to the previous memory operation.
+            self._saw_resp_low = False
             next_state = 'WAIT_FETCH_ADDRESS_XYZ_L'
 
         elif state == 'WAIT_FETCH_ADDRESS_XYZ_L':
@@ -199,7 +231,9 @@ class LPM_FSM(py4hw.Logic):
             Mem_Instruction = 14
             Read_Write = 2 
             Input_Select = 1 
-            if resp:
+            if not resp:
+                self._saw_resp_low = True
+            elif self._saw_resp_low:
                 next_state = 'LOAD_ADDRESS_XYZ_L_IN_BUFFER'
 
         elif state == 'LOAD_ADDRESS_XYZ_L_IN_BUFFER':
@@ -216,6 +250,12 @@ class LPM_FSM(py4hw.Logic):
             Mem_Instruction = 14     
             Read_Write = 2 
             Input_Select = 1 
+            # CRITICAL edge-detect reset: this read starts one cycle after
+            # the ZL read completed with Resp=1. Without waiting for a
+            # genuine Resp low->high transition, the stale Resp=1 from the
+            # ZL read is accepted immediately and ZL's value gets latched
+            # into ZH — sending LPM to a garbage ROM address.
+            self._saw_resp_low = False
             next_state = 'WAIT_FETCH_ADDRESS_XYZ_H'
 
         elif state == 'WAIT_FETCH_ADDRESS_XYZ_H':
@@ -223,12 +263,27 @@ class LPM_FSM(py4hw.Logic):
             Mem_Instruction = 14
             Read_Write = 2 
             Input_Select = 1 
-            if resp:
+            if not resp:
+                self._saw_resp_low = True
+            elif self._saw_resp_low:
                 next_state = 'LOAD_ADDRESS_XYZ_H_IN_BUFFER'
 
         elif state == 'LOAD_ADDRESS_XYZ_H_IN_BUFFER':
             WE = 1
             LoadingMux = 6           # LOAD_ZH
+            next_state = 'SETTLE_Z'
+
+        # One idle cycle between writing ZH and reading Z back out via
+        # Load_Z. MemoryInterfaceHandler prepares its address_ZL/address_ZH
+        # outputs from self.ZregL/self.ZregH BEFORE it applies the current
+        # cycle's register write (see its clock() -- the address_ZL/ZH
+        # .prepare() calls run ahead of the "Register loading" section).
+        # Without this settle cycle, JUMP_TO_Z reads Z one cycle too early
+        # and RomHandler computes its jump target from the OLD Z value
+        # (confirmed via trace: writing Z=0x0200 then immediately asserting
+        # Load_Z produced New PC=0x0000 instead of 0x0100 -- exactly what
+        # you'd get from a stale, not-yet-updated ZH).
+        elif state == 'SETTLE_Z':
             next_state = 'JUMP_TO_Z'
 
         # ------------------------------------------------
@@ -236,10 +291,16 @@ class LPM_FSM(py4hw.Logic):
         # ------------------------------------------------
         elif state == 'JUMP_TO_Z':
             Load_Z = 1
+            # relative_Absolute=1 alongside Load_Z tells RomHandler that Z
+            # is a BYTE address (LPM semantics): PC <- Z>>1 and Z&1 selects
+            # the byte of the fetched flash word. (IJMP/ICALL assert Load_Z
+            # with relative_Absolute=0 and keep word-address semantics.)
+            relative_Absolute = 1
             next_state = 'WAIT_JUMP_TO_Z'
 
         elif state == 'WAIT_JUMP_TO_Z':
             Load_Z = 1               # Hold request
+            relative_Absolute = 1
             if executed_jump:
                 next_state = 'FETCH_ROM_DATA'
 
@@ -359,6 +420,76 @@ class LPM_FSM(py4hw.Logic):
                 next_state = 'STOP'
 
         # ================================================================
+        # SPM: fetch R0
+        # ================================================================
+        elif state == 'SPM_FETCH_R0_BEGIN':
+            self._wb_addr_val = 0    # R0
+            WB_Addr = 0
+            Mem_Instruction = 14     # MEM_WB_ADDR
+            Read_Write = 2           # Read
+            Input_Select = 1
+            self._saw_resp_low = False
+            next_state = 'SPM_WAIT_R0'
+
+        elif state == 'SPM_WAIT_R0':
+            WB_Addr = self._wb_addr_val
+            Mem_Instruction = 14
+            Read_Write = 2
+            Input_Select = 1
+            if not resp:
+                self._saw_resp_low = True
+            elif self._saw_resp_low:
+                next_state = 'SPM_LOAD_R0'
+
+        elif state == 'SPM_LOAD_R0':
+            WE = 1
+            LoadingMux = 15          # LOAD_R0_BUFFER
+            next_state = 'SPM_FETCH_R1_BEGIN'
+
+        # ================================================================
+        # SPM: fetch R1
+        # ================================================================
+        elif state == 'SPM_FETCH_R1_BEGIN':
+            self._wb_addr_val = 1    # R1
+            WB_Addr = 1
+            Mem_Instruction = 14
+            Read_Write = 2
+            Input_Select = 1
+            # Same hazard as the ZL->ZH transition above: this read starts
+            # one cycle after R0's completed with Resp=1, so the
+            # edge-detect flag must be reset before trusting a new Resp=1.
+            self._saw_resp_low = False
+            next_state = 'SPM_WAIT_R1'
+
+        elif state == 'SPM_WAIT_R1':
+            WB_Addr = self._wb_addr_val
+            Mem_Instruction = 14
+            Read_Write = 2
+            Input_Select = 1
+            if not resp:
+                self._saw_resp_low = True
+            elif self._saw_resp_low:
+                next_state = 'SPM_LOAD_R1'
+
+        elif state == 'SPM_LOAD_R1':
+            WE = 1
+            LoadingMux = 16          # LOAD_R1_BUFFER
+            next_state = 'SPM_TRIGGER'
+
+        # ================================================================
+        # SPM: trigger the write and wait for RomHandler to commit it
+        # ================================================================
+        elif state == 'SPM_TRIGGER':
+            SPM_req = 1
+            next_state = 'SPM_WAIT_DONE'
+
+        elif state == 'SPM_WAIT_DONE':
+            SPM_req = 1              # hold the request asserted
+            if self.SPM_Done.get() == 1:
+                done = 1
+                next_state = 'STOP'
+
+        # ================================================================
         # Drive all outputs
         # ================================================================
         self.NotExecute.prepare(NotExecute)
@@ -386,6 +517,7 @@ class LPM_FSM(py4hw.Logic):
 
         self.done.prepare(done)
         self.WB_Addr.prepare(WB_Addr)
+        self.SPM_req.prepare(SPM_req)
 
         # --- AI-Friendly State & I/O Trace ---
         # Only trace while this FSM is actually doing something: either

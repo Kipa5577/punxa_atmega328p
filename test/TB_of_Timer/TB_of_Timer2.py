@@ -1,346 +1,1425 @@
-# -*- coding: utf-8 -*-
-"""
-MemoryInterfaceHandler - py4hw Behavioural Sequential implementation
-inspired by the punxa_atmega328p coding style.
-
-MemoryInterface convention (matching punxa):
-    sourceToSink:  address (aw), write (1), data_in (dw)   CPU → Memory
-    sinkToSource:  data_out (dw)                            Memory → CPU
-
-addInterfaceSource → this component DRIVES the interface  (CPU side)
-addInterfaceSink   → this component RECEIVES the interface (Memory side)
-"""
-
 import py4hw
+from punxa_atmega328p.Timers import *
+from punxa_atmega328p.Memory import * 
+import time
+import math
 
 
-# ---------------------------------------------------------------------------
-# MemoryInterface definition  (mirrors punxa_atmega328p.MemoryInterface)
-# ---------------------------------------------------------------------------
-class MemoryInterface(py4hw.Interface):
-    """
-    Standard bus interface between a master (CPU) and a slave (Memory).
+#run from top directory using python -m test.TB_of_Timer.TB_of_Timer2
 
-        sourceToSink  (master → slave):
-            address   : aw bits
-            write     :  1 bit   (1 = write, 0 = read)
-            data_in   : dw bits  (data from master to slave)
+def TestBench_of_Timer2():
 
-        sinkToSource  (slave → master):
-            data_out  : dw bits  (data from slave to master)
-    """
-    def __init__(self, parent: py4hw.Logic, name: str, dw: int, aw: int):
-        super().__init__(parent, name)
-        self.address  = self.addSourceToSink('address', aw)
-        self.write    = self.addSourceToSink('write',    1)
-        self.data_in  = self.addSourceToSink('data_in', dw)
-        self.data_out = self.addSinkToSource('data_out', dw)
+    sys2 = py4hw.HWSystem()
 
+    SIGNALS2 = []
 
-# ---------------------------------------------------------------------------
-# MemoryInterfaceHandler  –  Behavioural Sequential
-# ---------------------------------------------------------------------------
-class MemoryInterfaceHandler(py4hw.Logic):
-    """
-    Behavioural Sequential register file and memory interface handler.
+    OCF2B = py4hw.Wire( sys2,'OCF2B',1)
+    SIGNALS2.append(OCF2B)
+    OCF2A = py4hw.Wire( sys2,'OCF2A',1)
+    SIGNALS2.append(OCF2A)
+    TOV2 = py4hw.Wire( sys2,'TOV2',1)
+    SIGNALS2.append(TOV2)
 
-    Acts as the MASTER on the memory interface:
-      • Drives  address / write / data_in  (addInterfaceSource)
-      • Reads   data_out                   (addInterfaceSource → inPort)
+    OC2A = py4hw.Wire(sys2,'OC2A',1)
+    SIGNALS2.append(OC2A)
+    OC2B = py4hw.Wire(sys2,'OC2B',1)
+    SIGNALS2.append(OC2B)
+    T2 = py4hw.Wire(sys2,'T2',1)
+    SIGNALS2.append(T2)
 
-    Internal registers (plain Python ints, updated each clock()):
-        _SPH, _SPL      Stack Pointer High / Low  (8-bit each)
-        _XH,  _XL       X index register pair     (8-bit each)
-        _YH,  _YL       Y index register pair     (8-bit each)
-        _ZH,  _ZL       Z index register pair     (8-bit each)
-        _RomAddrReg     ROM address latch          (16-bit)
-        _MemDatabus     Memory data latch          (8-bit)
+    interface2 = MemoryInterface(sys2,'interface2',8,16)
 
-    Ports:
-        reset           1-bit   synchronous reset (active high)
-        WE              1-bit   master write-enable for register file
-        LoadSelectMux   4-bit   destination register select (0-7)
-        LoadingMux      3-bit   data source select (0-7)
-        IncDec          1-bit   0=SP+1 (pop), 1=SP-1 (push)
-        ReadWrite       2-bit   [0]=latch from bus  [1]=drive bus output
-        InputSelect     2-bit   data-bus input source (0-3)
-        Mem_instruction 4-bit   address-mux select (0-8)
-        RomAddress      16-bit  address from ROM controller
-        DataBusInput    8-bit   data arriving from external memory
-        ResL            8-bit   ALU result low byte
-        ResH            8-bit   ALU result high byte
-        GeneralInput    8-bit   general purpose input
-        RegisterOut     8-bit   MemDatabus read output
-
-    LoadSelectMux encoding:  0=SPH 1=SPL 2=XH 3=XL 4=YH 5=YL 6=ZH 7=ZL
-
-    LoadingMux encoding:
-        0=ResL  1=ResH  2=GeneralInput  3=DataBusInput
-        4=SP_next_low  5=SP_next_high  6=RomAddr_low  7=RomAddr_high
-
-    Mem_instruction (address mux) encoding:
-        0=X  1=X+1  2=Y  3=Y+1  4=Z  5=Z+1  6=SP  7=SP+1  8=RomAddrReg
-
-    InputSelect encoding:
-        0=DataBusInput  1=ResL  2=ResH  3=GeneralInput
-    """
-
-    def __init__(
-        self,
-        parent: py4hw.Logic,
-        name: str,
-        # control inputs
-        reset,
-        WE,
-        LoadSelectMux,
-        LoadingMux,
-        IncDec,
-        ReadWrite,
-        InputSelect,
-        Mem_instruction,
-        RomAddress,
-        # data inputs
-        DataBusInput,
-        ResL,
-        ResH,
-        GeneralInput,
-        # memory interface  (this component is the master / source)
-        memory: MemoryInterface,
-        # output
-        RegisterOut,
-    ):
-        super().__init__(parent, name)
-
-        # ---- scalar ports ------------------------------------------------
-        self._reset           = self.addIn('reset',           reset)
-        self._WE              = self.addIn('WE',              WE)
-        self._LoadSelectMux   = self.addIn('LoadSelectMux',   LoadSelectMux)
-        self._LoadingMux      = self.addIn('LoadingMux',      LoadingMux)
-        self._IncDec          = self.addIn('IncDec',          IncDec)
-        self._ReadWrite       = self.addIn('ReadWrite',       ReadWrite)
-        self._InputSelect     = self.addIn('InputSelect',     InputSelect)
-        self._Mem_instruction = self.addIn('Mem_instruction', Mem_instruction)
-        self._RomAddress      = self.addIn('RomAddress',      RomAddress)
-        self._DataBusInput    = self.addIn('DataBusInput',    DataBusInput)
-        self._ResL            = self.addIn('ResL',            ResL)
-        self._ResH            = self.addIn('ResH',            ResH)
-        self._GeneralInput    = self.addIn('GeneralInput',    GeneralInput)
-        self._RegisterOut     = self.addOut('RegisterOut',    RegisterOut)
-
-        # ---- memory interface (master side) ------------------------------
-        # addInterfaceSource: sourceToSink wires become OutPorts (we drive them)
-        #                     sinkToSource wires become InPorts  (we read them)
-        self._mem = self.addInterfaceSource('memory', memory)
-
-        # Convenient aliases to the interface wires
-        self._mem_address  = memory.address   # out: address we put on the bus
-        self._mem_write    = memory.write     # out: write-enable to memory
-        self._mem_data_in  = memory.data_in   # out: data we write to memory
-        self._mem_data_out = memory.data_out  # in:  data memory returns to us
-
-        # ---- internal register file state --------------------------------
-        self._SPH        = 0
-        self._SPL        = 0
-        self._XH         = 0
-        self._XL         = 0
-        self._YH         = 0
-        self._YL         = 0
-        self._ZH         = 0
-        self._ZL         = 0
-        self._RomAddrReg = 0
-        self._MemDatabus = 0
-
-    # -----------------------------------------------------------------------
-    # Private helpers
-    # -----------------------------------------------------------------------
-    def _sp(self):
-        return ((self._SPH & 0xFF) << 8) | (self._SPL & 0xFF)
-
-    def _x(self):
-        return ((self._XH & 0xFF) << 8) | (self._XL & 0xFF)
-
-    def _y(self):
-        return ((self._YH & 0xFF) << 8) | (self._YL & 0xFF)
-
-    def _z(self):
-        return ((self._ZH & 0xFF) << 8) | (self._ZL & 0xFF)
-
-    def _sp_next(self):
-        """SP ± 1:  IncDec=0 → SP+1 (pop),  IncDec=1 → SP-1 (push)."""
-        if self._IncDec.get():
-            return (self._sp() - 1) & 0xFFFF
-        return (self._sp() + 1) & 0xFFFF
-
-    def _loading_mux(self):
-        """Return the 8-bit value selected by LoadingMux."""
-        sel     = self._LoadingMux.get() & 0x7
-        sp_next = self._sp_next()
-        rom     = self._RomAddress.get() & 0xFFFF
-        sources = [
-            self._ResL.get()         & 0xFF,   # 0 – ResL
-            self._ResH.get()         & 0xFF,   # 1 – ResH
-            self._GeneralInput.get() & 0xFF,   # 2 – GeneralInput
-            self._DataBusInput.get() & 0xFF,   # 3 – DataBusInput
-            sp_next         & 0xFF,            # 4 – SP_next low
-            (sp_next >> 8)  & 0xFF,            # 5 – SP_next high
-            rom             & 0xFF,            # 6 – RomAddr low
-            (rom >> 8)      & 0xFF,            # 7 – RomAddr high
-        ]
-        return sources[sel]
-
-    def _addr_mux(self):
-        """Return the 16-bit address selected by Mem_instruction."""
-        sel = self._Mem_instruction.get() & 0xF
-        x, y, z, sp = self._x(), self._y(), self._z(), self._sp()
-        options = [
-            x,                   # 0 – X
-            (x  + 1) & 0xFFFF,  # 1 – X+1
-            y,                   # 2 – Y
-            (y  + 1) & 0xFFFF,  # 3 – Y+1
-            z,                   # 4 – Z
-            (z  + 1) & 0xFFFF,  # 5 – Z+1
-            sp,                  # 6 – SP
-            (sp + 1) & 0xFFFF,  # 7 – SP+1
-            self._RomAddrReg,    # 8 – RomAddrReg
-        ]
-        return options[sel] if sel <= 8 else 0
-
-    def _input_mux(self):
-        """Return the 8-bit value selected by InputSelect for MemDatabus."""
-        sel = self._InputSelect.get() & 0x3
-        sources = [
-            self._mem_data_out.get() & 0xFF,  # 0 – data_out from memory bus
-            self._ResL.get()         & 0xFF,  # 1 – ResL
-            self._ResH.get()         & 0xFF,  # 2 – ResH
-            self._GeneralInput.get() & 0xFF,  # 3 – GeneralInput
-        ]
-        return sources[sel]
-
-    def _drive_memory_interface(self):
-        """Drive the three master→slave wires of the memory interface."""
-        rw = self._ReadWrite.get()
-        self._mem_address.put(self._addr_mux())
-        self._mem_write.put(1 if (rw & 0b10) else 0)
-        self._mem_data_in.put(self._MemDatabus if (rw & 0b10) else 0)
-
-    # -----------------------------------------------------------------------
-    # Sequential – rising clock edge
-    # -----------------------------------------------------------------------
-    def clock(self):
-        # synchronous reset
-        if self._reset.get():
-            self._SPH = self._SPL = 0
-            self._XH  = self._XL  = 0
-            self._YH  = self._YL  = 0
-            self._ZH  = self._ZL  = 0
-            self._RomAddrReg = 0
-            self._MemDatabus = 0
-            self._RegisterOut.prepare(0)
-            self._mem_address.prepare(0)
-            self._mem_write.prepare(0)
-            self._mem_data_in.prepare(0)
-            return
-
-        # register file write  (DMX + WE)
-        if self._WE.get():
-            data = self._loading_mux()
-            dest = self._LoadSelectMux.get() & 0xF
-            if   dest == 0: self._SPH = data
-            elif dest == 1: self._SPL = data
-            elif dest == 2: self._XH  = data
-            elif dest == 3: self._XL  = data
-            elif dest == 4: self._YH  = data
-            elif dest == 5: self._YL  = data
-            elif dest == 6: self._ZH  = data
-            elif dest == 7: self._ZL  = data
-
-        # RomAddress latch  (enabled by Mem_instruction[3])
-        if self._Mem_instruction.get() & 0x8:
-            self._RomAddrReg = self._RomAddress.get() & 0xFFFF
-
-        # MemDatabus latch  (enabled by ReadWrite[0] = read_data)
-        if self._ReadWrite.get() & 0b01:
-            self._MemDatabus = self._input_mux()
-
-        # prepare sequential outputs
-        self._RegisterOut.prepare(self._MemDatabus)
-        self._mem_address.prepare(self._addr_mux())
-        rw = self._ReadWrite.get()
-        self._mem_write.prepare(1 if (rw & 0b10) else 0)
-        self._mem_data_in.prepare(self._MemDatabus if (rw & 0b10) else 0)
-
-    # -----------------------------------------------------------------------
-    # Combinational – drives outputs between clock edges
-    # -----------------------------------------------------------------------
-    def propagate(self):
-        self._RegisterOut.put(self._MemDatabus)
-        self._drive_memory_interface()
+    TIMER2 = TimerCounter2(sys2,'TIMER2',interface2,OC2B,OC2A,T2,OCF2B,OCF2A,TOV2)
 
 
-# ---------------------------------------------------------------------------
-# Smoke test
-# ---------------------------------------------------------------------------
-if __name__ == '__main__':
-    hw = py4hw.HWSystem()
 
-    # wires
-    rst     = hw.wire('reset',           1)
-    WE      = hw.wire('WE',              1)
-    LSM     = hw.wire('LoadSelectMux',   4)
-    LMux    = hw.wire('LoadingMux',      3)
-    IncDec  = hw.wire('IncDec',          1)
-    RW      = hw.wire('ReadWrite',       2)
-    ISel    = hw.wire('InputSelect',     2)
-    MInstr  = hw.wire('Mem_instruction', 4)
-    RomAddr = hw.wire('RomAddress',     16)
-    DBIn    = hw.wire('DataBusInput',    8)
-    ResL    = hw.wire('ResL',            8)
-    ResH    = hw.wire('ResH',            8)
-    GenIn   = hw.wire('GeneralInput',    8)
-    RegOut  = hw.wire('RegisterOut',     8)
+    SIGNALS2.append(interface2.write)
+    SIGNALS2.append(interface2.read)
+    SIGNALS2.append(interface2.address)
+    SIGNALS2.append(interface2.write_data)
+    SIGNALS2.append(interface2.read_data)
+    SIGNALS2.append(interface2.resp)
 
-    # memory interface
-    mem_p = MemoryInterface(hw, 'mem', dw=8, aw=16)
+    CURRENT_TEST = 'START'
 
-    dut = MemoryInterfaceHandler(
-        hw, 'MIH',
-        reset=rst,
-        WE=WE, LoadSelectMux=LSM, LoadingMux=LMux, IncDec=IncDec,
-        ReadWrite=RW, InputSelect=ISel, Mem_instruction=MInstr,
-        RomAddress=RomAddr,
-        DataBusInput=DBIn, ResL=ResL, ResH=ResH, GeneralInput=GenIn,
-        memory=mem_p,
-        RegisterOut=RegOut,
-    )
+    wvf = py4hw.Waveform(sys2,'wvf',SIGNALS2)
 
-    def tick(n=1):
-        hw.getSimulator().clk(n)
+    #sch = py4hw.Schematic(sys)
+    #sch.draw()
+    #sys.getSimulator().clk(len(TIMER2_WRITE_DATA_TEST))
 
-    # reset
-    rst.put(1); tick(2); rst.put(0)
+    Testing = True
+    with open("test/TB_of_Timer/Test_Results_Timer2.txt",'w+') as results:
+        while Testing:
 
-    # load XH=0xBE  (LoadingMux=0→ResL, LoadSelectMux=2→XH)
-    ResL.put(0xBE); LMux.put(0); LSM.put(2); WE.put(1); tick()
-    # load XL=0xEF  (LoadSelectMux=3→XL)
-    ResL.put(0xEF); LSM.put(3); tick()
-    WE.put(0)
+            
+            match CURRENT_TEST:
 
-    # address mux sel=0 → X
-    MInstr.put(0); hw.getSimulator().propagateAll()
-    print(f"mem.address via X   (expect 0xBEEF): 0x{mem_p.address.get():04X}")
-    assert mem_p.address.get() == 0xBEEF
+                case 'START':
+                    print("Starting Test Bench of Timer2")
 
-    # simulate memory returning 0xAB; latch it (InputSelect=0→data_out, ReadWrite[0]=1)
-    mem_p.data_out.put(0xAB); ISel.put(0); RW.put(0b01); tick()
-    hw.getSimulator().propagateAll()
-    print(f"RegisterOut          (expect 0xAB):   0x{RegOut.get():02X}")
-    assert RegOut.get() == 0xAB
+                    CURRENT_TEST = 'TEST0'
+                case 'TEST0':# TEST0 :Normal mode Compare Match Output B disconnected and A disconnected (writing using Ls to load data) | No prescaling (X1)
+                    results.write("TEST0\n")
+                    #Setup
+                    ## Loading the config values in memory
+                    TIMER2.TCCR2A = 0x00
+                    TIMER2.TCCR2B = 0x01
 
-    # write cycle (ReadWrite[1]=1) – check mem.write and mem.data_in
-    RW.put(0b10); hw.getSimulator().propagateAll()
-    print(f"mem.write            (expect 1):       {mem_p.write.get()}")
-    print(f"mem.data_in          (expect 0xAB):   0x{mem_p.data_in.get():02X}")
-    assert mem_p.write.get() == 1
-    assert mem_p.data_in.get() == 0xAB
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
 
-    print("\nAll checks passed.")
+                    TIMER2.TCNT2 = 0
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                    last_OC2A = 0
+                    last_OC2B = 0
+
+                    ## Testing
+                    for i in range(255):
+                        # counter test 
+
+                        if TIMER2.TCNT2 != i%256:
+                            TEST = False
+                            ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,i%256))
+
+                        #Output A
+                        if OC2A.get() == 1:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}".format(1,0))
+
+                        #Output B 
+                        if OC2B.get() == 1:# error val
+                            TEST = False
+                            ERROR_LIST.append("OC2B = {} expected {}".format(1,0))
+
+                        #Interrupt A
+                        if (TIMER2.TCNT2) == TIMER2.OCR2A:
+                            if OCF2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2A = {} expected {}| iteration = {}".format(0,1,i))
+
+
+                        #Interrupt B 
+                        if (TIMER2.TCNT2) == TIMER2.OCR2B:
+                            if OCF2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2B = {} expected {}| iteration = {}".format(0,1,i))
+
+                        #Interrupt OVF
+                        if (TIMER2.TCNT2) == 0xFF:
+                            if TOV2.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OVF = {} expected {}".format(0,1))
+
+                        sys2.getSimulator().clk(1)
+
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+                    CURRENT_TEST = 'TEST1'
+                case 'TEST1':# TEST1 :Normal mode Compare Match Output B Toggle and A Toggle (writing using Ls to load data) | No prescaling (X2)
+                    results.write("TEST1\n")
+                    #Setup
+                    ## Loading the config values in memory
+                    TIMER2.TCCR2A = 0x50
+                    TIMER2.TCCR2B = 0x01
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+                    TIMER2.TCNT2 = 0
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                    last_OC2A = 0
+                    last_OC2B = 0
+
+                    ## Testing
+                    for i in range(255):
+                        # counter test 
+
+                        if TIMER2.TCNT2 != i%256:
+                            TEST = False
+                            ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,i%256))
+
+                        #Output A 
+                        if TIMER2.TCNT2 >= TIMER2.OCR2A:
+                            if OC2A.get() == last_OC2A:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}| Iteration = {}".format(last_OC2A,(1-last_OC2A),i))
+                        else:
+                            last_OC2A = OC2A.get()
+
+        
+                        #Output B 
+                        if TIMER2.TCNT2 >= TIMER2.OCR2B:
+                            if OC2B.get() == last_OC2B:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2B = {} expected {}| Iteration = {}".format(last_OC2B,(1-last_OC2B),i))
+                        else:
+                            last_OC2B = OC2B.get()
+
+
+                        #Interrupt A
+                        if (TIMER2.TCNT2-1) == TIMER2.OCR2A:
+                            if OCF2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2A = {} expected {}| Iteration = {}".format(0,1,i))
+
+
+                        #Interrupt B 
+                        if (TIMER2.TCNT2-1) == TIMER2.OCR2B:
+                            if OCF2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2B = {} expected {}| Iteration = {}".format(0,1,i))
+
+
+                        #Interrupt OVF
+                        if (TIMER2.TCNT2) == 0xFF:
+                            if TOV2.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OVF = {} expected {}| Iteration = {}".format(0,1,i))
+
+                        sys2.getSimulator().clk(1)
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+                    ## Storing data
+                    CURRENT_TEST = 'TEST2'
+                case 'TEST2':# TEST2 :Normal mode Compare Match Output B Clear and A Clear (writing using Ls to load data) | No prescaling (X3)
+                    results.write("TEST2\n")
+                    #Setup
+                    TIMER2.TCCR2A = 0xA0
+                    TIMER2.TCCR2B = 0x01
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+                    TIMER2.TCNT2 = 0
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                    TIMER2.OC2A_val = 1
+                    TIMER2.OC2B_val = 1
+                
+
+                ## Testing
+                    for i in range(255):
+                        # counter test 
+
+                        if TIMER2.TCNT2 != i%256:
+                            TEST = False
+                            ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,i%256))
+
+                        #Output A 
+                        if TIMER2.TCNT2 >= TIMER2.OCR2A:
+                            if OC2A.get() == 1:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}| Iteration = {}".format(0,1,i))
+                        else:
+                            if OC2A.get() == 0:
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}| Iteration = {}".format(1,0,i))
+        
+                        #Output B 
+                        if TIMER2.TCNT2 >= TIMER2.OCR2B:
+                            if OC2B.get() == 1:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2B = {} expected {}| Iteration = {}".format(0,1,i))
+                        else:
+                            if OC2B.get() == 0:
+                                TEST = False
+                                ERROR_LIST.append("OC2B = {} expected {}| Iteration = {}".format(1,0,i))
+
+                        #Interrupt A
+                        if (TIMER2.TCNT2) == TIMER2.OCR2A:
+                            if OCF2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2A = {} expected {}| Iteration = {}".format(0,1,i))
+
+
+                        #Interrupt B 
+                        if (TIMER2.TCNT2) == TIMER2.OCR2B:
+                            if OCF2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2B = {} expected {}| Iteration = {}".format(0,1,i))
+
+
+                        #Interrupt OVF
+                        if (TIMER2.TCNT2) == 0xFF:
+                            if TOV2.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OVF = {} expected {}| Iteration = {}".format(0,1,i))
+
+
+                        sys2.getSimulator().clk(1)
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+
+                    CURRENT_TEST = 'TEST3'
+                case 'TEST3':# TEST3 :Normal mode Compare Match Output B Set and A Set (writing using Ls to load data) | No prescaling (X4)
+                    results.write("TEST3\n")
+                    #Setup
+                    TIMER2.TCCR2A = 0xF0
+                    TIMER2.TCCR2B = 0x01
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+                    TIMER2.TCNT2 = 0
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                    TIMER2.OC2A_val = 0
+                    TIMER2.OC2B_val = 0
+
+                ## Testing
+                    for i in range(255):
+                        # counter test 
+
+                        if TIMER2.TCNT2 != i%256:
+                            TEST = False
+                            ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,i%256))
+
+                        #Output A 
+                        if TIMER2.TCNT2 >= TIMER2.OCR2A:
+                            if OC2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}| Iteration = {}".format(0,1,i))
+                        else:
+                            if OC2A.get() == 1:
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}| Iteration = {}".format(1,0,i))
+        
+                        #Output B 
+                        if TIMER2.TCNT2 >= TIMER2.OCR2B:
+                            if OC2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2B = {} expected {}| Iteration = {}".format(0,1,i))
+                        else:
+                            if OC2B.get() == 1:
+                                TEST = False
+                                ERROR_LIST.append("OC2B = {} expected {}| Iteration = {}".format(1,0,i))
+
+                        #Interrupt A
+                        if (TIMER2.TCNT2) == TIMER2.OCR2A:
+                            if OCF2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2A = {} expected {}".format(0,1))
+                        #else:
+                        #    if OCF2A.get() == 1:
+                        #        TEST = False
+                        #        ERROR_LIST.append("OCF2B = {} expected {}".format(1,0))
+
+                        #Interrupt B 
+                        if (TIMER2.TCNT2) == TIMER2.OCR2B:
+                            if OCF2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2B = {} expected {}".format(0,1))
+                        #else:
+                        #    if OCF2A.get() == 1:
+                        #        TEST = False
+                        #        ERROR_LIST.append("OCF2A = {} expected {}".format(1,0))
+                        #Interrupt OVF
+                        if (TIMER2.TCNT2) == 0xFF:
+                            if TOV2.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OVF = {} expected {}".format(0,1))
+
+                        sys2.getSimulator().clk(1)
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+                    CURRENT_TEST = 'TEST4'
+                case 'TEST4': # TEST4 :Fast PWM Mode mode Compare Match Output B disconnected and A disconnected (writing using Ls to load data) | No prescaling (X5)
+                    results.write("TEST4\n")
+                    #Setup
+                    TIMER2.TCCR2A = 0x03
+                    TIMER2.TCCR2B = 0x01
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+                    TIMER2.TCNT2 = 0
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                    TIMER2.OC2A_val = 0
+                    TIMER2.OC2B_val = 0
+
+                    sys2.getSimulator().clk(1)
+
+                ## Testing
+                    for i in range(1,255):
+                        # counter test 
+                        if TIMER2.TCNT2 != i%256:
+                            TEST = False
+                            ERROR_LIST.append("TCNT2 = {} expected {}| iteration = {}".format(TIMER2.TCNT2,i%256))
+
+
+                        #Output A
+                        if OC2A.get() == 1:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}| iteration = {}".format(1,0,i))
+
+
+                        #Output B 
+                        if OC2B.get() == 1:# error val
+                            TEST = False
+                            ERROR_LIST.append("OC2B = {} expected {}| iteration = {}".format(1,0,i))
+
+
+                        #Interrupt A
+                        if (TIMER2.TCNT2) == TIMER2.OCR2A:
+                            if OCF2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2A = {} expected {}| iteration = {}".format(0,1,i))
+
+
+                        #Interrupt B 
+                        if (TIMER2.TCNT2) == TIMER2.OCR2B:
+                            if OCF2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2B = {} expected {}| iteration = {}".format(0,1,i))
+
+                        #Interrupt OVF
+                        if (TIMER2.TCNT2) == 0xFF:
+                            if TOV2.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OVF = {} expected {}".format(0,1))
+
+                        sys2.getSimulator().clk(1)
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+                    CURRENT_TEST = 'TEST5'
+                case 'TEST5':# TEST5 :Fast PWM Mode mode Compare Match Output B disconnected and A (Normal port operation, OC2A disconnected) (writing using Ls to load data) | No prescaling (X6.1)
+                    results.write("TEST5\n")
+                    #Setup
+                    TIMER2.TCCR2A = 0x53
+                    TIMER2.TCCR2B = 0x01
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+                    TIMER2.TCNT2 = 0
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                    TIMER2.OC2A_val = 0
+                    TIMER2.OC2B_val = 0
+
+                    last_OC2A = 0
+                    last_OC2B = 0
+
+                ## Testing
+                    for i in range(255):
+                        # counter test 
+                        if TIMER2.TCNT2 != i%256:
+                            TEST = False
+                            ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,i%256))
+
+                        #Output A
+                        if OC2A.get() == 1:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}".format(1,0))
+
+                        #Output B 
+                        if OC2B.get() == 1:# error val
+                            TEST = False
+                            ERROR_LIST.append("OC2B = {} expected {}".format(1,0))
+
+
+                        #Interrupt A
+                        if (TIMER2.TCNT2) == TIMER2.OCR2A:
+                            if OCF2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2A = {} expected {}| Iteration = {}".format(0,1,i))
+
+
+                        #Interrupt B 
+                        if TIMER2.TCNT2 == TIMER2.OCR2B:
+                            if OCF2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2B = {} expected {}| Iteration = {}".format(0,1,i))
+
+
+                        #Interrupt OVF
+                        if (TIMER2.TCNT2) == 0xFF:
+                            if TOV2.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OVF = {} expected {}| Iteration = {}".format(0,1,i))
+
+                        sys2.getSimulator().clk(1)
+
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+                    CURRENT_TEST = 'TEST6'
+                case 'TEST6':# TEST6 :Fast PWM Mode mode Compare Match Output B disconnected and A (Toggle OC2A on compare match.) (writing using Ls to load data) | No prescaling (X6.2)
+                    results.write("TEST6\n")
+                    #Setup
+                    TIMER2.TCCR2A = 0x53
+                    TIMER2.TCCR2B = 0x09
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+                    TIMER2.TCNT2 = 0
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                ## Testing
+                    for i in range(255):
+                        # counter test
+                        # NOTE: TCCR2A low bits = 11 and TCCR2B.WGM02 = 1 (0x09) select
+                        # WGM=7 (Fast PWM, TOP=OCR2A), NOT TOP=0xFF. TCNT2 free-runs
+                        # 0..OCR2A-1 and wraps every OCR2A counts (this DUT resets
+                        # TCNT2 to BOTTOM the instant it would equal TOP, so the
+                        # value TOP=OCR2A itself is never observed - see TimerCounter2
+                        # .Other_modes_Increment), so the expected value must be
+                        # taken modulo OCR2A, not modulo 255.
+                        expected_tcnt0 = i % (TIMER2.OCR2A + 1)
+                        if TIMER2.TCNT2 != expected_tcnt0:
+                            TEST = False
+                            ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,expected_tcnt0))
+
+                        #Output A 
+                        if TIMER2.TCNT2 >= TIMER2.OCR2A:
+                            if OC2A.get() == last_OC2A:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}| Iteration = {}".format(last_OC2A,(1-last_OC2A),i))
+                        else:
+                            last_OC2A = OC2A.get()
+
+
+                        if OC2B.get() == 1:# error val
+                            TEST = False
+                            ERROR_LIST.append("OC2B = {} expected {}| Iteration = {}".format(1,0,i))
+
+
+                        #Interrupt A
+                        if (TIMER2.TCNT2) == TIMER2.OCR2A:
+                            if OCF2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2A = {} expected {}| Iteration = {}".format(0,1,i))
+
+
+                        #Interrupt B 
+                        if TIMER2.TCNT2 == TIMER2.OCR2B:
+                            if OCF2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2B = {} expected {}| Iteration = {}".format(0,1,i))
+
+
+                        #Interrupt OVF
+                        if (TIMER2.TCNT2) == 0xFF:
+                            if TOV2.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OVF = {} expected {}| Iteration = {}".format(0,1,i))
+
+                        sys2.getSimulator().clk(1)
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+                    CURRENT_TEST = 'TEST7'
+                case 'TEST7':# TEST7 :Fast PWM Mode mode Compare Match Output B (Clear OC2B on compare match, set OC2B at BOTTOM,(non-inverting mode)) and A (Clear OC2A on compare match, set OC2A at BOTTOM,(non-inverting mode).) (writing using Ls to load data) | No prescaling (X7)
+                    results.write("TEST7\n")
+                    #Setup
+                    TIMER2.TCCR2A = 0xA3
+                    TIMER2.TCCR2B = 0x01
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                    TIMER2.OC2B_val = 1
+                    TIMER2.OC2A_val = 1
+
+                    sys2.getSimulator().clk(1)
+
+                    TIMER2.TCNT2 = 0
+
+                ## Testing
+                    for i in range(255):
+                        # counter test 
+                        if TIMER2.TCNT2 != i%256:
+                            TEST = False
+                            ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,i%256))
+
+                        #Output A 
+                        if TIMER2.TCNT2 >= TIMER2.OCR2A:
+                            if OC2A.get() == 1:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}| Iteration = {}".format(1,0,i))
+                        else:
+                            if OC2A.get() == 0:
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}| Iteration = {}".format(0,1,i))
+        
+                        #Output B 
+                        if TIMER2.TCNT2 >= TIMER2.OCR2B:
+                            if OC2B.get() == 1:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2B = {} expected {}| Iteration = {}".format(1,0,i))
+                        else:
+                            if OC2B.get() == 0:
+                                TEST = False
+                                ERROR_LIST.append("OC2B = {} expected {}| Iteration = {}".format(0,1,i))
+
+                        #Interrupt A
+                        if (TIMER2.TCNT2-1) == TIMER2.OCR2A:
+                            if OCF2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2A = {} expected {}| Iteration = {}".format(0,1,i))
+
+                        #Interrupt B 
+                        if (TIMER2.TCNT2-1) == TIMER2.OCR2B:
+                            if OCF2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2B = {} expected {}| Iteration = {}".format(0,1,i))
+                                
+                        #Interrupt OVF
+                        if (TIMER2.TCNT2) == 0xFF:
+                            if TOV2.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OVF = {} expected {}| Iteration = {}".format(0,1,i))
+
+                        sys2.getSimulator().clk(1)
+
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+
+                    CURRENT_TEST = 'TEST8'
+                case 'TEST8':# TEST8 :Fast PWM Mode mode Compare Match Output B (Set OC2B on compare match, clear OC2B at BOTTOM,(inverting mode)) and A (Set OC2A on compare match, clear OC2A at BOTTOM,(inverting mode).) (writing using Ls to load data) | No prescaling (X8)
+                    results.write("TEST8\n")
+                    #Setup
+                    TIMER2.TCCR2A = 0xF3
+                    TIMER2.TCCR2B = 0x01
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                    TIMER2.OC2B_val = 0
+                    TIMER2.OC2A_val = 0
+
+                    sys2.getSimulator().clk(1)
+                    TIMER2.TCNT2 = 0
+
+                ## Testing
+                    for i in range(255):
+                        # counter test 
+                        if TIMER2.TCNT2 != i:
+                            TEST = False
+                            ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,i))
+
+                        #Output A 
+                        if TIMER2.TCNT2 >= TIMER2.OCR2A:
+                            if OC2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}|Iteration {}".format(0,1,i))
+                        else:
+                            if OC2A.get() == 1:
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}|Iteration {}".format(1,0,i))
+        
+                        #Output B 
+                        if TIMER2.TCNT2 >= TIMER2.OCR2B:
+                            if OC2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2B = {} expected {}|Iteration {}".format(0,1,i))
+                        else:
+                            if OC2B.get() == 1:
+                                TEST = False
+                                ERROR_LIST.append("OC2B = {} expected {}|Iteration {}".format(1,0,i))
+
+                        #Interrupt A
+                        if (TIMER2.TCNT2-1) == TIMER2.OCR2A:
+                            if OCF2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2A = {} expected {}|Iteration {}".format(0,1,i))
+
+                        #Interrupt B 
+                        if (TIMER2.TCNT2-1) == TIMER2.OCR2B:
+                            if OCF2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2B = {} expected {}|Iteration {}".format(0,1,i))
+                                
+                        #Interrupt OVF
+                        if (TIMER2.TCNT2) == 0xFF:
+                            if TOV2.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OVF = {} expected {}|Iteration {}".format(0,1,i))
+
+                        sys2.getSimulator().clk(1)
+
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+
+                    CURRENT_TEST = 'TEST9'
+                case 'TEST9':# TEST9 :Phase Correct PWM mode Compare Match Output B disconnected and A disconnected (writing using Ls) | No prescaling (X9)
+                    results.write("TEST9\n")
+                    #Setup
+                    TIMER2.TCCR2A = 0x01
+                    TIMER2.TCCR2B = 0x01
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+                    TIMER2.TCNT2 = 0
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                    TIMER2.OC2B_val = 0
+                    TIMER2.OC2A_val = 0
+
+                    sys2.getSimulator().clk(1)
+                    TIMER2.TCNT2 = 0
+
+                ## Testing
+                    for i in range(255*2):
+                        # counter test 
+
+                        if i <= 255 :
+                            if TIMER2.TCNT2 != i:
+                                TEST = False
+                                ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,i))
+                        else: 
+                            if TIMER2.TCNT2 != (255 - (i - 255)):
+                                TEST = False
+                                ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,255-(i-255))) 
+
+
+                        #Output A 
+                        if ((TIMER2.TCNT2 >= TIMER2.OCR2A) and i<= 255) or ((TIMER2.TCNT2 <= TIMER2.OCR2A) and  i >= 255 ):
+                            if OC2A.get() == 1:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}|Iteration {}".format(0,1,i))
+        
+
+                        #Output B 
+                        if ((TIMER2.TCNT2 >= TIMER2.OCR2B) and (i<= 255)) or ((TIMER2.TCNT2 <= TIMER2.OCR2A) and (i >= 255)):
+                            if OC2B.get() == 1:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2B = {} expected {}|Iteration {}".format(0,1,i))
+
+
+                        #Interrupt A
+#                        if (TIMER2.TCNT2-1) == TIMER2.OCR2A:
+#                            if OCF2A.get() == 0:# error val
+#                                TEST = False
+#                                ERROR_LIST.append("OCF2A = {} expected {}|Iteration {}".format(0,1,i))
+#                        else:
+#                            if OCF2A.get() == 1:
+#                                TEST = False
+#                                ERROR_LIST.append("OCF2A = {} expected {}|Iteration {}".format(1,0,i))
+
+
+                        #Interrupt B 
+#                        if (TIMER2.TCNT2-1) == TIMER2.OCR2B:
+#                            if OCF2B.get() == 0:# error val
+#                                TEST = False
+#                                ERROR_LIST.append("OCF2B = {} expected {}".format(0,1))
+#                        else:
+#                            if OCF2B.get() == 1:
+#                                TEST = False
+#                                ERROR_LIST.append("OCF2B = {} expected {}".format(1,0))
+                                
+
+                        #Interrupt OVF
+#                        if (TIMER2.TCNT2) == 0xFF:
+#                            if TOV2.get() == 0:# error val
+#                                TEST = False
+#                                ERROR_LIST.append("OVF = {} expected {}".format(0,1))
+
+
+                        sys2.getSimulator().clk(1)
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+
+                    CURRENT_TEST = 'TEST10'
+                case 'TEST10':# TEST10 :Phase Correct PWM mode Compare Match Output B disconnected and A (Normal port operation, OC2A disconnected.) (writing using Ls) | No prescaling (X10.1)
+                    results.write("TEST10\n")
+                    #Setup
+                    TIMER2.TCCR2A = 0xA3
+                    TIMER2.TCCR2B = 0x01
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+
+                    TIMER2.OC2B_val = 0
+                    TIMER2.OC2A_val = 0
+                    sys2.getSimulator().clk(1)
+
+                    TIMER2.TCNT2 = 0
+
+                ## Testing
+                    for i in range(255):
+                        # counter test 
+                        if TIMER2.TCNT2 != i%256:
+                            TEST = False
+                            ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,i%256))
+
+
+                        #Output A 
+                        if OC2A.get() == 1:# error val
+                            TEST = False
+                            ERROR_LIST.append("OC2A = {} expected {}|Iteration {}".format(0,1,i))
+        
+
+                        #Output B 
+                        if OC2B.get() == 1:# error val
+                            TEST = False
+                            ERROR_LIST.append("OC2B = {} expected {}|Iteration {}".format(0,1,i))
+
+
+                        #Interrupt A
+                        if (TIMER2.TCNT2-1) == TIMER2.OCR2A:
+                            if OCF2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2A = {} expected {}|Iteration {}".format(0,1,i))
+#                        else:
+#                            if OCF2A.get() == 1:
+#                                TEST = False
+#                                ERROR_LIST.append("OCF2A = {} expected {}|Iteration {}".format(1,0,i))
+
+
+                        #Interrupt B 
+                        if (TIMER2.TCNT2-1) == TIMER2.OCR2B:
+                            if OCF2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2B = {} expected {}|Iteration {}".format(0,1,i))
+#                        else:
+#                            if OCF2B.get() == 1:
+#                                TEST = False
+#                                ERROR_LIST.append("OCF2B = {} expected {}|Iteration {}".format(1,0,i))
+                                
+
+                        #Interrupt OVF
+                        if (TIMER2.TCNT2) == 0xFF:
+                            if TOV2.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OVF = {} expected {}|Iteration {}".format(0,1,i))
+
+
+                        sys2.getSimulator().clk(1)
+
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+
+                    CURRENT_TEST = 'TEST11'
+                case 'TEST11':# TEST11 :Phase Correct PWM mode Compare Match Output B disconnected and A (Toggle OC2A on compare match.) (writing using Ls) | No prescaling (X10.2)
+                    results.write("TEST11\n")
+                    #Setup
+                    TIMER2.TCCR2A = 0xA3
+                    TIMER2.TCCR2B = 0x09
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                    TIMER2.OC2A_val = 0
+                    TIMER2.OC2B_val = 0
+
+                    sys2.getSimulator().clk(1)
+
+                    last_OCR2A = OC2A.get()
+                    TIMER2.TCNT2 = 0
+
+                ## Testing
+                    for i in range(255):
+                        # counter test 
+                        if TIMER2.TCNT2 != i%(TIMER2.OCR2A + 1):
+                            TEST = False
+                            ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,i%(TIMER2.OCR2A + 1)))
+
+                        #Output A 
+                        if ((TIMER2.TCNT2 == TIMER2.OCR2A) and i <= 255) or ((TIMER2.TCNT2 == TIMER2.OCR2A) and i>=255):
+                            if OC2A.get() == last_OCR2A:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}|Iteration {}".format(0,1,i))
+                        else:
+                            last_OCR2A
+
+
+                        #Interrupt A
+                        if (TIMER2.TCNT2-1) == TIMER2.OCR2A:
+                            if OCF2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2A = {} expected {}|Iteration {}".format(0,1,i))
+#                        else:
+#                            if OCF2A.get() == 1:
+#                                TEST = False
+#                                ERROR_LIST.append("OCF2A = {} expected {}|Iteration".format(1,0,i))
+
+                        #Interrupt B 
+                        if (TIMER2.TCNT2-1) == TIMER2.OCR2B:
+                            if OCF2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2B = {} expected {}|Iteration".format(0,1,i))
+#                        else:
+#                            if OCF2B.get() == 1:
+#                                TEST = False
+#                                ERROR_LIST.append("OCF2B = {} expected {}|Iteration".format(1,0,i))
+                                
+                        #Interrupt OVF
+                        if (TIMER2.TCNT2) == 0xFF:
+                            if TOV2.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OVF = {} expected {}|Iteration".format(0,1,i))
+
+
+                        sys2.getSimulator().clk(1)
+
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+
+                    CURRENT_TEST = 'TEST12'
+                case 'TEST12':# TEST12 :Phase Correct PWM mode Compare Match Output B (Clear OC2B on compare match when up-counting. Set OC2B on compare match when down-counting.) and A (Clear OC2A on compare match when up-counting. Set OC2A on compare match when down-counting.) (writing using Ls) | No prescaling (X11)
+                    results.write("TEST12\n")
+                    #Setup
+                    TIMER2.TCCR2A = 0xA1
+                    TIMER2.TCCR2B = 0x01
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+                    TIMER2.TCNT2 = 0
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                    TIMER2.OC2A_val = 1
+                    TIMER2.OC2B_val = 1
+
+                    sys2.getSimulator().clk(1)
+
+                    last_OCR2A = OC2A.get()
+                    TIMER2.TCNT2 = 0
+
+                    counter = 0
+                ## Testing
+                    for i in range(511):
+                        # counter test 
+                        if i < 255:
+                            if TIMER2.TCNT2 != i:
+                                TEST = False
+                                ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,i))
+                        elif i>=255:
+                            if TIMER2.TCNT2 != 255-counter:
+                                TEST = False
+                                ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,255-counter))
+                            counter += 1
+
+                        #Output A 
+                        if  64<=i<=445:   #((TIMER2.TCNT2 >= TIMER2.OCR2A) and (i < 255)) or ((TIMER2.TCNT2 <= TIMER2.OCR2A) and (i>=255)):
+                            if OC2A.get() == 1:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}|Iteration {}".format(1,0,i))
+                        else:
+                            if OC2A.get() == 0:
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}|Iteration {}".format(0,1,i))
+        
+                        #Output B 
+                        if  128<=i<=381:# (TIMER2.TCNT2 >= TIMER2.OCR2B) and i <= 255) or ((TIMER2.TCNT2 <= TIMER2.OCR2B) and i>=255):
+                            if OC2B.get() == 1:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2B = {} expected {}|Iteration {}".format(1,0,i))
+                        else:
+                            if OC2B.get() == 0:
+                                TEST = False
+                                ERROR_LIST.append("OC2B = {} expected {}|Iteration {}".format(0,1,i))
+
+                        #Interrupt A
+                        if (TIMER2.TCNT2-1) == TIMER2.OCR2A:
+                            if OCF2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2A = {} expected {}|Iteration {}".format(0,1,i))
+#                        else:
+#                            if OCF2A.get() == 1:
+#                                TEST = False
+#                                ERROR_LIST.append("OCF2A = {} expected {}".format(1,0))
+
+                        #Interrupt B 
+                        if (TIMER2.TCNT2-1) == TIMER2.OCR2B:
+                            if OCF2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2B = {} expected {}|Iteration {}".format(0,1,i))
+#                        else:
+#                            if OCF2B.get() == 1:
+#                                TEST = False
+#                                ERROR_LIST.append("OCF2B = {} expected {}".format(1,0))
+                                
+                        #Interrupt OVF
+#                        if (TIMER2.TCNT2) == 0xFF:
+#                            if TOV2.get() == 0:# error val
+#                                TEST = False
+#                                ERROR_LIST.append("OVF = {} expected {}".format(0,1))
+
+                        sys2.getSimulator().clk(1)
+
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+
+                    CURRENT_TEST = 'TEST13'
+                case 'TEST13':# TEST13 :Phase Correct PWM mode Compare Match Output B (Set OC2B on compare match when up-counting. Clear OC2B on compare match when down-counting, inverting mode) and A (Set OC2A on compare match when up-counting. Clear OC2A on compare match when down-counting, inverting mode) (writing using Ls) | No prescaling (X12)
+                    results.write("TEST13\n")
+                    #Setup
+                    TIMER2.TCCR2A = 0xF1
+                    TIMER2.TCCR2B = 0x01
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+                    TIMER2.TCNT2 = 0
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                    TIMER2.OC2A_val = 0
+                    TIMER2.OC2B_val = 0
+
+                    sys2.getSimulator().clk(1)
+
+                    last_OCR2A = OC2A.get()
+                    TIMER2.TCNT2 = 0
+
+                    counter = 0
+                ## Testing
+                    for i in range(511):
+                        # counter test 
+                        if i < 255:
+                            if TIMER2.TCNT2 != i:
+                                TEST = False
+                                ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,i))
+                        elif i>=255:
+                            if TIMER2.TCNT2 != 255-counter:
+                                TEST = False
+                                ERROR_LIST.append("TCNT2 = {} expected {}".format(TIMER2.TCNT2,255-counter))
+                            counter += 1
+
+                        #Output A (inverting: high inside the [OCR2A, 510-OCR2A] window)
+                        if  64<=i<=445:
+                            if OC2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}|Iteration {}".format(0,1,i))
+                        else:
+                            if OC2A.get() == 1:
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}|Iteration {}".format(1,0,i))
+        
+                        #Output B (inverting)
+                        if  128<=i<=381:
+                            if OC2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2B = {} expected {}|Iteration {}".format(0,1,i))
+                        else:
+                            if OC2B.get() == 1:
+                                TEST = False
+                                ERROR_LIST.append("OC2B = {} expected {}|Iteration {}".format(1,0,i))
+
+                        #Interrupt A
+                        if (TIMER2.TCNT2-1) == TIMER2.OCR2A:
+                            if OCF2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2A = {} expected {}|Iteration {}".format(0,1,i))
+
+                        #Interrupt B 
+                        if (TIMER2.TCNT2-1) == TIMER2.OCR2B:
+                            if OCF2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2B = {} expected {}|Iteration {}".format(0,1,i))
+
+                        sys2.getSimulator().clk(1)
+
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+
+                    CURRENT_TEST = 'TEST14'
+                case 'TEST14':# TEST14 :CTC Output B disconnected and A disconnected (writing using Ls to load data) | No prescaling (X13)
+                    results.write("TEST14\n")
+                    #Setup
+                    ## Loading the config values in memory
+                    TIMER2.TCCR2A = 0x02
+                    TIMER2.TCCR2B = 0x01
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+                    TIMER2.TCNT2 = 0
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                    last_OC2A = 0
+                    last_OC2B = 0
+
+                    TIMER2.OC2A_val = 0
+                    TIMER2.OC2B_val = 0
+
+                    sys2.getSimulator().clk(1)
+
+                    TIMER2.TCNT2 = 0
+
+                    counter = 0
+                    ## Testing
+                    for i in range(128):
+                        # counter test 
+
+                        if (TIMER2.TCNT2) <= TIMER2.OCR2A:
+                                if TIMER2.TCNT2 != i%(TIMER2.OCR2A + 1):
+                                    TEST = False
+                                    ERROR_LIST.append("TCNT2 = {} expected {}|Iteration {}".format(TIMER2.TCNT2,i%(TIMER2.OCR2A + 1),i))
+                        
+
+
+                        #Output A
+                        if OC2A.get() == 1:# error val
+                                TEST = False
+                                ERROR_LIST.append("OC2A = {} expected {}".format(1,0))
+
+
+                        #Output B 
+                        if OC2B.get() == 1:# error val
+                            TEST = False
+                            ERROR_LIST.append("OC2B = {} expected {}".format(1,0))
+
+
+                        #Interrupt A
+                        if (TIMER2.TCNT2) == TIMER2.OCR2A:
+                            counter = 0
+                            if OCF2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2A = {} expected {}| iteration = {}".format(0,1,i))
+
+
+                        #Interrupt B 
+                        if (TIMER2.TCNT2) == TIMER2.OCR2B:
+                            if OCF2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2B = {} expected {}| iteration = {}".format(0,1,i))
+
+                        #Interrupt OVF
+                        if (TIMER2.TCNT2) == 0xFF:
+                            if TOV2.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OVF = {} expected {}".format(0,1))
+
+                        sys2.getSimulator().clk(1)
+                        counter+=1
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+                    CURRENT_TEST = 'TEST15'
+                case 'TEST15':# TEST15 :Normal mode Compare Match Output B disconnected and A disconnected (writing using Ls) | /32 prescaler (X14)
+                    results.write("TEST15\n")
+                    #Setup
+                    TIMER2.TCCR2A = 0x00
+                    TIMER2.TCCR2B = 0x03  # CS22:20 = 011 -> clk/32 (Timer2-specific tap)
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+                    TIMER2.TCNT2 = 0
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                    TIMER2.OC2A_val = 0
+                    TIMER2.OC2B_val = 0
+
+                    sys2.getSimulator().clk(1)
+
+                    TIMER2.TCNT2 = 0
+                    counter = 0
+                    clockCounter = 1
+                ## Testing
+                    for i in range(8192):
+
+                        # counter test 
+                        if TIMER2.TCNT2 != counter%256:
+                            TEST = False
+                            ERROR_LIST.append("TCNT2 = {} expected {}|Iteration {}".format(TIMER2.TCNT2,counter%256,i))
+
+                        #Output A 
+                        if OC2A.get() == 1:# error val
+                            TEST = False
+                            ERROR_LIST.append("OC2A = {} expected {}|Iteration {}".format(0,1,i))
+
+                        #Output B 
+                        if OC2B.get() == 1:# error val
+                            TEST = False
+                            ERROR_LIST.append("OC2B = {} expected {}|Iteration {}".format(0,1,i))
+
+                        #Interrupt A
+                        if (TIMER2.TCNT2) == TIMER2.OCR2A:
+                            if OCF2A.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2A = {} expected {}|Iteration {}".format(0,1,i))
+
+                        #Interrupt B 
+                        if (TIMER2.TCNT2) == TIMER2.OCR2B:
+                            if OCF2B.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OCF2B = {} expected {}|Iteration {}".format(0,1,i))
+
+                        #Interrupt OVF (fires the cycle AFTER TCNT2 reads 0xFF, i.e. when it reads 0 again)
+                        if (TIMER2.TCNT2) == 0 and counter > 0:
+                            if TOV2.get() == 0:# error val
+                                TEST = False
+                                ERROR_LIST.append("OVF = {} expected {}|Iteration {}".format(0,1,i))
+
+                        sys2.getSimulator().clk(1)
+                        clockCounter += 1
+                        if clockCounter >= 32:
+                            clockCounter = 0
+                            counter += 1 
+
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+                    CURRENT_TEST = 'TEST16'
+                case 'TEST16':# TEST16 :Normal mode Compare Match Output B disconected and A disconected (writing using Ls) | /8 prescaler (X15)
+                    results.write("TEST16\n")
+                    #Setup
+                    TIMER2.TCCR2A = 0x00
+                    TIMER2.TCCR2B = 0x02
+
+                    TIMER2.OCR2A = 64
+                    TIMER2.OCR2B = 128
+
+                    TIMER2.TCNT2 = 0
+
+                    ERROR_LIST = []
+                    TEST = True 
+
+                    TIMER2.TIMSK2 = 0b111
+                    TIMER2.TIFR2 = 0 # clear interrupts
+
+                    TIMER2.OC2A_val = 0
+                    TIMER2.OC2B_val = 0
+
+                    sys2.getSimulator().clk(1)
+
+                    TIMER2.TCNT2 = 0
+                    counter = 0
+                    clockCounter = 1
+                ## Testing
+                    for i in range(4080):
+
+                        # counter test 
+                        if TIMER2.TCNT2 != counter%256:
+                            TEST = False
+                            ERROR_LIST.append("TCNT2 = {} expected {}|Iteration {}".format(TIMER2.TCNT2,counter%256,i))
+
+
+                        #Output A 
+                        if OC2A.get() == 1:# error val
+                            TEST = False
+                            ERROR_LIST.append("OC2A = {} expected {}|Iteration {}".format(0,1,i))
+
+        
+
+                        #Output B 
+                        if OC2B.get() == 1:# error val
+                            TEST = False
+                            ERROR_LIST.append("OC2B = {} expected {}|Iteration {}".format(0,1,i))
+
+
+                        #Interrupt A
+#                        if (TIMER2.TCNT2-1) == TIMER2.OCR2A:
+#                            if OCF2A.get() == 0:# error val
+#                                TEST = False
+#                                ERROR_LIST.append("OC2A = {} expected {}|Iteration {}".format(0,1,i))
+#                        else:
+#                            if OCF2A.get() == 1:
+#                                TEST = False
+#                                ERROR_LIST.append("OC2A = {} expected {}|Iteration {}".format(1,0,i))
+
+                        #Interrupt B 
+#                        if (TIMER2.TCNT2-1) == TIMER2.OCR2B:
+#                            if OCF2B.get() == 0:# error val
+#                                TEST = False
+#                                ERROR_LIST.append("OC2B = {} expected {}|Iteration {}".format(0,1,i))
+#                        else:
+#                            if OCF2B.get() == 1:
+#                                TEST = False
+#                                ERROR_LIST.append("OC2B = {} expected {}|Iteration {}".format(1,0,i))
+                                
+                        #Interrupt OVF
+#                        if (TIMER2.TCNT2) == 0xFF:
+#                            if TOV2.get() == 0:# error val
+#                                TEST = False
+#                                ERROR_LIST.append("OVF = {} expected {}|Iteration {}".format(0,1,i))
+
+                        sys2.getSimulator().clk(1)
+                        clockCounter += 1
+                        if clockCounter >= 8:
+                            clockCounter = 0
+                            counter += 1 
+
+
+                    ## Storing data
+                    ITEM = []
+                    ITEM.append(TEST)
+                    ITEM.append(ERROR_LIST)
+                    results.write('%s\n' %ITEM)
+
+
+                    CURRENT_TEST = 'FINAL'
+                case 'FINAL':
+                    results.write("TEST SUMMARY:")
+                    
+                    
+                    results.close()
+
+                    break
+                    wvf.gui()
+                    Testing = False
+                    CURRENT_TEST = 'FINAL'
+
+if __name__ == "__main__":
+    TestBench_of_Timer2()

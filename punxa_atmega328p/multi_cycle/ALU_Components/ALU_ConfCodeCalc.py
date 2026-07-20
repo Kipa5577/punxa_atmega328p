@@ -74,7 +74,7 @@ class ALU_ConfCodeCalc(py4hw.Logic):
             hen, sen, ven, nen, zen, cen = 1, 1, 1, 1, 1, 1
             hopp = 3 # HandleH Mode 3: 8-bit Subtraction
             vopp = 3 # HandleV Mode 3: 8-bit Subtraction
-            copp = 3 # HandleC Mode 2: 8-bit Subtraction
+            copp = 3 # HandleC Mode 3: 8-bit Subtraction
             sopp, nopp = S_MODE_XOR, N_MODE_8BIT
             
             # SBC, SBCI, and CPC use chained Z-flag comparison to support multi-byte operations
@@ -105,18 +105,28 @@ class ALU_ConfCodeCalc(py4hw.Logic):
             vopp = 0 # HandleV Mode 0: Force Clear
             sopp, zopp, nopp = S_MODE_XOR, Z_MODE_8BIT, N_MODE_8BIT
 
-        elif inst == 14: # 14: COM
+        elif inst == 14:  # COM
             sen, ven, nen, zen, cen = 1, 1, 1, 1, 1
             hen = 0
-            vopp = 0 # HandleV Mode 0: Force Clear
-            copp = 4 # HandleC Mode 4: Force Carry to 1
-            sopp, zopp, nopp = S_MODE_XOR, Z_MODE_8BIT, N_MODE_8BIT
+
+            # COM:
+            # C = 1
+            # V = 0
+            # N = bit7(result)
+            # Z = result == 0
+            # S = N xor V
+
+            vopp = 0
+            copp = 6          # HandleC Mode 6: Force Carry to 1
+            sopp = S_MODE_XOR
+            zopp = Z_MODE_8BIT
+            nopp = N_MODE_8BIT
 
         elif inst == 15: # 15: NEG
             hen, sen, ven, nen, zen, cen = 1, 1, 1, 1, 1, 1
-            hopp = 3 # HandleH Mode 3: Subtraction logic 
-            vopp = 5 # HandleV Mode 5: Two's Complement Negation
-            copp = 5 # HandleC Mode 5: Two's Complement Negation
+            hopp = 4 # HandleH Mode 4: NEG-specific half-carry (H = R3 | Rd3)
+            vopp = 6 # HandleV Mode 6: Overflow iff result == 0x80 (same as INC)
+            copp = 7 # Must be Mode 7 for HandleC Two's Complement Negation
             sopp, zopp, nopp = S_MODE_XOR, Z_MODE_8BIT, N_MODE_8BIT
 
         elif inst == 18: # 18: INC
@@ -134,6 +144,29 @@ class ALU_ConfCodeCalc(py4hw.Logic):
         elif inst == 22: # 22: SER
             # No flags are updated by SER (Equivalent to LDI)
             pass
+
+        elif inst in (67, 68, 69, 70, 71):
+            cen = 1 
+            zen = 1
+            nen = 1
+            ven = 1
+            sen = 1 
+            hen = 0
+
+            zopp= Z_MODE_8BIT
+            sopp= S_MODE_XOR
+            vopp= 9 # HandleV Mode 9: Shift/Rotate overflow (V = N XOR C)
+
+            if inst in (67,69): # LSL / ROL
+                copp = 10   # Carry <- old bit 7
+                nopp = N_MODE_8BIT
+            elif inst == 68:    # LSR
+                copp = 9    # Carry <- old bit 0
+                nopp = 0    # N is always cleared for LSR
+            else:           # ROR / ASR 
+                copp = 9    # Carry <- old bit 0
+                nopp = N_MODE_8BIT
+
 
         elif inst in (23, 24, 25, 26, 27, 28): # 23-28: MUL Family (MUL, MULS, MULSU, FMUL, FMULS, FMULSU)
             zen, cen = 1, 1
@@ -169,6 +202,42 @@ class ALU_ConfCodeCalc(py4hw.Logic):
                     
             # 2. Output CLEAR mode (0) to all handlers
             iopp, topp, hopp, sopp, vopp, nopp, zopp, copp = 0, 0, 0, 0, 0, 0, 0, 0
+
+        elif 77 <= inst <= 92: # SEC/CLC .. SEH/CLH: dedicated single-flag set/clear
+            # Each of these is a standalone instruction (distinct opcode from
+            # BSET/BCLR) that sets or clears exactly one SREG bit. Mode 0 =
+            # clear, Mode 1 = set, matching every Handle_X's own convention.
+            _SET_CLEAR_MAP = {
+                77: ('c', 1), 78: ('c', 0),   # SEC / CLC
+                79: ('n', 1), 80: ('n', 0),   # SEN / CLN
+                81: ('z', 1), 82: ('z', 0),   # SEZ / CLZ
+                83: ('i', 1), 84: ('i', 0),   # SEI / CLI
+                85: ('s', 1), 86: ('s', 0),   # SES / CLS
+                87: ('v', 1), 88: ('v', 0),   # SEV / CLV
+                89: ('t', 1), 90: ('t', 0),   # SET / CLT
+                91: ('h', 1), 92: ('h', 0),   # SEH / CLH
+            }
+            flag, val = _SET_CLEAR_MAP[inst]
+            if flag == 'c':
+                cen, copp = 1, val
+            elif flag == 'z':
+                zen, zopp = 1, val
+            elif flag == 'n':
+                nen, nopp = 1, val
+            elif flag == 'v':
+                ven, vopp = 1, val
+            elif flag == 's':
+                sen, sopp = 1, val
+            elif flag == 'h':
+                hen, hopp = 1, val
+            elif flag == 't':
+                ten, topp = 1, val
+            elif flag == 'i':
+                ien, iopp = 1, val
+
+        elif inst == 75: # BST: store bit BitPos of Rd into the T flag
+            ten = 1
+            topp = 2 # HandleT Mode 2: Bit Store
 
         elif inst in (45,49,47,53,61,55,57,59,63): # BRBS 
             # Test one specific bit of SREG, bit index is carried in BitPos,

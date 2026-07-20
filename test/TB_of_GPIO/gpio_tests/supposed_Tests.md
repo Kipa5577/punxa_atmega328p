@@ -1,0 +1,117 @@
+# priority implementation
+test_gpio_reset_values
+test_gpio_ddr_write
+test_gpio_port_write
+test_gpio_pin_read
+test_gpio_single_pin_output
+test_gpio_single_pin_input
+test_gpio_output_high
+test_gpio_output_low
+test_gpio_output_toggle
+test_gpio_pullup_enable
+test_gpio_pullup_disable
+test_gpio_input_with_pullup
+test_gpio_pin_toggle_by_write
+test_gpio_runtime_ddr_change
+test_gpio_portb_independence
+test_gpio_portc_independence
+test_gpio_portd_independence
+test_gpio_read_after_write
+test_gpio_input_output_transition
+test_gpio_output_input_transition
+
+
+
+
+# GPIO Register Behavior
+
+test_gpio_reset_values
+test_gpio_ddr_write
+test_gpio_port_write
+test_gpio_pin_read
+test_gpio_pin_toggle_by_write
+test_gpio_register_independence
+
+# Direction Control
+
+test_gpio_single_pin_output
+test_gpio_single_pin_input
+test_gpio_all_pins_output
+test_gpio_all_pins_input
+test_gpio_mixed_input_output
+test_gpio_direction_change_runtime
+
+# Output Operation
+
+test_gpio_output_low
+test_gpio_output_high
+test_gpio_output_toggle
+test_gpio_output_multiple_pins
+test_gpio_output_independent_pins
+
+# Input Operation
+
+test_gpio_input_low
+test_gpio_input_high
+test_gpio_input_with_external_drive
+test_gpio_input_without_pullup
+test_gpio_input_with_pullup
+test_gpio_pullup_enable
+test_gpio_pullup_disable
+
+# PIN Register
+
+test_gpio_pin_toggle_single_bit
+test_gpio_pin_toggle_multiple_bits
+test_gpio_pin_write_no_effect_on_inputs
+
+# Runtime Behavior
+
+test_gpio_runtime_ddr_change
+test_gpio_runtime_port_change
+test_gpio_runtime_pullup_change
+test_gpio_runtime_output_toggle
+
+# Port Independence
+
+test_gpio_portb_independence
+test_gpio_portc_independence
+test_gpio_portd_independence
+test_gpio_cross_port_independence
+
+# Bit Independence
+
+test_gpio_bit0_independence
+test_gpio_bit7_independence
+test_gpio_adjacent_bit_independence
+test_gpio_non_adjacent_bit_independence
+
+# Read/Write Consistency
+
+test_gpio_read_after_write
+test_gpio_read_after_toggle
+test_gpio_input_output_transition
+test_gpio_output_input_transition
+
+# Edge Cases
+
+test_gpio_all_zeros
+test_gpio_all_ones
+test_gpio_alternating_pattern
+test_gpio_checkerboard_pattern
+test_gpio_invalid_register_write
+
+# Electrical Behavior
+
+test_gpio_high_impedance_input
+test_gpio_pullup_with_external_low
+test_gpio_pullup_with_external_high
+test_gpio_output_drive_strength
+
+# Stress Tests
+
+test_gpio_repeated_toggle
+test_gpio_repeated_direction_change
+test_gpio_repeated_pullup_enable_disable
+test_gpio_long_runtime_operation
+

@@ -362,7 +362,7 @@ if __name__ == "__main__":
     # --- CONFIGURATION FLAGS ---
     # Change these to True or False to select which CPU to test
     TEST_SINGLE_CYCLE = True
-    TEST_MULTI_CYCLE = False
+    TEST_MULTI_CYCLE = True
     # ---------------------------
 
     # Assemble the program

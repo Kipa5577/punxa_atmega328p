@@ -1,5 +1,66 @@
 from .SmallFSMS.INSTRUCTION_FSM_BOX import *
 from .SmallFSMS.MainFSM import *
+from .SmallFSMS.InterruptFSM import InterruptFSM
+
+
+class _InterruptBusMerge(py4hw.Logic):
+    """
+    Tiny OR-merge, same principle as FSM_OutputMerger but scoped to just the
+    handful of bus-control signals both INSTRUCTION_FSM_BOX (normal
+    instruction execution) and InterruptFSM (interrupt entrance + RETI) can
+    drive. Since InterruptFSM sits OUTSIDE INSTRUCTION_FSM_BOX (it needs an
+    Entrance trigger that works even when INSTRUCTION_FSM_BOX's `run` is 0),
+    its outputs never got included in FSM_OutputMerger's 6-way OR — this is
+    the second, smaller merge stage that combines the two.
+
+    Safe because the two are mutually exclusive in time: INSTRUCTION_FSM_BOX
+    only drives non-zero here while MainFSM.run=1 (normal instruction
+    execution), and InterruptFSM only drives non-zero during INTERRUPT_ENTRY
+    (run=0) or while running RETI specifically (the one instruction
+    INSTRUCTION_FSM_BOX's own FSM_SELECTOR no longer routes anywhere).
+    """
+    def __init__(self, parent, name,
+                 ib_done, ib_read_write, ib_mem_instr, ib_input_select_mem,
+                 ib_incdec, ib_load_pcl, ib_load_pch,
+                 irq_done, irq_read_write, irq_mem_instr, irq_input_select_mem,
+                 irq_incdec, irq_load_pcl, irq_load_pch,
+                 out_done, out_read_write, out_mem_instr, out_input_select_mem,
+                 out_incdec, out_load_pcl, out_load_pch):
+        super().__init__(parent, name)
+        self.ib_done              = self.addIn('ib_done', ib_done)
+        self.ib_read_write        = self.addIn('ib_read_write', ib_read_write)
+        self.ib_mem_instr         = self.addIn('ib_mem_instr', ib_mem_instr)
+        self.ib_input_select_mem  = self.addIn('ib_input_select_mem', ib_input_select_mem)
+        self.ib_incdec            = self.addIn('ib_incdec', ib_incdec)
+        self.ib_load_pcl          = self.addIn('ib_load_pcl', ib_load_pcl)
+        self.ib_load_pch          = self.addIn('ib_load_pch', ib_load_pch)
+
+        self.irq_done             = self.addIn('irq_done', irq_done)
+        self.irq_read_write       = self.addIn('irq_read_write', irq_read_write)
+        self.irq_mem_instr        = self.addIn('irq_mem_instr', irq_mem_instr)
+        self.irq_input_select_mem = self.addIn('irq_input_select_mem', irq_input_select_mem)
+        self.irq_incdec           = self.addIn('irq_incdec', irq_incdec)
+        self.irq_load_pcl         = self.addIn('irq_load_pcl', irq_load_pcl)
+        self.irq_load_pch         = self.addIn('irq_load_pch', irq_load_pch)
+
+        self.out_done             = self.addOut('out_done', out_done)
+        self.out_read_write       = self.addOut('out_read_write', out_read_write)
+        self.out_mem_instr        = self.addOut('out_mem_instr', out_mem_instr)
+        self.out_input_select_mem = self.addOut('out_input_select_mem', out_input_select_mem)
+        self.out_incdec           = self.addOut('out_incdec', out_incdec)
+        self.out_load_pcl         = self.addOut('out_load_pcl', out_load_pcl)
+        self.out_load_pch         = self.addOut('out_load_pch', out_load_pch)
+
+    def propagate(self):
+        self.out_done.put(self.ib_done.get() | self.irq_done.get())
+        self.out_read_write.put(self.ib_read_write.get() | self.irq_read_write.get())
+        self.out_mem_instr.put(self.ib_mem_instr.get() | self.irq_mem_instr.get())
+        self.out_input_select_mem.put(self.ib_input_select_mem.get() | self.irq_input_select_mem.get())
+        self.out_incdec.put(self.ib_incdec.get() | self.irq_incdec.get())
+        self.out_load_pcl.put(self.ib_load_pcl.get() | self.irq_load_pcl.get())
+        self.out_load_pch.put(self.ib_load_pch.get() | self.irq_load_pch.get())
+
+
 
 class control_Box(py4hw.Logic):
     """
@@ -47,6 +108,17 @@ class control_Box(py4hw.Logic):
                  CB_K_Select,
                  CB_LPM_req,                # To RomHandler: enables loading of the program memory value
                  CB_SPM_req,                # To RomHandler: enables the storing of the value past to romHandler in to the program memory  1 = LMP | 2 = LMPZ | 3 = LMPZ+
+                 CB_SPM_Done,               # From RomHandler: pulses one cycle when an SPM_req write has committed to ROM
+
+                 # -- Interrupt entrance hook (see MainFSM) — always wired,
+                 #    not optional. --
+                 CB_Interrupt_Entrance,  # 1-bit OUT: mirrors MainFSM's Interrupt_Entrance, exposed for debug
+                 # NOTE: CB_Interrupt_Done is intentionally NOT an external
+                 # parameter anymore — it's now purely internal, driven by
+                 # InterruptFSM.Interrupt_Done straight into MainFSM. No
+                 # external caller should ever supply this signal.
+                 CB_I_Force_WE,          # 1-bit OUT: InterruptFSM's direct SREG-I-flag write-enable, to MemoryInterfaceHandler
+                 CB_I_Force_Value,       # 1-bit OUT: value to force I to when CB_I_Force_WE=1
                  ):
         super().__init__(parent, name)
 
@@ -62,6 +134,7 @@ class control_Box(py4hw.Logic):
         self.CB_Instruction_decoded = self.addIn('CB_Instruction_decoded', CB_Instruction_decoded)  # Handshake: decoded instruction fields are valid/stable
         self.CB_Executed_Jump       = self.addIn('CB_Executed_Jump', CB_Executed_Jump)              # Handshake: jump/branch/call target committed to PC this cycle
         self.CB_Address_fetched     = self.addIn('CB_Address_fetched', CB_Address_fetched)          # Handshake for 16-bit address fetch
+        self.CB_SPM_Done            = self.addIn('CB_SPM_Done', CB_SPM_Done)                        # From RomHandler: pulses when an SPM_req write has committed
 
 
         self.CB_LoadSelectMux          = self.addOut('CB_LoadSelectMux', CB_LoadSelectMux)                            # Selects the displacement/offset source for address generation
@@ -88,14 +161,42 @@ class control_Box(py4hw.Logic):
         self.CB_LPM_req                = self.addOut('CB_LPM_req',CB_LPM_req)
         self.CB_SPM_req                = self.addOut('CB_SPM_req',CB_SPM_req)
 
+        # Interrupt entrance hook — always wired, not optional.
+        self.CB_Interrupt_Entrance     = self.addOut('CB_Interrupt_Entrance', CB_Interrupt_Entrance)
+        self.CB_I_Force_WE             = self.addOut('CB_I_Force_WE', CB_I_Force_WE)
+        self.CB_I_Force_Value          = self.addOut('CB_I_Force_Value', CB_I_Force_Value)
+
         # ==============================================================
         # INTERNAL WIRES
         # ==============================================================
         # Bridging MainFSM 'run' output to INSTRUCTION_FSM_BOX 'run' input
         self.w_run = py4hw.Wire(self, 'w_run', 1)
-        
-        # Bridging INSTRUCTION_FSM_BOX 'done' output back to MainFSM 'done' input
+
+        # Bridging the merged 'done' back to MainFSM 'done' input
         self.w_done = py4hw.Wire(self, 'w_done', 1)
+
+        # MainFSM.Interrupt_Done: purely internal now, driven by
+        # InterruptFSM.Interrupt_Done directly (no external supplier).
+        self.w_interrupt_done = py4hw.Wire(self, 'w_interrupt_done', 1)
+
+        # Pre-merge wires: INSTRUCTION_FSM_BOX's own contribution to the
+        # signals InterruptFSM also needs to drive (see _InterruptBusMerge).
+        self.w_ib_done              = py4hw.Wire(self, 'w_ib_done', 1)
+        self.w_ib_read_write        = py4hw.Wire(self, 'w_ib_read_write', 2)
+        self.w_ib_mem_instr         = py4hw.Wire(self, 'w_ib_mem_instr', 5)
+        self.w_ib_input_select_mem  = py4hw.Wire(self, 'w_ib_input_select_mem', 5)
+        self.w_ib_incdec            = py4hw.Wire(self, 'w_ib_incdec', 3)
+        self.w_ib_load_pcl          = py4hw.Wire(self, 'w_ib_load_pcl', 1)
+        self.w_ib_load_pch          = py4hw.Wire(self, 'w_ib_load_pch', 1)
+
+        # Pre-merge wires: InterruptFSM's own contribution to the same signals.
+        self.w_irq_done              = py4hw.Wire(self, 'w_irq_done', 1)
+        self.w_irq_read_write        = py4hw.Wire(self, 'w_irq_read_write', 2)
+        self.w_irq_mem_instr         = py4hw.Wire(self, 'w_irq_mem_instr', 5)
+        self.w_irq_input_select_mem  = py4hw.Wire(self, 'w_irq_input_select_mem', 5)
+        self.w_irq_incdec            = py4hw.Wire(self, 'w_irq_incdec', 3)
+        self.w_irq_load_pcl          = py4hw.Wire(self, 'w_irq_load_pcl', 1)
+        self.w_irq_load_pch          = py4hw.Wire(self, 'w_irq_load_pch', 1)
 
         # ==============================================================
         # SUB-COMPONENTS
@@ -108,14 +209,20 @@ class control_Box(py4hw.Logic):
             MAIN_Interrupt=self.CB_Interrupt,
             MAIN_Instruction_fetched=self.CB_Instruction_fetched,
             MAIN_Instruction_decoded=self.CB_Instruction_decoded,
-            MAIN_DONE=self.w_done,       # Reads the internal done wire
+            MAIN_DONE=self.w_done,       # Reads the internal (merged) done wire
             MAIN_RUN=self.w_run,          # Drives the internal run wire
             MAIN_Instruction=self.CB_Instruction,      # instruction code (opcode), used to size JumpWidth
             MAIN_JumpWidth=self.CB_JumpWidth,
-            MAIN_Fetch_next_instruction=self.CB_Fetch_next_instruction
+            MAIN_Fetch_next_instruction=self.CB_Fetch_next_instruction,
+            MAIN_Interrupt_Entrance=self.CB_Interrupt_Entrance,
+            MAIN_Interrupt_Done=self.w_interrupt_done
         )
 
-        # 2. Instruction Execution Box
+        # 2. Instruction Execution Box (normal instruction dispatch — RETI
+        #    excluded, see FSM_SELECTOR.CALLRET_FSM_INS). Its contribution
+        #    to the 6 signals InterruptFSM also needs lands on the w_ib_*
+        #    wires below instead of going straight to the CB_* ports, so
+        #    _InterruptBusMerge can OR it with InterruptFSM's contribution.
         self.instruction_box = INSTRUCTION_FSM_BOX(
             self, 'INSTRUCTION_FSM_BOX',
             IFB_RUN=self.w_run,         # Reads from the internal run wire
@@ -125,14 +232,14 @@ class control_Box(py4hw.Logic):
             IFB_Executed_Jump=self.CB_Executed_Jump,
             IFB_Address_fetched=self.CB_Address_fetched,
             
-            IFB_DONE = self.w_done,
+            IFB_DONE = self.w_ib_done,
             IFB_LoadSelectMux=self.CB_LoadSelectMux,
             IFB_LoadingMux=self.CB_LoadingMux,
-            IFB_Input_Select=self.CB_Input_Select,
+            IFB_Input_Select=self.w_ib_input_select_mem,
             IFB_WE_MEMORY=self.CB_WE_MEMORY,
-            IFB_Read_Write=self.CB_Read_Write,
-            IFB_Mem_Instruction=self.CB_mem_instr,
-            IFB_IncDec=self.CB_IncDec,
+            IFB_Read_Write=self.w_ib_read_write,
+            IFB_Mem_Instruction=self.w_ib_mem_instr,
+            IFB_IncDec=self.w_ib_incdec,
             IFB_InputSelect=self.CB_InputSelect,
             IFB_WE_Buffer=self.CB_WE_Buffer,
             IFB_Load_Z=self.CB_Load_Z,
@@ -142,9 +249,60 @@ class control_Box(py4hw.Logic):
             IFB_Load_Byte=self.CB_Load_Byte,
             IFB_Fetch_Address=self.CB_Fetch_Address,
             IFB_WB_Addr=self.CB_WB_Addr,
-            IFB_LOAD_PCL=self.CB_LOAD_PCL,
-            IFB_LOAD_PCH=self.CB_LOAD_PCH,
+            IFB_LOAD_PCL=self.w_ib_load_pcl,
+            IFB_LOAD_PCH=self.w_ib_load_pch,
             IFB_K_Select=self.CB_K_Select,
             IFB_LPM_req=self.CB_LPM_req,
             IFB_SPM_req=self.CB_SPM_req,
+            IFB_SPM_Done=self.CB_SPM_Done,
+        )
+
+        # 3. InterruptFSM — sibling of INSTRUCTION_FSM_BOX, not inside it.
+        #    Entrance is a direct pulse from MainFSM (works even though
+        #    w_run stays 0 the whole time MainFSM is parked in
+        #    INTERRUPT_ENTRY); Run+Instruction catch RETI exactly the way
+        #    every other sub-FSM gets dispatched.
+        self.interrupt_fsm = InterruptFSM(
+            self, 'InterruptFSM',
+            Run=self.w_run,
+            Instruction=self.CB_Instruction,
+            Entrance=self.CB_Interrupt_Entrance,
+            Resp=self.CB_Resp,
+            Done=self.w_irq_done,
+            Read_Write=self.w_irq_read_write,
+            Mem_Instruction=self.w_irq_mem_instr,
+            InputSelectMemory=self.w_irq_input_select_mem,
+            IncDec=self.w_irq_incdec,
+            LOAD_PCL=self.w_irq_load_pcl,
+            LOAD_PCH=self.w_irq_load_pch,
+            Interrupt_Done=self.w_interrupt_done,
+            I_Force_WE=self.CB_I_Force_WE,
+            I_Force_Value=self.CB_I_Force_Value,
+        )
+
+        # 4. Merge INSTRUCTION_FSM_BOX's and InterruptFSM's contributions to
+        #    the shared bus-control signals onto the real external ports.
+        self.interrupt_bus_merge = _InterruptBusMerge(
+            self, 'InterruptBusMerge',
+            ib_done=self.w_ib_done,
+            ib_read_write=self.w_ib_read_write,
+            ib_mem_instr=self.w_ib_mem_instr,
+            ib_input_select_mem=self.w_ib_input_select_mem,
+            ib_incdec=self.w_ib_incdec,
+            ib_load_pcl=self.w_ib_load_pcl,
+            ib_load_pch=self.w_ib_load_pch,
+            irq_done=self.w_irq_done,
+            irq_read_write=self.w_irq_read_write,
+            irq_mem_instr=self.w_irq_mem_instr,
+            irq_input_select_mem=self.w_irq_input_select_mem,
+            irq_incdec=self.w_irq_incdec,
+            irq_load_pcl=self.w_irq_load_pcl,
+            irq_load_pch=self.w_irq_load_pch,
+            out_done=self.w_done,
+            out_read_write=self.CB_Read_Write,
+            out_mem_instr=self.CB_mem_instr,
+            out_input_select_mem=self.CB_Input_Select,
+            out_incdec=self.CB_IncDec,
+            out_load_pcl=self.CB_LOAD_PCL,
+            out_load_pch=self.CB_LOAD_PCH,
         )

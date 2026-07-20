@@ -61,6 +61,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
                  IFB_K_Select,
                  IFB_LPM_req,
                  IFB_SPM_req,
+                 IFB_SPM_Done,
                  ):
         super().__init__(parent, name)
 
@@ -71,6 +72,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
         self.Branch                 = self.addIn('Branch',                 IFB_Branch)
         self.Executed_Jump          = self.addIn('Executed_Jump',          IFB_Executed_Jump)
         self.Address_fetched        = self.addIn('Address_fetched',        IFB_Address_fetched) 
+        self.SPM_Done               = self.addIn('SPM_Done',               IFB_SPM_Done)
 
         # ── External Outputs (22, matching the constructor) ─────────
         self.done                   = self.addOut('done',                   IFB_DONE)
@@ -474,6 +476,7 @@ class INSTRUCTION_FSM_BOX(py4hw.Logic):
             WB_Addr                   = self.w_lpm_WB_Addr,
             LPM_req                   = self.w_lpm_LPM_req,
             SPM_req                   = self.w_lpm_SPM_req,
+            SPM_Done                  = self.SPM_Done,
         )
 
         # ==============================================================

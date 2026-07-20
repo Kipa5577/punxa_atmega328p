@@ -446,10 +446,10 @@ def parts_to_ins(parts):
         return [((p0 << 12) | (p1 << 8) | (p2 << 4) | p3) ]
     
     elif (op == 'CPC'):
-        p0 = 0b0001
+        p0 = 0b0000
         Rd = reg_to_index(parts[1])
         Rr = reg_to_index(parts[2])
-        p1 = 0b0000 | ((Rr >> 4) << 1) | (Rd>>4)
+        p1 = 0b0100 | ((Rr >> 4) << 1) | (Rd>>4)
         p2 = Rd & 0xF
         p3 = Rr & 0xF
         return [((p0 << 12) | (p1 << 8) | (p2 << 4) | p3) ]
@@ -997,7 +997,36 @@ def get_line_tokens(line):
     tokens = list(tokenize.generate_tokens(stream.readline))
     return [tok.string for tok in tokens if tok.type == 1]
 
-def assemble_program(program, debug=False):
+def replace_token(line, label, value):
+    """Replace `label` in `line` only where it appears as a whole
+    identifier (word-boundary match), never as a substring of some other
+    token. A plain str.replace() here is unsafe: once triggered by an
+    exact-token match, it rewrites EVERY occurrence of that substring
+    anywhere in the line, including inside unrelated identifiers, hex
+    digits, or a numeric value already substituted in by an earlier
+    label on the same line (e.g. a label named 'A' would also corrupt
+    the 'A' inside 'RAMEND', or inside a '10' produced by a prior
+    substitution if a later label happened to be named '0' or similar).
+    """
+    return re.sub(r'\b' + re.escape(label) + r'\b', str(value), line)
+
+def assemble_program(program, debug=False, inject_vector_table=False):
+    # ---  VECTOR TABLE INJECTION LOGIC ---
+    if inject_vector_table:
+        # 1. Put a jump at the reset vector (0x0000) pointing to our code
+        vec_table = ".org 0x0000\nRJMP __auto_main\n"
+        
+        # 2. Fill all potential interrupt vectors (0x0001 - 0x0032) with RETI
+        # This acts as a safety net. If an old test triggers a stray interrupt, 
+        # it will immediately return instead of crashing the CPU.
+        for i in range(1, 0x33):
+            vec_table += f".org 0x{i:04X}\nRETI\n"
+            
+        # 3. Start the actual legacy program safely after the table
+        vec_table += ".org 0x0033\n__auto_main:\n"
+        
+        program = vec_table + program
+        
     ret = []
     labels = []
     lines = []
@@ -1088,7 +1117,7 @@ def assemble_program(program, debug=False):
             for label in labels:
                 tokens = get_line_tokens(line)
                 if (label in tokens):
-                    line = line.replace(label, '0')
+                    line = replace_token(line, label, 0)
             line = expand_macros(line)         
             words = assemble(line)  
             assert(isinstance(words, list))
@@ -1104,8 +1133,23 @@ def assemble_program(program, debug=False):
         if (line[-1] == ':'):
             continue
             
+# ==================== Second pass: generate code with merged data ====================
+    output_words = {}  # word_address -> word_value
+    word_off = 0
+    
+    for line in lines:
+        if (line[-1] == ':'):
+            continue
+            
         if (line[0] == '.'):
-            continue  # Skip directives in second pass
+            # FIXED: We must respect .org in the second pass so instructions 
+            # are placed at the correct vector addresses!
+            line_lower = line.lower()
+            if line_lower.startswith('.org'):
+                parts = line.split()
+                if len(parts) > 1:
+                    word_off = get_int(parts[1])
+            continue  # Skip other directives in second pass
         
         # Insert any .db/.dw words that should come BEFORE this instruction
         while word_off in flash_image and word_off not in output_words:
@@ -1123,7 +1167,7 @@ def assemble_program(program, debug=False):
                     add -= word_off + 1
                     if not(is_valid_relative(line_copy, add)):
                         raise Exception(f'relative jump outside of range {add} in {line_copy}')
-                line_copy = line_copy.replace(label, f'{add}')
+                line_copy = replace_token(line_copy, label, add)
         
         line_copy = expand_macros(line_copy)
         words = assemble(line_copy)   

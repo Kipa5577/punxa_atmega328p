@@ -85,18 +85,28 @@ LDST_FSM_INS = {
 }
  
 # Handled by CALLRET_FSM: unconditional jumps/calls and subroutine return.
+# NOTE: RETI (36) is intentionally excluded — InterruptFSM owns it now,
+# since returning from an interrupt also has to re-enable the I flag,
+# which CallRetFSM has no mechanism to do. InterruptFSM is wired as a
+# sibling of this box (see ControlBox), not dispatched through here.
 CALLRET_FSM_INS = {
     29, 30, 31,            # RJMP, IJMP, JMP
     32, 33, 34,            # RCALL, ICALL, CALL
-    35, 36,                # RET, RETI
+    35,                    # RET
 }
 
-# Handled by LPM_FSM: Program Memory load instructions.
+# Handled by LPM_FSM: Program Memory load AND store instructions (LPM_FSM
+# implements both -- see LPM.py, which now drives the SPM_req/R0_BUFFER/
+# R1_BUFFER path for opcode 123 as well as its original LPM/LPMZ/LPMZ+
+# handling).
 LPM_FSM_INS = {
-    120, 121, 122          # LPM, LPMZ, LPMZ+
+    120, 121, 122,         # LPM, LPMZ, LPMZ+
+    123,                   # SPM
 }
 
-# NOTE: 123 (SPM) and 128-131 (NOP/SLEEP/WDR/BREAK) remain unrouted.
+# NOTE: 128-131 (NOP/SLEEP/WDR/BREAK) remain unrouted -- these are handled
+# directly by MainFSM (see MainFSM.EXECUTION), not dispatched to any
+# sub-FSM here.
  
 class FSM_SELECTOR(py4hw.Logic):
     def __init__(self, parent, name, run, instruction,

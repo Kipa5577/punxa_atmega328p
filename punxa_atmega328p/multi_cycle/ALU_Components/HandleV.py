@@ -2,7 +2,7 @@ import py4hw
 
 class HandleV(py4hw.Logic):
     def __init__(self, parent, name: str,
-                 Rr, Rd, Res, N, Mode,
+                 Rr, Rd, Res, N,C, Mode,
                  Vout):
         super().__init__(parent, name)
 
@@ -12,6 +12,7 @@ class HandleV(py4hw.Logic):
         self.Res = self.addIn('Res', Res)
         self.N = self.addIn('N', N)
         self.Mode = self.addIn('Mode', Mode)
+        self.C = self.addIn('C',C)
         
         # Output
         self.Vout = self.addOut('Vout', Vout)
@@ -22,6 +23,7 @@ class HandleV(py4hw.Logic):
         rd = self.Rd.get()
         res = self.Res.get()
         n_flag = self.N.get()
+        c_flag =  self.C.get() & 1 
         mode = self.Mode.get()
 
         # 2. Extract specific bits for 8-bit operations
@@ -75,8 +77,9 @@ class HandleV(py4hw.Logic):
             v_out = 1 if (res & 0xFF) == 0x7F else 0
 
         elif mode == 9:
-            # Mode 7: Decrement (DEC)
-            v_out = 1 if (res & 0xFF) == 0x7F else 0
+            # Shift / Rotate overflow
+            # AVR: V = N XOR C
+            v_out = (n_flag & 1) ^ c_flag
 
         # 5. Output calculated bit
         self.Vout.put(v_out & 1)

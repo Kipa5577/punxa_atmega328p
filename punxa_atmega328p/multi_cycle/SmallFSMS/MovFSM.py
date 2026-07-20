@@ -1,7 +1,12 @@
 import py4hw
 
-# Add the specific opcode(s) for MOVW to this set if your decoder uses them.
-_MOVW = { 45 } 
+# MOVW's opcode is 94 (see FSM_SELECTOR.py and avr_constants.py). This set
+# is checked after byte 1 (Rd = Rr) to decide whether to continue into
+# byte 2 (Rd+1 = Rr+1). It was previously {45}, which is actually in the
+# BRBS/BRBC branch opcode range -- that mismatch meant this check was
+# always False, so byte 2 never ran and Rd+1 (e.g. r31 in `movw r30,r0`)
+# was left untouched instead of being copied from Rr+1.
+_MOVW = { 94 }
 
 STATES = [
     'STOP',
@@ -11,7 +16,21 @@ STATES = [
     'LOAD_IN_RD', 'WAIT_LOAD_IN_RD',
 
     # FOR MOVW (Byte 2)
+    # BUBBLE_B2 / BUBBLE_WRITE_B2 are one-cycle idle states (Read_Write=0,
+    # i.e. mem.read/mem.write both deasserted downstream in
+    # MemoryInterfaceHandler) inserted between byte-1's transaction and
+    # byte-2's transactions. Without them, Read_Write flips directly from
+    # WRITE(addr Rd) -> READ(addr Rr+1) -> WRITE(addr Rd+1) with no gap,
+    # and the underlying memory model never sees the request line drop.
+    # It then reports a stale Resp==1 with stale BusData on the very
+    # first cycle of the NEW address, which silently latched the wrong
+    # value into RdBuffer (confirmed via trace: reading r1 returned the
+    # leftover BusData from the r30 write instead of r1's real value).
+    # The bubble forces a clean idle cycle so the memory model correctly
+    # recognizes the next read/write as a genuinely new request.
+    'BUBBLE_B2',
     'FETCH_RR_B2', 'WAIT_FETCH_RR_B2',
+    'BUBBLE_WRITE_B2',
     'LOAD_IN_RD_B2', 'WAIT_LOAD_IN_RD_B2',
 ]
 
@@ -95,7 +114,7 @@ class MOV_FSM(py4hw.Logic):
         self.current_state = 'STOP'
         # Remember the instruction across multi-cycle sequences
         self._latched_inst = 0
-        self.debug = 0
+        self.debug = 1
 
 
     def clock(self):
@@ -180,11 +199,37 @@ class MOV_FSM(py4hw.Logic):
             InputSelect_Memory = 16
             if resp == 1:
                 # If the instruction is MOVW, move to the second byte logic
+                # via a bubble cycle first (see STATES comment above).
                 if i in _MOVW:
-                    next_state = 'FETCH_RR_B2'
+                    next_state = 'BUBBLE_B2'
                 else:
                     next_state = 'STOP'
                     done = 1
+
+        # ------------------------------------------------
+        # MOVW: IDLE DRAIN before reading byte 2's source (Rr+1)
+        # ------------------------------------------------
+        elif state == 'BUBBLE_B2':
+            # Read_Write stays 0 (its initialized default), so
+            # MemoryInterfaceHandler drives mem.read=0 / mem.write=0.
+            # Ram_Memory's resp is a LEVEL signal (resp=1 for as long as
+            # read/write is held asserted, resp=0 only once it sees BOTH
+            # read=0 and write=0 in the same cycle) -- it is NOT a
+            # completion pulse. Because every hop through .prepare()/
+            # .get() wires delays visibility by a cycle, byte-1's WRITE
+            # resp is still draining through the FSM<->MIH<->RAM<->MIH
+            # <->FSM pipeline for several cycles after we go idle. A
+            # fixed one-cycle bubble isn't long enough to guarantee that
+            # drain has finished, so instead of guessing a cycle count we
+            # WAIT here until we genuinely OBSERVE resp==0 -- proof the
+            # old transaction's resp has fully cleared -- before issuing
+            # byte 2's read. (Previously: unconditionally advanced after
+            # one cycle, which let a stale resp==1 / stale BusData from
+            # byte 1's write be misread as byte 2's read completing,
+            # corrupting Rd+1 with byte 1's data instead of Rr+1's.)
+            if resp == 0:
+                next_state = 'FETCH_RR_B2'
+            # else: stay in BUBBLE_B2, keep driving Read_Write=0
 
         # ------------------------------------------------
         # MOVW: READ SECOND BYTE FROM SOURCE (Rr+1)
@@ -202,7 +247,16 @@ class MOV_FSM(py4hw.Logic):
             if resp == 1:
                 WE_Memory = 1        
                 LoadingMux = 14      # Latch the second byte into LOAD_RD_BUFFER[cite: 3]
-                next_state = 'LOAD_IN_RD_B2'
+                next_state = 'BUBBLE_WRITE_B2'
+
+        # ------------------------------------------------
+        # MOVW: IDLE BUBBLE before writing byte 2's destination (Rd+1)
+        # ------------------------------------------------
+        elif state == 'BUBBLE_WRITE_B2':
+            # Same reasoning as BUBBLE_B2, applied to the READ(addr Rr+1)
+            # -> WRITE(addr Rd+1) switch, which has the identical
+            # unguarded address/op change.
+            next_state = 'LOAD_IN_RD_B2'
 
         # ------------------------------------------------
         # MOVW: WRITE SECOND BYTE TO DESTINATION (Rd+1)
