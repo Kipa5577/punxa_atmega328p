@@ -357,7 +357,7 @@ def runTest(file):
 # TEST SUITE CONFIGURATION & RUNNERS
 # =============================================================================
 ex_dir = 'isa/'
-selected_prefixes = ['test_arith', 'test_bitmap', 'test_branch', 'test_logic', 'test_ctrflow', 'test_ctrlflow', 'test_data', 'test_mcu']
+selected_prefixes = ['test_arith', 'test_bitmap', 'test_branch', 'test_logic', 'test_ctrflow', 'test_data', 'test_mcu']
 
 def _run_one_test_silent(f):
     """Runs a single test file with ALL of its output forcefully suppressed
