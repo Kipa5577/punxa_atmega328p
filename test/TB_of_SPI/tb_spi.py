@@ -291,6 +291,19 @@ def prepareTest(file, preload=True, peer_kwargs=None):
     mem = punxa.Ram_Memory(hw, 'men', dw, 11, mem_p)
     ins_mem = punxa.Ram_Memory(hw, 'ins_men', 16, 14, ins_p)
     sp_component = StackPointer(hw, 'stack_pointer', sp_p)
+    # NOTE (merge): an agent-1 (V7) round swapped this to the real GPIO
+    # class but, per that round's own HANDOFF, never fixed the matching
+    # bus-window bug (gpio_p's window here is (0x20, 0x20), so
+    # MultiplexedBus hands GPIO a window-relative address while GPIO's
+    # own register constants -- PORTB_addr_LS=0x25 etc, see GPIO.py --
+    # are real absolute addresses; every access silently lands on
+    # GPIO's always-acknowledge catch-all instead of real register
+    # logic). tb_usart.py fixes this properly by giving GPIO a
+    # zero-based, wide window instead. Left as VirtualGPIO here
+    # (known-working, matches the tested V6/agent-2 harness) rather
+    # than carrying the same unfixed bug forward. Swap to the same
+    # zero-based-window pattern tb_usart.py uses if a real GPIO
+    # instance is ever needed through this harness.
     gpio = punxa.VirtualGPIO(hw, 'gpio', gpio_p)
 
     spi = punxa.SPI(hw, 'spi0', spi_p,
@@ -388,7 +401,7 @@ def runTest(file, peer_kwargs=None, step_limit=None):
 # =============================================================================
 # TEST SUITE CONFIGURATION & RUNNERS (same shape as tb_usart.py / tb_ISA_test_Multicycle_Rewrite.py)
 # =============================================================================
-ex_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'spi_tests') + os.sep
+ex_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spi_tests') + os.sep
 selected_prefixes = ['test_spi']
 
 

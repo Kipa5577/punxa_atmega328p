@@ -102,6 +102,18 @@ class TimerCounter0(py4hw.Logic): #8 Bit timer
 
         self.prevCS = 17
 
+        # Force Output Compare (FOC0A/FOC0B): real hardware implements
+        # these TCCR0B bits as a strobe, not a stored flip-flop -- a
+        # write of 1 triggers an immediate compare-match-like pin action
+        # (gated by COM0x, only in non-PWM modes) and the bit position
+        # always reads back 0 (already true here since Memory_access's
+        # read mask on TCCR0B, 0b00001111, already zeroes bits 6/7).
+        # Modeled as a one-shot pending flag consumed the very next
+        # clock() cycle rather than a value read out of self.TCCR0B,
+        # since nothing ever clears bits stored there on its own.
+        self._pending_foc0a = False
+        self._pending_foc0b = False
+
     def Memory_access(self):
         #The register load or read
         self.ADDR = self.port0.address.get()
@@ -119,7 +131,12 @@ class TimerCounter0(py4hw.Logic): #8 Bit timer
                 self.port0.read_data.prepare(self.TCCR0B & 0b00001111)
                 self.port0.resp.prepare(1)
             elif (self.port0.read.get() == 0) and (self.port0.write.get() == 1): #write
-                self.TCCR0B = self.port0.write_data.get()
+                incoming = self.port0.write_data.get()
+                if (incoming >> 7) & 1:
+                    self._pending_foc0a = True
+                if (incoming >> 6) & 1:
+                    self._pending_foc0b = True
+                self.TCCR0B = incoming
                 self.port0.resp.prepare(1)
             else:
                 self.port0.resp.prepare(0)
@@ -155,7 +172,17 @@ class TimerCounter0(py4hw.Logic): #8 Bit timer
                 self.port0.read_data.prepare(self.TIFR0 & 0b00000111)
                 self.port0.resp.prepare(1)
             elif (self.port0.read.get() == 0) and (self.port0.write.get() == 1): #write
-                self.TIFR0 = self.port0.write_data.get()
+                # FIX: was a plain overwrite (self.TIFR0 = write_data),
+                # inconsistent with TIFR1/TIFR2's write-1-to-clear
+                # handling just below and with real hardware -- the
+                # standard `ldi r16,(1<<OCF0A); out TIFR0,r16` clear
+                # idiom would have *set* the flag instead of clearing
+                # it (writing a 1 into that bit position, 0s elsewhere,
+                # under plain-overwrite semantics leaves the target bit
+                # set and merely zeroes the other two flags as a side
+                # effect). Found while implementing the interrupt-flag-
+                # clearing test.
+                self.TIFR0 = self.TIFR0 & ~(self.port0.write_data.get()) & 0xFF
                 self.port0.resp.prepare(1)
             else:
                 self.port0.resp.prepare(0)
@@ -548,10 +575,20 @@ class TimerCounter0(py4hw.Logic): #8 Bit timer
                     self.TCNT0 = self.BOTTOM
                 else:
                     self.TCNT0 = self.BOTTOM
-                if self.OCIE0A == 1: ## Interrupt
-                    #self.OCF0A_val = 1
-                    self.TIFR0 |= 0b010
 
+                # FIX: this used to also unconditionally set OCF0A here
+                # (gated only on OCIE0A, never on TCNT0==OCR0A) --
+                # meaning every TOP-wrap in Normal/Fast-PWM mode forced
+                # OCF0A to 1 even when OCR0A was nowhere near the wrap
+                # point. The real compare-match check already runs
+                # correctly, every cycle, in handle_normal_mode() /
+                # handle_CTC_mode() / handle_FAST_PWM_mode() (called via
+                # determine_outputs() right after this method) -- this
+                # was a redundant-when-harmless (CTC/TOP=OCR0A modes,
+                # where the wrap coincides with a real match) but
+                # actively wrong (Normal/TOP=0xFF Fast-PWM) extra flag
+                # set. Found while writing the overflow_compare_same_
+                # cycle test. Removed; TOV0 below is unaffected.
                 if self.TOIE0 == 1:
                     #self.TOV0_val = 1  
                     self.TIFR0 |= 0b001  
@@ -590,11 +627,39 @@ class TimerCounter0(py4hw.Logic): #8 Bit timer
         self.OCF0A.prepare(((self.TIFR0>>1)&0b1))
         self.TOV0.prepare(((self.TIFR0>>0)&0b1))
 
+    def apply_force_output_compare(self):
+        # FOC0A/FOC0B: datasheet -- only has an effect in non-PWM modes
+        # (Normal/CTC); applies the same COM0x-gated pin action a real
+        # compare match would, but sets no flag and doesn't touch TCNT0.
+        # A strobe (one-shot), so both pending flags are cleared
+        # unconditionally here regardless of opMode -- a FOC write in a
+        # PWM mode is simply a no-op per the datasheet, not queued for
+        # later.
+        if self._pending_foc0a:
+            self._pending_foc0a = False
+            if self.opMode in ('NORMAL', 'CTC'):
+                if self.COM0A == 1:
+                    self.OC0A_val = 0 if self.OC0A.get() else 1
+                elif self.COM0A == 2:
+                    self.OC0A_val = 0
+                elif self.COM0A == 3:
+                    self.OC0A_val = 1
+        if self._pending_foc0b:
+            self._pending_foc0b = False
+            if self.opMode in ('NORMAL', 'CTC'):
+                if self.COM0B == 1:
+                    self.OC0B_val = 0 if self.OC0B.get() else 1
+                elif self.COM0B == 2:
+                    self.OC0B_val = 0
+                elif self.COM0B == 3:
+                    self.OC0B_val = 1
+
     def clock(self):
         self.Memory_access()
         self.Parse_control_registers()
         self.update_prescaler()
         self.update_wave_gen_mode()
+        self.apply_force_output_compare()
         self.increment()
         self.update_outputs()
 
@@ -611,6 +676,20 @@ class TimerCounter2(py4hw.Logic): #8 Bit timer
         self.OCF2B = self.addOut('OCF2B',OCF2B)
         self.OCF2A = self.addOut('OCF2A',OCF2A)
         self.TOV2 = self.addOut('TOV2',TOV2)
+
+        # FIX: unlike TimerCounter0/TimerCounter1's OC*_val attributes,
+        # these were never initialized here -- only ever assigned inside
+        # the handle_*_mode() branches once a compare match actually
+        # occurs. update_outputs() calls self.OC2A.prepare(self.OC2A_val)
+        # unconditionally every single clock() call, including the very
+        # first one (long before any match happens), which raised
+        # AttributeError immediately on construction. Never caught before
+        # because nothing had ever wired TimerCounter2 into a real CPU
+        # integration test (its own TB_of_Timer2.py drives it directly
+        # with hand-fed wires, cycle by cycle, and apparently never ran
+        # far enough / in the right order to hit this either).
+        self.OC2A_val = 0
+        self.OC2B_val = 0
 
         #creating the registers
         self.TCCR2A = 0 
@@ -651,6 +730,12 @@ class TimerCounter2(py4hw.Logic): #8 Bit timer
 
         self.prevCS = 17
 
+        # Force Output Compare (FOC2A/FOC2B) -- same one-shot-strobe
+        # convention as TimerCounter0's FOC0A/FOC0B, see that class's
+        # comment for the full rationale.
+        self._pending_foc2a = False
+        self._pending_foc2b = False
+
     def Memory_access(self):
         self.ADDR = self.port0.address.get()
         if ((self.ADDR == self.TCCR2A_addr_LS) and (self.port0.instype.get() == 1)):
@@ -667,7 +752,12 @@ class TimerCounter2(py4hw.Logic): #8 Bit timer
                 self.port0.read_data.prepare(self.TCCR2B & 0x0F)
                 self.port0.resp.prepare(1)
             elif (self.port0.read.get() == 0) and (self.port0.write.get() == 1):
-                self.TCCR2B = self.port0.write_data.get()
+                incoming = self.port0.write_data.get()
+                if (incoming >> 7) & 1:
+                    self._pending_foc2a = True
+                if (incoming >> 6) & 1:
+                    self._pending_foc2b = True
+                self.TCCR2B = incoming
                 self.port0.resp.prepare(1)   
             else:
                 self.port0.resp.prepare(0)  
@@ -698,6 +788,15 @@ class TimerCounter2(py4hw.Logic): #8 Bit timer
                 self.port0.resp.prepare(1)
             else:
                 self.port0.resp.prepare(0)
+        elif ((self.ADDR == self.TCNT2_addr_LS) and (self.port0.instype.get() == 1)):
+            if (self.port0.read.get() == 1) and (self.port0.write.get() == 0):  #read
+                self.port0.read_data.prepare(self.TCNT2 & 0xFF)
+                self.port0.resp.prepare(1)
+            elif (self.port0.read.get() == 0) and (self.port0.write.get() == 1): #write
+                self.TCNT2 = self.port0.write_data.get()
+                self.port0.resp.prepare(1)
+            else:
+                self.port0.resp.prepare(0)
         elif ((self.ADDR == self.TIFR2_addr_IO) and self.port0.instype.get() == 0) or ((self.ADDR == self.TIFR2_addr_LS)and self.port0.instype.get() == 1):
             if (self.port0.read.get() == 1) and (self.port0.write.get() == 0):
                 self.port0.read_data.prepare(self.TIFR2 & 0x07)
@@ -707,6 +806,19 @@ class TimerCounter2(py4hw.Logic): #8 Bit timer
                 self.port0.resp.prepare(1)
             else:
                 self.port0.resp.prepare(0)
+        else:
+            # FIX: this class had no catch-all here at all (unlike
+            # TimerCounter0/1's Memory_access, which both end with this
+            # exact else). Any address that fell through the whole
+            # if/elif chain above -- which is exactly what always
+            # happened for TCNT2 before the branch just above this one
+            # existed -- left self.port0.resp completely untouched for
+            # that cycle, silently reusing whatever value it happened
+            # to hold over from a previous access (e.g. a preceding
+            # TIMSK2 write's resp=1), which is why a TCNT2 write looked
+            # like it "succeeded" (the CPU didn't hang) while never
+            # actually reaching self.TCNT2 at all.
+            self.port0.resp.prepare(0)
 
     def Parse_control_registers(self):
         # Parameter parsing
@@ -1050,8 +1162,14 @@ class TimerCounter2(py4hw.Logic): #8 Bit timer
                     self.TCNT2 = self.BOTTOM
                 else:
                     self.TCNT2 = self.BOTTOM
-                if self.OCIE2A == 1: ## Interrupt
-                    self.TIFR2 |= 0b010
+
+                # FIX: same real bug as TimerCounter0's Other_modes_
+                # Increment (see that method's comment) -- an
+                # unconditional (OCIE2A-gated only, never TCNT2==OCR2A
+                # gated) OCF2A set on every TOP-wrap used to live here.
+                # Removed; the real per-cycle match check in
+                # handle_normal_mode()/handle_FAST_PWM_mode() already
+                # covers this correctly.
 
                 if self.opMode != 'CTC':
                     if self.TOIE2 == 1:
@@ -1091,11 +1209,34 @@ class TimerCounter2(py4hw.Logic): #8 Bit timer
         self.OCF2A.prepare((self.TIFR2>>1)&0b1)
         self.TOV2.prepare((self.TIFR2>>0)&0b1)
 
+    def apply_force_output_compare(self):
+        # Same one-shot-strobe convention as TimerCounter0's
+        # FOC0A/FOC0B -- see that method's comment.
+        if self._pending_foc2a:
+            self._pending_foc2a = False
+            if self.opMode in ('NORMAL', 'CTC'):
+                if self.COM2A == 1:
+                    self.OC2A_val = 0 if self.OC2A.get() else 1
+                elif self.COM2A == 2:
+                    self.OC2A_val = 0
+                elif self.COM2A == 3:
+                    self.OC2A_val = 1
+        if self._pending_foc2b:
+            self._pending_foc2b = False
+            if self.opMode in ('NORMAL', 'CTC'):
+                if self.COM2B == 1:
+                    self.OC2B_val = 0 if self.OC2B.get() else 1
+                elif self.COM2B == 2:
+                    self.OC2B_val = 0
+                elif self.COM2B == 3:
+                    self.OC2B_val = 1
+
     def clock(self):
         self.Memory_access()
         self.Parse_control_registers()
         self.update_prescaler()
         self.update_wave_gen_mode()
+        self.apply_force_output_compare()
         self.increment()
         self.update_outputs()
 
@@ -1171,6 +1312,14 @@ class TimerCounter1(py4hw.Logic): #16 Bit timer
         self.incrementEnable = True 
         self.PrevT1 = 0
         self.prevCS = 17
+
+        # Force Output Compare (FOC1A/FOC1B) -- same one-shot-strobe
+        # convention as TimerCounter0's FOC0A/FOC0B, see that class's
+        # comment for the full rationale. TCCR1C's read mask (0x00,
+        # see Memory_access) already zeroes the whole register on
+        # readback, which includes these two bits.
+        self._pending_foc1a = False
+        self._pending_foc1b = False
 
         self.opMode = 'Normal'
         self.TOP = 0xFF
@@ -1268,7 +1417,12 @@ class TimerCounter1(py4hw.Logic): #16 Bit timer
                 self.port0.read_data.prepare(self.TCCR1C & 0x00)
                 self.port0.resp.prepare(1)
             elif (self.port0.read.get() == 0) and (self.port0.write.get() == 1):
-                self.TCCR1C = self.port0.write_data.get()
+                incoming = self.port0.write_data.get()
+                if (incoming >> 7) & 1:
+                    self._pending_foc1a = True
+                if (incoming >> 6) & 1:
+                    self._pending_foc1b = True
+                self.TCCR1C = incoming
                 self.port0.resp.prepare(1)
             else:
                 self.port0.resp.prepare(0)
@@ -1758,8 +1912,14 @@ class TimerCounter1(py4hw.Logic): #16 Bit timer
                     self.TCNT1 = self.BOTTOM
                 else:
                     self.TCNT1 = self.BOTTOM
-                if self.OCIE1A == 1: ## Interrupt
-                    self.TIFR1 |= 0b00000010
+
+                # FIX: same real bug as TimerCounter0's Other_modes_
+                # Increment (see that method's comment) -- an
+                # unconditional (OCIE1A-gated only, never TCNT1==OCR1A
+                # gated) OCF1A set on every TOP-wrap used to live here.
+                # Removed; the real per-cycle match check in
+                # handle_normal_mode()/handle_FAST_PWM_mode() already
+                # covers this correctly.
 
                 # TOV1 (overflow) only fires on this TOP-wrap in Normal/Fast
                 # PWM modes. In CTC mode the counter is deliberately reset
@@ -1842,11 +2002,37 @@ class TimerCounter1(py4hw.Logic): #16 Bit timer
         self.TOV1.prepare((self.TIFR1>>0)&0b1)
         self.ICF1.prepare((self.TIFR1>>5)&0b1)
 
+    def apply_force_output_compare(self):
+        # Same one-shot-strobe convention as TimerCounter0's
+        # FOC0A/FOC0B -- see that method's comment. Valid opModes here
+        # are the 16-bit equivalents of Normal/CTC (CTC_O/CTC_I use
+        # OCR1A/ICR1 as TOP respectively, but are still non-PWM modes
+        # for FOC purposes).
+        if self._pending_foc1a:
+            self._pending_foc1a = False
+            if self.opMode in ('NORMAL', 'CTC_O', 'CTC_I'):
+                if self.COM1A == 1:
+                    self.OC1A_val = 0 if self.OC1A.get() else 1
+                elif self.COM1A == 2:
+                    self.OC1A_val = 0
+                elif self.COM1A == 3:
+                    self.OC1A_val = 1
+        if self._pending_foc1b:
+            self._pending_foc1b = False
+            if self.opMode in ('NORMAL', 'CTC_O', 'CTC_I'):
+                if self.COM1B == 1:
+                    self.OC1B_val = 0 if self.OC1B.get() else 1
+                elif self.COM1B == 2:
+                    self.OC1B_val = 0
+                elif self.COM1B == 3:
+                    self.OC1B_val = 1
+
     def clock(self):
         self.Memory_access()
         self.Parse_control_registers()
         self.update_prescaler()
         self.update_wave_gen_mode()
+        self.apply_force_output_compare()
         self.increment()
         self.update_outputs()
 

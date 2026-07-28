@@ -624,6 +624,7 @@ class MemoryInterfaceHandler(py4hw.Logic):
             self.address_ZH.prepare(0)
             self.memory_address.prepare(0)
             self.memory_writedata.prepare(0)
+            self.memory_instype.prepare(1)
         else:
 
             # ----------------------------------------------
@@ -727,6 +728,38 @@ class MemoryInterfaceHandler(py4hw.Logic):
             # the real transaction above.
             self.MAR_ValueOut.prepare(address)
 
+            # FIX (found while building tb_timer_tests.py's real-CPU
+            # Timer0/1/2 integration): self.memory_instype was declared as
+            # an output bound to memory.instype (see __init__) but never
+            # .prepare()'d anywhere in this class -- it silently sat at its
+            # default 0 forever. Every address this handler ever puts on
+            # the external bus is already absolute/"LS-style" (classic
+            # IN/OUT's 6-bit IO address is converted to this same absolute
+            # form by adding 0x20 above, in the MEM_A_6bit branch, before
+            # it ever leaves this component) -- there is no code path in
+            # which this handler emits a raw, un-offset IO address onto
+            # the shared bus. So instype should always read 1 on this bus;
+            # peripherals that distinguish IO-style (instype=0, the
+            # `_addr_IO` constants in GPIO.py/Timers.py/ADC.py) from
+            # LDS/STS-style (instype=1, the `_addr_LS` constants) addressing
+            # never actually see instype=0 from the real CPU, so their
+            # `_addr_IO` branches are effectively unreachable dead code
+            # given this CPU's addressing convention -- harmless, but
+            # worth knowing if that ever needs revisiting.
+            #
+            # Without this fix, every peripheral that gates its register
+            # decode on `instype.get() == 1` (the real TimerCounter0/1/2,
+            # and GPIO's LS-style branches) never asserts `resp`, and the
+            # CPU hangs forever waiting for a response that will never
+            # come -- confirmed live: `sts TCCR0B, r16` through the real
+            # CPU + real TimerCounter0 hung at PC=0x000C with
+            # `instype.get()==0`/`resp.get()==0` on TimerCounter0's port
+            # every cycle, for as long as this went unfixed. The ISA
+            # suite's 111/111 never caught this because its peripherals
+            # (VirtualGPIO, SimpleTimer, VirtualUSART) don't check instype
+            # at all -- only the *real* GPIO/TimerCounter classes do.
+            self.memory_instype.prepare(1)
+
             # ----------------------------------------------
             # 2. Memory operation & BusData latching (INTERCEPT LOGIC)
             # ----------------------------------------------
@@ -770,10 +803,47 @@ class MemoryInterfaceHandler(py4hw.Logic):
             # (0x40-0x6F), and the interrupt vector bytes (0xFE-0xFF). If
             # Bus_Passthrough_Ranges is ever reconfigured for a different
             # memory map, this inline check must be updated to match.
+            # EXTENDED (timer test-harness support): the four ranges above
+            # are exactly what tb_ISA_test_Multicycle_Rewrite.py /
+            # tb_timers.py (Timer0-only) configure. Bringing TimerCounter1
+            # and TimerCounter2 onto the real CPU bus (tb_timer_tests.py)
+            # needs their registers passed through too: 0x37 (TIFR2 -- the
+            # original four ranges have a gap here, between 0x36 and 0x38,
+            # that was never TIFR2-related, just an accident of where the
+            # SPMCR intercept below lives), 0x70 (TIMSK2), and 0x80-0x8B
+            # (TCCR1A/B/C, TCNT1L/H, ICR1L/H, OCR1AL/H, OCR1BL/H) and
+            # 0xB0-0xB4 (TCCR2A/B, TCNT2, OCR2A/B). Purely additive --
+            # every address the original four ranges covered is still
+            # covered, so this cannot affect the 111-test ISA suite or the
+            # existing Timer0-only harness.
+            # EXTENDED AGAIN (TWI/I2C test-harness support): TWBR/TWSR/
+            # TWAR/TWDR/TWCR at 0xB8-0xBC. Same additive-only guarantee
+            # as the timer extension above.
+            # EXTENDED AGAIN (USART0 test-harness support): UCSR0A/B/C,
+            # UBRR0L/H, UDR0 at 0xC0-0xC6 (0xC7 included for headroom/
+            # alignment with tb_usart.py's own window). tb_usart.py's
+            # docstring already flagged this exact gap -- its own
+            # Bus_Passthrough_Ranges constructor argument included
+            # (0xC0, 0xC7), but (as this comment block explains above)
+            # that parameter was never actually read at runtime, so the
+            # real gate here needed the same fix directly.
+            # EXTENDED AGAIN (ADC support): ADCL/ADCH/ADCSRA/ADCSRB/
+            # ADMUX/DIDR0 at 0x78-0x7E -- same gap, same fix, same
+            # additive-only guarantee. Found the same way as every prior
+            # extension in this block: `sts ADCSRA, r16` through the real
+            # CPU + real ADC hung with resp stuck at 0 until this range
+            # was added.
             is_passthrough = (
                 ((address >= 0x20) and (address <= 0x36)) or
+                (address == 0x37) or
                 ((address >= 0x38) and (address <= 0x3F)) or
                 ((address >= 0x40) and (address <= 0x6F)) or
+                (address == 0x70) or
+                ((address >= 0x78) and (address <= 0x7E)) or
+                ((address >= 0x80) and (address <= 0x8B)) or
+                ((address >= 0xB0) and (address <= 0xB4)) or
+                ((address >= 0xB8) and (address <= 0xBC)) or
+                ((address >= 0xC0) and (address <= 0xC7)) or
                 ((address >= 0xFE) and (address <= 0xFF))
             )
 

@@ -8,31 +8,121 @@ import py4hw.debug
 ## *_IO = IN and OUT instruction address
 ## *_LS =  LD LDS ST STS instruction address
 
-#        An implementation idea but did not find a way to make it work
-        #IO
-#        self.RW = py4hw.Wire(self,'RW',1) # 0 read 1 write
-#        self.OUTTB = py4hw.Wire(self,'OUTTB',8)
-#        self.OUTTC = py4hw.Wire(self,'OUTTC',8)
-#        self.OUTTD = py4hw.Wire(self,'OUTTD',8) 
-#        self.INN =  py4hw.Wire(self,'INN',8)
-#        self.ADDR =  py4hw.Wire(self,'addr',16)
-#        self.READYB = py4hw.Wire(self,'READYB',1)
-#        self.READYC = py4hw.Wire(self,'READYC',1)
-#        self.READYD = py4hw.Wire(self,'READYD',1)
-#        self.PORTB =  PortX(self,'PORTB',0x05,0x25,0x04,0x24,0x03,0x23,self.RW,self.ADDR,self.INN,self.OUTTB,self.READYB)
-#        self.PORTC =  PortX(self,'PORTC',0x08,0x28,0x07,0x27,0x06,0x26,self.RW,self.ADDR,self.INN,self.OUTTC,self.READYC)
-#        self.PORTD =  PortX(self,'PORTD',0x0B,0x2B,0x0A,0x2A,0x09,0x29,self.RW,self.ADDR,self.INN,self.OUTTD,self.READYD)
-#        self.PORT = []
-#        self.PORT.append(self.PORTB)
-#        self.PORT.append(self.PORTC)
-#        self.PORT.append(self.PORTD)
+# NOTE on the commented-out PortX-based design directly below GPIO's class
+# body (kept for history): that approach tried to drive per-port pin I/O
+# through the standalone PortX component's own propagate()-based
+# read/write decode wired to shared RW/ADDR/INN/OUTT busses -- it's not
+# used. The real pin-level I/O added below (Round: GPIO pin-level pass)
+# takes a simpler route: plain 8-bit val/oe/ext_in/ext_oe wires added
+# directly on GPIO itself, computed once per clock() alongside the
+# existing bus decode, no separate sub-component.
 
 #INSTYPE 0 for IO | 1 for LS
 class GPIO(py4hw.Logic):
-    def __init__(self,parent,name:str,memory:MemoryInterface):
-        super().__init__(parent,name)
+    """
+    Round (GPIO pin-level pass) -- two classes of bugs fixed relative to
+    the version this replaced, plus real physical pin I/O added for the
+    first time:
 
-        self.interface = self.addInterfaceSink('port',memory)
+    1. **`resp` polarity was inverted on every read/write branch.** The
+       project-wide convention (see Memory.py's own docstring: "resp: 0 =
+       normal state, 1 = Operation Performed", and mirrored in the real
+       Timers.py/TWI.py peripherals that already pass CPU integration)
+       is resp=1 on a completed read or write, resp=0 otherwise. The
+       version this replaced did the opposite on every register branch
+       (resp=0 on success, resp=1 on the invalid/idle catch-all) --
+       harmless only by accident, because GPIO was only ever driven
+       through VirtualGPIO in every prior CPU-integration test
+       (tb_usart.py's Round 8 swap to the real GPIO class happened to
+       only exercise writes whose resp value was never actually
+       checked). A real per-cycle busy-wait poll against this class as
+       it stood would have hung or falsely completed immediately,
+       depending on which branch it landed on.
+    2. **Several write branches (GPIOR0, PINB, PORTC, DDRC, PINC, PORTD,
+       PIND) never called `resp.prepare()` at all** on the write path --
+       left the wire holding whatever the previous cycle prepared.
+    3. **DDRD's write condition was unreachable dead code**: it required
+       `instype.get() == 0 and instype.get() == 1` in the same boolean
+       expression -- impossible, so `sts DDRD, r16` through the real CPU
+       silently never updated DDRD (the write fell through to the
+       invalid/idle branch instead). Confirmed nothing else in this
+       project set DDRD any other way. This one bug alone would have
+       made it impossible to ever configure PORTD as an output through
+       the real CPU.
+    4. **No physical pin I/O existed at all** -- PORTx/DDRx/PINx were
+       plain Python ints toggled only by bus reads/writes; there was no
+       wire an external peer could drive to emulate an input pin, and no
+       wire reflecting what the chip actually drives out when a bit is
+       configured as output. Added below: per port (B/C/D), a val/oe
+       pair driven out (what this chip is putting on the pins) and an
+       ext_in/ext_oe pair driven in (what the outside world is putting
+       on the pins) -- the standard two-signal tri-state-emulation
+       pattern for a non-electrical functional simulator, chosen over
+       modeling analog floating voltages. See PIN_read semantics below.
+    5. Two leftover debug `print("test1")`/`print("test2")` statements
+       removed from the PORTD/DDRD branches.
+
+    PIN register read semantics (per bit, computed once per clock()
+    alongside the existing bus decode):
+
+        DDR bit == 1 (output):  PIN bit = PORT bit
+            (reading a pin configured as output reads back the driven
+            level, matching real AVR behavior)
+        DDR bit == 0 (input):
+            ext_oe bit == 1 (peer actively driving this bit): PIN bit = ext_in bit
+            ext_oe bit == 0 (floating): PIN bit = PORT bit
+                (this is the internal pull-up: PORT=1 with DDR=0 pulls
+                the floating pin to 1; PORT=0 with DDR=0 reads 0 with
+                no pull-up -- exactly AVR's documented DDRx=0/PORTx=1
+                pull-up-enable behavior, without needing to model an
+                analog floating voltage)
+
+    Output pins (`<P>_val`/`<P>_oe`, driven out every cycle):
+        val = PORTx, oe = DDRx -- a peer wanting to know what's actually
+        being driven checks oe first (1 = this chip is driving that bit,
+        so val is meaningful) before trusting val.
+
+    All four pin wires per port are optional constructor kwargs
+    (default None -> an internally-created, unconnected dummy wire) so
+    any existing or future bus-only instantiation of GPIO (e.g. a future
+    top-level integration that doesn't need pin-level testing) keeps
+    working unchanged.
+    """
+    def __init__(self, parent, name: str, memory: MemoryInterface,
+                 PORTB_val=None, PORTB_oe=None, PORTB_ext_in=None, PORTB_ext_oe=None,
+                 PORTC_val=None, PORTC_oe=None, PORTC_ext_in=None, PORTC_ext_oe=None,
+                 PORTD_val=None, PORTD_oe=None, PORTD_ext_in=None, PORTD_ext_oe=None):
+        super().__init__(parent, name)
+
+        self.interface = self.addInterfaceSink('port', memory)
+
+        def _out(w, nm):
+            if w is None:
+                w = py4hw.Wire(self, nm, 8)
+            return self.addOut(nm, w)
+
+        def _in(w, nm):
+            if w is None:
+                w = py4hw.Wire(self, nm, 8)
+                w.put(0)
+            return self.addIn(nm, w)
+
+        # --- Physical pin ports (see class docstring for semantics) ---
+        self.PORTB_val = _out(PORTB_val, 'PORTB_val')
+        self.PORTB_oe = _out(PORTB_oe, 'PORTB_oe')
+        self.PORTB_ext_in = _in(PORTB_ext_in, 'PORTB_ext_in')
+        self.PORTB_ext_oe = _in(PORTB_ext_oe, 'PORTB_ext_oe')
+
+        self.PORTC_val = _out(PORTC_val, 'PORTC_val')
+        self.PORTC_oe = _out(PORTC_oe, 'PORTC_oe')
+        self.PORTC_ext_in = _in(PORTC_ext_in, 'PORTC_ext_in')
+        self.PORTC_ext_oe = _in(PORTC_ext_oe, 'PORTC_ext_oe')
+
+        self.PORTD_val = _out(PORTD_val, 'PORTD_val')
+        self.PORTD_oe = _out(PORTD_oe, 'PORTD_oe')
+        self.PORTD_ext_in = _in(PORTD_ext_in, 'PORTD_ext_in')
+        self.PORTD_ext_oe = _in(PORTD_ext_oe, 'PORTD_ext_oe')
+
         #GENERAL GPIOR ADDRESSES 
         self.GPIOR2 = 0
         self.GPIOR2_addr_IO = 0x2B
@@ -85,138 +175,151 @@ class GPIO(py4hw.Logic):
         self.ADDR = 0
         #Interrupts
 
+    def _update_pins(self):
+        """Physical pin computation -- runs every clock() regardless of
+        whether this cycle's bus access targets GPIO at all, same as a
+        real chip's pins are always live. See class docstring for the
+        PIN-read / pull-up semantics this implements."""
+        ext_in_b = self.PORTB_ext_in.get()
+        ext_oe_b = self.PORTB_ext_oe.get()
+        self.PINB = ((self.DDRB & self.PORTB) |
+                     (~self.DDRB & ((ext_oe_b & ext_in_b) | (~ext_oe_b & self.PORTB)))) & 0xFF
+        self.PORTB_val.prepare(self.PORTB)
+        self.PORTB_oe.prepare(self.DDRB)
+
+        ext_in_c = self.PORTC_ext_in.get()
+        ext_oe_c = self.PORTC_ext_oe.get()
+        self.PINC = ((self.DDRC & self.PORTC) |
+                     (~self.DDRC & ((ext_oe_c & ext_in_c) | (~ext_oe_c & self.PORTC)))) & 0xFF
+        self.PORTC_val.prepare(self.PORTC)
+        self.PORTC_oe.prepare(self.DDRC)
+
+        ext_in_d = self.PORTD_ext_in.get()
+        ext_oe_d = self.PORTD_ext_oe.get()
+        self.PIND = ((self.DDRD & self.PORTD) |
+                     (~self.DDRD & ((ext_oe_d & ext_in_d) | (~ext_oe_d & self.PORTD)))) & 0xFF
+        self.PORTD_val.prepare(self.PORTD)
+        self.PORTD_oe.prepare(self.DDRD)
+
     def clock(self):
+        self._update_pins()
         self.ADDR = self.interface.address.get()
         if ((self.ADDR == self.GPIOR2_addr_IO) and self.interface.instype.get() == 0) or ((self.ADDR == self.GPIOR2_addr_LS) and self.interface.instype.get() == 1):
             if (self.interface.read.get() == 1) and (self.interface.write.get() == 0):  #read
                 self.interface.read_data.prepare(self.GPIOR2)
-                self.interface.resp.prepare(0)
+                self.interface.resp.prepare(1)
             elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1): #write
                 self.GPIOR2 = self.interface.write_data.get()
-                self.interface.resp.prepare(0)
-            else:
                 self.interface.resp.prepare(1)
+            else:
+                self.interface.resp.prepare(0)
         elif ((self.ADDR == self.GPIOR1_addr_IO) and self.interface.instype.get() == 0) or ((self.ADDR == self.GPIOR1_addr_LS)and self.interface.instype.get() == 1):
             if (self.interface.read.get() == 1) and (self.interface.write.get() == 0):  #read
                 self.interface.read_data.prepare(self.GPIOR1)
-                self.interface.resp.prepare(0)
+                self.interface.resp.prepare(1)
             elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1): #write
                 self.GPIOR1 = self.interface.write_data.get()
-                self.interface.resp.prepare(0)
-            else:
                 self.interface.resp.prepare(1)
+            else:
+                self.interface.resp.prepare(0)
         elif ((self.ADDR == self.GPIOR0_addr_IO) and self.interface.instype.get() == 0) or ((self.ADDR == self.GPIOR0_addr_LS) and self.interface.instype.get() == 1):
             if (self.interface.read.get() == 1) and (self.interface.write.get() == 0):
                 self.interface.read_data.prepare(self.GPIOR0)
-                self.interface.resp.prepare(0)
+                self.interface.resp.prepare(1)
             elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1):
                 self.GPIOR0 = self.interface.write_data.get()
+                self.interface.resp.prepare(1)
             else:
-                self.interface.resp.prepare(1)   
+                self.interface.resp.prepare(0)
         elif ((self.ADDR == self.PORTB_addr_IO) and self.interface.instype.get() == 0) or ((self.ADDR == self.PORTB_addr_LS) and self.interface.instype.get() == 1): #PORTB
             if (self.interface.read.get() == 1) and (self.interface.write.get() == 0):  #read
                 self.interface.read_data.prepare(self.PORTB)
-                self.interface.resp.prepare(0)
-
+                self.interface.resp.prepare(1)
             elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1): #write
                 self.PORTB = self.interface.write_data.get()
-                self.interface.resp.prepare(0)
-            else:
                 self.interface.resp.prepare(1)
+            else:
+                self.interface.resp.prepare(0)
         elif ((self.ADDR == self.DDRB_addr_IO) and self.interface.instype.get() == 0) or ((self.ADDR == self.DDRB_addr_LS) and self.interface.instype.get() == 1):
             if (self.interface.read.get() == 1) and (self.interface.write.get() == 0):  #read
                 self.interface.read_data.prepare(self.DDRB)
-                self.interface.resp.prepare(0)
+                self.interface.resp.prepare(1)
             elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1):  #write
                 self.DDRB = self.interface.write_data.get()
-                self.interface.resp.prepare(0)
-            else:
                 self.interface.resp.prepare(1)
+            else:
+                self.interface.resp.prepare(0)
         elif ((self.ADDR == self.PINB_addr_IO) and self.interface.instype.get() == 0) or ((self.ADDR == self.PINB_addr_LS) and self.interface.instype.get() == 1):
             if (self.interface.read.get() == 1) and (self.interface.write.get() == 0): #read
                 self.interface.read_data.prepare(self.PINB)
-                self.interface.resp.prepare(0)
+                self.interface.resp.prepare(1)
             elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1): #write
-                self.PINB = self.interface.write_data.get()
+                # Real AVR quirk: writing PINx toggles the corresponding
+                # PORTx bits rather than storing into PINx (PINx is
+                # read-only as far as its own storage goes). Not yet
+                # implemented -- see HANDOFF.md open items. Left as a
+                # plain (non-functional-effect) ack for now so a test
+                # that writes PINx doesn't hang, matching this file's
+                # prior behavior of accepting but not using the value.
+                self.interface.resp.prepare(1)
             else:
-                self.interface.resp.prepare(1)  
+                self.interface.resp.prepare(0)
         elif ((self.ADDR == self.PORTC_addr_IO) and self.interface.instype.get() == 0) or ((self.ADDR == self.PORTC_addr_LS) and self.interface.instype.get() == 1): #PORTC
             if (self.interface.read.get() == 1) and (self.interface.write.get() == 0):  #read
                 self.interface.read_data.prepare(self.PORTC)
-                self.interface.resp.prepare(0)
+                self.interface.resp.prepare(1)
             elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1): #write
                 self.PORTC = self.interface.write_data.get()
-            else:
                 self.interface.resp.prepare(1)
+            else:
+                self.interface.resp.prepare(0)
         elif ((self.ADDR == self.DDRC_addr_IO) and self.interface.instype.get() == 0) or ((self.ADDR == self.DDRC_addr_LS) and self.interface.instype.get() == 1):
             if (self.interface.read.get() == 1) and (self.interface.write.get() == 0):  #read
                 self.interface.read_data.prepare(self.DDRC)
-                self.interface.resp.prepare(0)
+                self.interface.resp.prepare(1)
             elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1):  #write
                 self.DDRC = self.interface.write_data.get()
-            else:
                 self.interface.resp.prepare(1)
-        elif ((self.ADDR == self.PINC_addr_IO) and self.interface.instype.get() == 0) or ((self.ADDR == self.PINC_addr_LS) and self.interface.instype.get() == 1):   #PORTD
+            else:
+                self.interface.resp.prepare(0)
+        elif ((self.ADDR == self.PINC_addr_IO) and self.interface.instype.get() == 0) or ((self.ADDR == self.PINC_addr_LS) and self.interface.instype.get() == 1):
             if (self.interface.read.get() == 1) and (self.interface.write.get() == 0): #read
                 self.interface.read_data.prepare(self.PINC)
-                self.interface.resp.prepare(0)
+                self.interface.resp.prepare(1)
             elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1): #write
-                self.PINC = self.interface.write_data.get()
+                self.interface.resp.prepare(1)
             else:
-                self.interface.resp.prepare(1)        
+                self.interface.resp.prepare(0)
         elif ((self.ADDR == self.PORTD_addr_IO) and self.interface.instype.get() == 0) or ((self.ADDR == self.PORTD_addr_LS) and self.interface.instype.get() == 1): 
-            print("test1")
             if (self.interface.read.get() == 1) and (self.interface.write.get() == 0):  #read
                 self.interface.read_data.prepare(self.PORTD)
-                self.interface.resp.prepare(0)
+                self.interface.resp.prepare(1)
             elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1): #write
                 self.PORTD = self.interface.write_data.get()
-            else:
                 self.interface.resp.prepare(1)
+            else:
+                self.interface.resp.prepare(0)
         elif ((self.ADDR == self.DDRD_addr_IO) and self.interface.instype.get() == 0) or ((self.ADDR == self.DDRD_addr_LS) and self.interface.instype.get() == 1):
-            print("test2")
             if (self.interface.read.get() == 1) and (self.interface.write.get() == 0):  #read
                 self.interface.read_data.prepare(self.DDRD)
-                self.interface.resp.prepare(0)
-            elif ((self.interface.read.get() == 0) and self.interface.instype.get() == 0) and ((self.interface.write.get() == 1) and self.interface.instype.get() == 1):  #write
-                self.DDRD = self.interface.write_data.get()
-            else:
                 self.interface.resp.prepare(1)
+            elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1):  #write
+                self.DDRD = self.interface.write_data.get()
+                self.interface.resp.prepare(1)
+            else:
+                self.interface.resp.prepare(0)
         elif ((self.ADDR == self.PIND_addr_IO) and self.interface.instype.get() == 0) or ((self.ADDR == self.PIND_addr_LS) and self.interface.instype.get() == 1):
             if (self.interface.read.get() == 1) and (self.interface.write.get() == 0): #read
                 self.interface.read_data.prepare(self.PIND)
-                self.interface.resp.prepare(0)
-            elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1): #write
-                self.PIND = self.interface.write_data.get()
-            else:
                 self.interface.resp.prepare(1)
+            elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1): #write
+                self.interface.resp.prepare(1)
+            else:
+                self.interface.resp.prepare(0)
         else:
-                self.interface.resp.prepare(1)                
+                self.interface.resp.prepare(0)
 
-#print("else")
-#        else:
-#            for port in self.PORT:
-#                if (self.interface.address.get() == port.PORTX_addr_IO) or (self.interface.address.get() == port.PORTX_addr_LS):
-#                    if (self.interface.read.get() == 1) and (self.interface.write.get() == 0):  #read
-#                        self.interface.read_data.prepare(port.PORTX)
-#                    elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1): #write
-#                        port.PORTX = self.interface.write_data.get()#
-#
-#                elif (self.interface.address.get() == port.DDRX_addr_IO) or (self.interface.address.get() == port.DDRX_addr_LS):
-#                    if (self.interface.read.get() == 1) and (self.interface.write.get() == 0):  #read
-#                        self.interface.read_data.prepare(port.DDRX)
-#                    elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1): #write
-#                        port.DDRX = self.interface.write_data.get()
-#
-#                elif (self.interface.address.get() == port.PINX_addr_IO) or (self.interface.address.get() == port.PINX_addr_LS):
-#                    if (self.interface.read.get() == 1) and (self.interface.write.get() == 0):
-#                        self.interface.read_data.prepare(port.PINX)
-#                    elif (self.interface.read.get() == 0) and (self.interface.write.get() == 1):
-#                        port.PINX = self.interface.write_data.get()
 
-                     
-
-# This is my original Idea for port implementation but I dont know why it does not work 
 class PortX(py4hw.Logic):
     def __init__(self,parent,name:str,PORT_IO_addr,PORT_LS_addr,DDRX_IO_addr,DDRX_LS_addr,PINX_IO_addr,PINX_LS_addr,RW,ADDR,INN,OUTT,READY):
         super().__init__(parent,name)

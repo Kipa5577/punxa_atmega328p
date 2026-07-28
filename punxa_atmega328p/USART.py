@@ -45,7 +45,8 @@ class USART0(py4hw.Logic):
     """
 
     def __init__(self, parent, name: str, memory: MemoryInterface, RXD, TXD,
-                 USART_CLK, RXC_INT, TXC_INT, UDRE_INT):
+                 USART_CLK, RXC_INT, TXC_INT, UDRE_INT,
+                 XCK_in=None, XCK_DDR_OUT=None):
         super().__init__(parent, name)
 
         self.interface = self.addInterfaceSink('port', memory)
@@ -54,6 +55,22 @@ class USART0(py4hw.Logic):
         self.RXD = self.addIn('RXD', RXD)
         self.TXD = self.addOut('TXD', TXD)
         self.USART_CLK = self.addOut('USART_CLK', USART_CLK)
+
+        # Synchronous-mode XCK support. Real hardware: DDR_XCKn (a GPIO
+        # register bit, external to this peripheral) selects direction --
+        # 1 means this pin is driven as an output, so USART0 is the
+        # clock *master* (drives USART_CLK, exactly like async mode
+        # already did via Clock_Generator's baud_tick toggling); 0 means
+        # it's an input, so USART0 is the clock *slave* and must
+        # synchronize its own bit timing to whatever edges appear on
+        # XCK_in instead of its own internal baud generator. Both
+        # optional (default to always-master behavior, i.e. this
+        # peripheral's pre-synchronous-mode behavior) so any existing
+        # caller that only ever used asynchronous mode doesn't need to
+        # change.
+        self.XCK_in = self.addIn('XCK_in', XCK_in) if XCK_in is not None else None
+        self.XCK_DDR_OUT = self.addIn('XCK_DDR_OUT', XCK_DDR_OUT) if XCK_DDR_OUT is not None else None
+        self._prev_xck_in = 0
 
         # Interrupts -- all three are outputs of this peripheral, driven
         # into InterruptUnit/SimpleInterruptUnit's USART_RX/USART_UDRE/
@@ -114,6 +131,23 @@ class USART0(py4hw.Logic):
         self.RXC_INT_val = 0
         self.TXC_INT_val = 0
         self.UDRE_INT_val = 0
+
+        # --- Synchronous slave RX (externally clocked) ---
+        # Separate from the async/sync-master rx_active/rx_subtick state
+        # above: this path is driven entirely by edges on XCK_in, not by
+        # the internal baud generator, so it needs its own "am I
+        # mid-frame" flag to avoid colliding with RX_logic's.
+        self.sync_slave_rx_active = False
+
+        # --- Master SPI Mode (MSPIM) ---
+        # Fixed 8-bit, full-duplex, no start/stop/parity framing --
+        # deliberately separate from tx_frame/rx_samples (async/sync's
+        # framed-bit-sequence model) rather than shoehorned into it.
+        self.mspim_active = False
+        self.mspim_shift_out = 0
+        self.mspim_shift_in = 0
+        self.mspim_bit_index = 0
+        self._mspim_lastclk = 0
 
         # UDR0's read/write have genuine one-shot side effects (dequeue
         # /enqueue a byte) unlike every other register here, which just
@@ -179,7 +213,19 @@ class USART0(py4hw.Logic):
 
     @property
     def opp_mode(self):
-        return {0: 'Asynchronous', 1: 'Synchronous', 2: 'Master SPI'}.get(self.UMSEL, '(Reserved)')
+        return {0: 'Asynchronous', 1: 'Synchronous', 3: 'Master SPI'}.get(self.UMSEL, '(Reserved)')
+
+    @property
+    def UCPHA0(self):
+        # Only meaningful in MSPIM -- repurposes UCSR0C bit 2 (UPM0 in
+        # async/sync mode).
+        return (self.UCSR0C >> 2) & 1
+
+    @property
+    def UDORD0(self):
+        # Only meaningful in MSPIM -- repurposes UCSR0C bit 1 (the low
+        # bit of UCSZ01:00 in async/sync mode).
+        return (self.UCSR0C >> 1) & 1
 
     @property
     def ticks_per_bit(self):
@@ -501,6 +547,15 @@ class USART0(py4hw.Logic):
             'upe': upe,
         }
 
+        if self.MPCM0 and entry['rxb8'] == 0:
+            # Data frame while multi-processor mode is filtering for an
+            # address frame: silently discarded, RXC0 must not set.
+            # (Real hardware: this check is independent of the two-slot
+            # overrun logic below -- a filtered frame was never queued
+            # in the first place, so it can't contribute to an overrun
+            # either.)
+            return
+
         if len(self.rx_fifo) >= 2:
             # Both buffer slots already occupied: the real chip keeps
             # the two buffered bytes and drops the new one, flagging
@@ -508,6 +563,128 @@ class USART0(py4hw.Logic):
             self.DOR0 = 1
             return
 
+        self.rx_fifo.append(entry)
+        self._refresh_rx_front_status()
+
+    # -----------------------------------------------------------------
+    # Synchronous mode: role select + slave RX (externally clocked)
+    # -----------------------------------------------------------------
+    def _sync_is_master(self):
+        # Real hardware: DDR_XCKn (external to this peripheral) selects
+        # direction. No XCK_DDR_OUT wired at all defaults to master --
+        # this peripheral's original, pre-synchronous-mode behavior
+        # (Clock_Generator always drives USART_CLK), so callers that
+        # never use synchronous mode see no change.
+        if self.XCK_DDR_OUT is None:
+            return True
+        return (self.XCK_DDR_OUT.get() & 1) == 1
+
+    def Sync_Slave_RX_logic(self):
+        # Edge-driven counterpart to RX_logic's baud_tick-driven
+        # sampling: as a synchronous slave, this device has no baud
+        # generator of its own worth trusting for bit timing -- the
+        # external clock on XCK_in *is* the bit clock, so every sample
+        # is taken directly off a real edge instead of an internally
+        # oversampled tick count. Feeds the same rx_samples/
+        # rx_frame_len/_finish_rx_frame() pipeline RX_logic uses, since
+        # synchronous mode keeps the same start/data/parity/stop framing
+        # as asynchronous mode -- only the bit timing source differs.
+        if not self.RXEN0 or self.XCK_in is None:
+            self.sync_slave_rx_active = False
+            self._prev_xck_in = self.XCK_in.get() & 1 if self.XCK_in is not None else 0
+            return
+
+        xck = self.XCK_in.get() & 1
+        rising = (self._prev_xck_in == 0 and xck == 1)
+        falling = (self._prev_xck_in == 1 and xck == 0)
+        sample_edge = rising if self.UCPOL0 == 0 else falling
+
+        if sample_edge:
+            rxd = self.RXD.get() & 1
+            if not self.sync_slave_rx_active:
+                if rxd == 0:      # start bit
+                    self.sync_slave_rx_active = True
+                    self.rx_samples = []
+                    self.rx_frame_len = (self.nbBits +
+                                          (1 if self.ParityMode != 'Disabled' else 0) +
+                                          self.nbStopBits)
+                # else: idle-high noise on the line -- not a start bit,
+                # stay inactive.
+            else:
+                self.rx_samples.append(rxd)
+                if len(self.rx_samples) == self.rx_frame_len:
+                    self._finish_rx_frame()
+                    self.sync_slave_rx_active = False
+
+        self._prev_xck_in = xck
+
+    # -----------------------------------------------------------------
+    # Master SPI Mode (MSPIM): fixed 8-bit, full-duplex, no framing bits
+    # at all -- TXD/RXD act as MOSI/MISO, XCK as SCK, exactly like
+    # punxa_atmega328p.SPI's master mode (same leading/trailing,
+    # UCPOL0/UCPHA0-as-CPOL/CPHA edge logic), just clocked off this
+    # peripheral's own baud generator instead of a dedicated prescaler.
+    # -----------------------------------------------------------------
+    def _begin_mspim_transfer(self):
+        data, _ = self.TXB_buffer
+        self.TXB_buffer = None                    # frees UDRE0
+        self.mspim_shift_out = data
+        self.mspim_shift_in = 0
+        self.mspim_bit_index = 0
+        self.mspim_active = True
+        # Pre-load bit 0 immediately, before any clock edge -- same
+        # "first bit must already be valid at the leading edge" fix
+        # SPI.py needed for its own MOSI (see that file's fix history).
+        if self.UDORD0:
+            bit0 = self.mspim_shift_out & 1
+        else:
+            bit0 = (self.mspim_shift_out >> 7) & 1
+        self.TXD_val = bit0
+
+    def MSPIM_logic(self):
+        if not self.baud_tick:
+            return
+
+        if not self.mspim_active:
+            if self.TXB_buffer is not None:
+                self._begin_mspim_transfer()
+            return
+
+        # Clock_Generator (called earlier in clock()) already toggled
+        # USART_CLK_val for this tick -- current is the post-toggle
+        # value, current-vs-previous is this tick's edge.
+        current = self.USART_CLK_val
+        leading_edge = (self._mspim_lastclk == self.UCPOL0) and (current != self.UCPOL0)
+        trailing_edge = (self._mspim_lastclk != self.UCPOL0) and (current == self.UCPOL0)
+        sample_edge = leading_edge if self.UCPHA0 == 0 else trailing_edge
+        setup_edge = trailing_edge if self.UCPHA0 == 0 else leading_edge
+
+        if setup_edge:
+            idx = self.mspim_bit_index
+            if self.UDORD0:
+                bit = (self.mspim_shift_out >> idx) & 1
+            else:
+                bit = (self.mspim_shift_out >> (7 - idx)) & 1
+            self.TXD_val = bit
+        elif sample_edge:
+            incoming = self.RXD.get() & 1
+            if self.UDORD0:
+                self.mspim_shift_in = (self.mspim_shift_in >> 1) | (incoming << 7)
+            else:
+                self.mspim_shift_in = ((self.mspim_shift_in << 1) & 0xFF) | incoming
+            self.mspim_bit_index += 1
+            if self.mspim_bit_index == 8:
+                self._finish_mspim_transfer()
+
+        self._mspim_lastclk = current
+
+    def _finish_mspim_transfer(self):
+        self.mspim_active = False
+        self.TXC0 = 1
+        entry = {'data': self.mspim_shift_in & 0xFF, 'fe': 0, 'upe': 0, 'rxb8': 0}
+        if len(self.rx_fifo) >= 2:
+            self.DOR0 = 1
+            return
         self.rx_fifo.append(entry)
         self._refresh_rx_front_status()
 
@@ -527,8 +704,19 @@ class USART0(py4hw.Logic):
     def clock(self):
         self.Memory_access()
         self.Clock_Generator()
-        self.TX_logic()
-        self.RX_logic()
+
+        mode = self.opp_mode
+        if mode == 'Master SPI':
+            self.MSPIM_logic()
+        elif mode == 'Synchronous' and not self._sync_is_master():
+            self.Sync_Slave_RX_logic()
+            # Slave-mode TX is real-hardware-legal but not implemented
+            # this round (the tests exercise slave RX only) -- TXD is
+            # simply left at its last value rather than actively driven.
+        else:
+            self.TX_logic()
+            self.RX_logic()
+
         self.update_interrupts()
         self.update_Outputs()
 

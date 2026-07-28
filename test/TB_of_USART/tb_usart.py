@@ -130,6 +130,8 @@ TEST_PEER_KWARGS = {
     # must generate/check the same parity or its default-echo test
     # (test 1) would never come back clean.
     'test_usart_parity.asm': dict(parity='even'),
+    # 9-bit frames needed to carry the MPCM address-mark bit.
+    'test_usart_mpcm_filtering.asm': dict(nbBits=9),
 }
 
 
@@ -155,6 +157,47 @@ def _driver_break_condition(peer):
     peer.on_frame_received = on_frame
 
 
+def _driver_mpcm_filtering(peer):
+    # Unlike the other TEST_DRIVERS, the DUT here never transmits first
+    # -- it's purely a receiver waiting on two frames the peer must send
+    # unprompted, and neither can simply be queued at construction time:
+    #
+    # - Frame 1 (data, must be filtered) can't be sent at cycle 0: the
+    #   CPU's own setup code (UBRR0/UCSR0C/UCSR0B writes, then the
+    #   read-modify-write that sets MPCM0) doesn't actually enable MPCM0
+    #   until ~cycle 357 (measured), but a 9-bit frame only takes ~176
+    #   cycles to arrive -- sent immediately, frame 1 would complete
+    #   *before* filtering is even turned on, and get received normally
+    #   (incorrectly setting RXC0, but for an unrelated reason: not a
+    #   real filtering failure, just a race against the DUT's own init).
+    # - Frame 2 (address, must be accepted) can't be sent immediately
+    #   after frame 1 either: this multicycle CPU takes ~11,000 cycles
+    #   to work through its 255-iteration delay loop before TEST 1
+    #   checks RXC0, far longer than either frame's transmission time,
+    #   so an eagerly-queued frame 2 would already be sitting in the
+    #   FIFO by the time TEST 1 checks that RXC0 is still clear.
+    #
+    # PeerUART has no built-in "send after N cycles" primitive, so both
+    # sends are driven by a small per-cycle scheduler wrapping
+    # peer.clock (measured cycle counts above have generous margin on
+    # both sides).
+    peer._mpcm_schedule = [(500, (0x11, 0)), (15000, (0x22, 1))]
+    orig_clock = peer.clock
+
+    def scheduled_clock():
+        orig_clock()
+        remaining = []
+        for cycle, (data, ninth) in peer._mpcm_schedule:
+            cycle -= 1
+            if cycle <= 0:
+                peer.send9(data, ninth)
+            else:
+                remaining.append((cycle, (data, ninth)))
+        peer._mpcm_schedule = remaining
+
+    peer.clock = scheduled_clock
+
+
 def _driver_parity(peer):
     def on_frame(peer, entry):
         if entry['data'] == 0xFF:
@@ -172,6 +215,7 @@ def _driver_parity(peer):
 TEST_DRIVERS = {
     'test_usart_break_condition.asm': _driver_break_condition,
     'test_usart_parity.asm': _driver_parity,
+    'test_usart_mpcm_filtering.asm': _driver_mpcm_filtering,
 }
 
 
@@ -230,6 +274,128 @@ TEST_STEP_LIMITS = {
 }
 
 
+class GpioDdrBitProbe(py4hw.Logic):
+    """Bridges a single GPIO DDRx bit into a wire USART0's XCK_DDR_OUT
+    input can read -- GPIO doesn't expose DDRD as a py4hw port (it's a
+    plain Python attribute, like every register in this project's
+    peripherals), so this reaches into the already-constructed `gpio`
+    object directly each cycle, the same "peek at another component's
+    real Python state" pattern peer_uart.py's `dut`/`track_format` and
+    peer_spi.py's `dut` already use, just from a tiny dedicated
+    component instead of a peer. Real top-level chip integration would
+    wire this from GPIO's real register bit the same way once GPIO
+    exposes it as a proper output port; this is the test-harness-side
+    equivalent in the meantime."""
+    def __init__(self, parent, name, gpio, bit, out_wire):
+        super().__init__(parent, name)
+        self.gpio = gpio
+        self.bit = bit
+        self.out = self.addOut('out', out_wire)
+
+    def propagate(self):
+        self.out.put((self.gpio.DDRD >> self.bit) & 1)
+
+
+class SyncSlaveDriver(py4hw.Logic):
+    """Test-specific driver for test_usart_sync_mode.asm's TEST 2:
+    drives XCK_in + RXD to clock a fixed byte into USART0 while it's
+    configured as a synchronous slave receiver (UMSEL=Synchronous,
+    XCK_DDR_OUT=0). Waits for the DUT to actually reach that state
+    before bit-banging, since the .asm only gets there after TEST 1
+    (master TX) finishes -- polls `usart.RXEN0`/`.opp_mode`/
+    `._sync_is_master()` directly (same "reach into the DUT" pattern as
+    GpioDdrBitProbe above)."""
+    def __init__(self, parent, name, usart, xck_out, rxd_out, byte, period=4):
+        super().__init__(parent, name)
+        self.usart = usart
+        self.xck_out = self.addOut('xck_out', xck_out)
+        self.rxd_out = self.addOut('rxd_out', rxd_out)
+        self.period = period
+        self.byte = byte & 0xFF
+        self.state = 'WAIT'
+        self.phase = 0
+        self.bit_index = 0
+        self.frame = None
+        self.xck_val = 0
+        self.rxd_val = 1
+
+    def clock(self):
+        if self.state == 'WAIT':
+            if (self.usart.RXEN0 and self.usart.opp_mode == 'Synchronous'
+                    and not self.usart._sync_is_master()):
+                self.frame = [0] + [(self.byte >> i) & 1 for i in range(8)] + [1]
+                self.bit_index = 0
+                self.phase = 0
+                self.state = 'PRESENT'
+        elif self.state == 'PRESENT':
+            self.rxd_val = self.frame[self.bit_index]
+            self.xck_val = 0
+            self.phase += 1
+            if self.phase >= self.period:
+                self.phase = 0
+                self.state = 'PULSE_HIGH'
+        elif self.state == 'PULSE_HIGH':
+            self.xck_val = 1
+            self.phase += 1
+            if self.phase >= self.period:
+                self.phase = 0
+                self.bit_index += 1
+                if self.bit_index >= len(self.frame):
+                    self.state = 'DONE'
+                else:
+                    self.state = 'PRESENT'
+        elif self.state == 'DONE':
+            self.xck_val = 0
+
+        self.xck_out.prepare(self.xck_val)
+        self.rxd_out.prepare(self.rxd_val)
+
+
+class MspimSlaveDriver(py4hw.Logic):
+    """Test-specific driver for test_usart_mspim.asm: plays the SPI
+    'slave' side of Master SPI Mode -- USART0 always drives XCK in
+    MSPIM (no MSPIM slave mode exists on real hardware), so this only
+    ever senses XCK/TXD(MOSI) and drives RXD(MISO). SPI Mode 0
+    (UCPOL0=0, UCPHA0=0, matching what the .asm configures): both sides
+    present their next bit on the trailing (falling) edge and sample on
+    the leading (rising) edge.
+
+    Presents a pre-configured reply byte rather than a true same-
+    transfer echo -- full-duplex means the master's byte isn't fully
+    known until the same instant this peer would need to finish
+    replying with it, so an actual echo needs a second transfer (the
+    same one-transfer-latency constraint peer_spi.py's PeerSPI already
+    documents for regular SPI). Known here in advance since the test
+    harness controls both sides, the same way TWI's PeerI2CSlave is
+    pre-loaded with `read_bytes` for a master-read test.
+    """
+    def __init__(self, parent, name, xck_in, mosi_in, miso_out, reply_byte):
+        super().__init__(parent, name)
+        self.xck_in = self.addIn('xck_in', xck_in)
+        self.mosi_in = self.addIn('mosi_in', mosi_in)
+        self.miso_out = self.addOut('miso_out', miso_out)
+        self.reply = reply_byte & 0xFF
+        self.bit_index = 0
+        self.prev_xck = 0
+        self.received = 0
+        self.miso_val = (self.reply >> 7) & 1   # bit 0 pre-loaded, MSB first (UDORD0=0)
+
+    def clock(self):
+        xck = self.xck_in.get() & 1
+        leading = (self.prev_xck == 0 and xck == 1)
+        trailing = (self.prev_xck == 1 and xck == 0)
+
+        if leading and self.bit_index < 8:
+            bit = self.mosi_in.get() & 1
+            self.received = ((self.received << 1) & 0xFF) | bit
+            self.bit_index += 1
+        if trailing and self.bit_index < 8:
+            self.miso_val = (self.reply >> (7 - self.bit_index)) & 1
+
+        self.prev_xck = xck
+        self.miso_out.prepare(self.miso_val)
+
+
 def prepareTest(file, preload=True, peer_kwargs=None):
     global hw, cpu, ins_mem, mem, usart, peer
 
@@ -254,7 +420,7 @@ def prepareTest(file, preload=True, peer_kwargs=None):
     sp_p = punxa.MemoryInterface(hw, 'sp_port', dw, 2)
     mem_p = punxa.MemoryInterface(hw, 'mem', dw, 11)
     int_unit_p = punxa.MemoryInterface(hw, 'int_unit_p', dw, 1)
-    gpio_p = punxa.MemoryInterface(hw, 'gpio', dw, 5)
+    gpio_p = punxa.MemoryInterface(hw, 'gpio', dw, 8)
 
     interrupt_wire = py4hw.Wire(hw, 'Interrupt_Line', 1)
     interrupt_wire.put(0)
@@ -265,13 +431,15 @@ def prepareTest(file, preload=True, peer_kwargs=None):
     rxd_wire = py4hw.Wire(hw, 'usart_rxd', 1); rxd_wire.put(1)
     txd_wire = py4hw.Wire(hw, 'usart_txd', 1); txd_wire.put(1)
     usart_clk_wire = py4hw.Wire(hw, 'usart_clk', 1); usart_clk_wire.put(0)
+    xck_in_wire = py4hw.Wire(hw, 'usart_xck_in', 1); xck_in_wire.put(0)
+    xck_ddr_wire = py4hw.Wire(hw, 'usart_xck_ddr', 1); xck_ddr_wire.put(1)
     usart_rxc_wire = py4hw.Wire(hw, 'usart_rxc_int', 1); usart_rxc_wire.put(0)
     usart_txc_wire = py4hw.Wire(hw, 'usart_txc_int', 1); usart_txc_wire.put(0)
     usart_udre_wire = py4hw.Wire(hw, 'usart_udre_int', 1); usart_udre_wire.put(0)
 
     punxa.MultiplexedBus(hw, 'bus', data_p,
-                         [(reg_p, 0x0, 0x20),
-                          (gpio_p, 0x20, 0x20),
+                         [(gpio_p, 0x0, 0x100),
+                          (reg_p, 0x0, 0x20),
                           (sp_p, 0x5D, 0x02),
                           (int_unit_p, 0xFE, 0x2),
                           (usart_p, 0xC0, 0x8),
@@ -313,12 +481,20 @@ def prepareTest(file, preload=True, peer_kwargs=None):
     mem = punxa.Ram_Memory(hw, 'men', dw, 11, mem_p)
     ins_mem = punxa.Ram_Memory(hw, 'ins_men', 16, 14, ins_p)
     sp_component = StackPointer(hw, 'stack_pointer', sp_p)
-    gpio = punxa.VirtualGPIO(hw, 'gpio', gpio_p)
+    gpio = punxa.GPIO(hw, 'gpio', gpio_p)
 
     usart = punxa.USART0(hw, 'usart0', usart_p,
                           RXD=rxd_wire, TXD=txd_wire, USART_CLK=usart_clk_wire,
                           RXC_INT=usart_rxc_wire, TXC_INT=usart_txc_wire,
-                          UDRE_INT=usart_udre_wire)
+                          UDRE_INT=usart_udre_wire,
+                          XCK_in=xck_in_wire, XCK_DDR_OUT=xck_ddr_wire)
+
+    GpioDdrBitProbe(hw, 'xck_ddr_probe', gpio, 4, xck_ddr_wire)
+
+    if file == 'test_usart_sync_mode.asm':
+        SyncSlaveDriver(hw, 'sync_slave_driver', usart, xck_in_wire, rxd_wire, 0x5A)
+    elif file == 'test_usart_mspim.asm':
+        MspimSlaveDriver(hw, 'mspim_slave_driver', usart_clk_wire, txd_wire, rxd_wire, 0xC3)
 
     pk = dict(ubrr=DEFAULT_UBRR0, nbBits=8, parity='Disabled', nbStopBits=1,
               ticks_per_bit=DEFAULT_TICKS_PER_BIT, echo=True, dut=usart)
@@ -327,7 +503,16 @@ def prepareTest(file, preload=True, peer_kwargs=None):
     # peer.RXD_out drives the DUT's RXD pin; peer.TXD_in samples the
     # DUT's TXD pin -- i.e. crossed relative to the DUT's own naming,
     # exactly like connecting two real UARTs together.
-    peer = PeerUART(hw, 'peer', RXD_out=rxd_wire, TXD_in=txd_wire, **pk)
+    # test_usart_sync_mode.asm / test_usart_mspim.asm need
+    # SyncSlaveDriver/MspimSlaveDriver to be the *only* thing driving
+    # rxd_wire (both peers writing the same wire every cycle would
+    # silently race) -- PeerUART is still constructed (its TXD_in side
+    # is harmless/unused by these tests), just pointed at a wire nothing
+    # reads instead of the DUT's real RXD.
+    peer_rxd_target = rxd_wire
+    if file in ('test_usart_sync_mode.asm', 'test_usart_mspim.asm'):
+        peer_rxd_target = py4hw.Wire(hw, 'unused_peer_rxd', 1)
+    peer = PeerUART(hw, 'peer', RXD_out=peer_rxd_target, TXD_in=txd_wire, **pk)
 
     driver_setup = TEST_DRIVERS.get(file)
     if driver_setup is not None:

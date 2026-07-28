@@ -54,6 +54,7 @@ class SPI(py4hw.Logic):
         self.stateMachineRX = 'START' #'DATA' 'STOP'
         self.stateMAchineTx = 'START' #'DATA' 'STOP'
         self.lastSPR=17
+        self.bit_counter = 8  # 8 = idle/no transfer in progress
 
     def Memory_access(self):
         ADDR = self.interface.address.get()
@@ -72,6 +73,13 @@ class SPI(py4hw.Logic):
         elif ((ADDR == self.SPSR_addr_IO) and (self.interface.instype.get() == 0)) or ((ADDR == self.SPSR_addr_LS) and (self.interface.instype.get() == 1)):
             if read_opp:
                 self.interface.read_data.prepare(self.SPSR)
+                # FIX: real hardware's SPIF-clear sequence is "read SPSR
+                # (with SPIF=1), then access SPDR" -- neither half was
+                # implemented at all, so SPIF could be set but never
+                # cleared. This read arms the clear; the SPDR access
+                # below completes it.
+                if self.SPIF == 1:
+                    self._spif_clear_armed = True
                 self.interface.resp.prepare(1)
             elif write_opp:
                 self.SPSR = self.interface.write_data.get()& 0b00000001
@@ -81,9 +89,43 @@ class SPI(py4hw.Logic):
         elif ((ADDR == self.SPDR_addr_IO) and (self.interface.instype.get() == 0)) or ((ADDR == self.SPDR_addr_LS) and (self.interface.instype.get() == 1)):
             if read_opp:
                 self.interface.read_data.prepare(self.SPDR)
+                if getattr(self, '_spif_clear_armed', False):
+                    self.SPIF = 0
+                    self.SPSR = self.SPSR & ~0x80
+                    self._spif_clear_armed = False
                 self.interface.resp.prepare(1)
             elif write_opp:
-                self.SPDR = self.interface.write_data.get()
+                if getattr(self, '_spif_clear_armed', False):
+                    self.SPIF = 0
+                    self.SPSR = self.SPSR & ~0x80
+                    self._spif_clear_armed = False
+                if self.MSTR == 1 and self.bit_counter < 8:
+                    # Real hardware: a write while a transfer is already
+                    # shifting is a write collision -- data is not
+                    # accepted, WCOL (SPSR bit 6) latches instead.
+                    self.SPSR = self.SPSR | 0x40
+                else:
+                    self.SPDR = self.interface.write_data.get()
+                    if self.MSTR == 1:
+                        # FIX: nothing else in this class ever set
+                        # bit_counter to a value < 8, so the active-shift
+                        # condition at `if self.bit_counter < 8:` in
+                        # clock() could never become true -- writing
+                        # SPDR silently did nothing but store a byte no
+                        # transfer would ever actually shift out. This is
+                        # what starts a master-mode transfer.
+                        self.bit_counter = 0
+                        self.CLKcounter = 0
+                        # FIX: pre-load MOSI with bit 0 right now, before
+                        # any clock edge -- otherwise the peer's first
+                        # sample (leading edge, for CPHA=0) reads
+                        # whatever MOSI was last left at instead of this
+                        # transfer's real first bit.
+                        if self.DORD == 1:
+                            bit0 = self.SPDR & 1
+                        else:
+                            bit0 = (self.SPDR >> 7) & 1
+                        self.MOSI.prepare(bit0)
                 self.interface.resp.prepare(1)
             else:
                 self.interface.resp.prepare(0)
@@ -148,7 +190,20 @@ class SPI(py4hw.Logic):
             if self.MSTR == 0 and self.SS.get() == 1:
                 self.bit_counter = 8 
                 return
-            
+
+            idle_state = 1 if self.CPOL == 1 else 0
+
+            if self.bit_counter >= 8:
+                # No transfer in progress -- hold SCK at idle and don't
+                # advance the prescaler counter, so a fresh transfer
+                # (triggered by an SPDR write resetting bit_counter to 0,
+                # see Memory_access) starts from a clean toggle count
+                # instead of wherever CLKcounter happened to be sitting.
+                self.CLK.prepare(idle_state)
+                self.lastCLK = idle_state
+                self.CLKcounter = 0
+                return
+
             self.CLKcounter += 1 
 
             #Divide prescaler by2 because a full cycle requires TWO toggles
@@ -180,9 +235,9 @@ class SPI(py4hw.Logic):
                         if self.DORD == 1:
                             bit_out = self.SPDR & 1
                         else:
-                            bin_out = (self.SPDR >> 7) & 1
+                            bit_out = (self.SPDR >> 7) & 1
 
-                        self.MOSI.prepare(bin_out)
+                        self.MOSI.prepare(bit_out)
 
                     elif sample_edge:
 
@@ -200,6 +255,7 @@ class SPI(py4hw.Logic):
                             self.SPIF = 1 
 
                 self.lastCLK = current_clk_val
+        else:
             idle_state = 1 if self.CPOL == 1 else 0
             self.CLK.prepare(idle_state)
             self.lastCLK = idle_state
