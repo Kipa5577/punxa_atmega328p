@@ -610,6 +610,15 @@ class MemoryInterfaceHandler(py4hw.Logic):
         if self.reset.get():
             self.XregL = 0
             self.XregH = 0
+            # [FIX]: these staging registers were never reset by the reset
+            # wire (only initialized once at construction) -- a stale value
+            # left over from a previous instruction's load could otherwise
+            # leak into a later one. Same root-cause class as the WB_Addr
+            # leak documented in PY4HW_TRANSPILER_BUGS.md.
+            self.RdBuffer = 0
+            self.R0Buffer = 0
+            self.R1Buffer = 0
+            self.Databuffer = 0
             self.YregL = 0
             self.YregH = 0
             self.ZregL = 0

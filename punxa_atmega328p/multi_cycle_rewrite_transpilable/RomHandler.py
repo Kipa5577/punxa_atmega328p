@@ -689,264 +689,264 @@ class RomHandler(py4hw.Logic):
                             # Load Program Memory Page, low byte
                             word_in_page = ib2 & 0x3F
                             if word_in_page == 0:
-                                self._prog_page_00 = (self._prog_page_00 & 0xFF00) | b3
+                                self._prog_page_00 = (self._prog_page_00 & 0xFF00) | ib3
                             elif word_in_page == 1:
-                                self._prog_page_01 = (self._prog_page_01 & 0xFF00) | b3
+                                self._prog_page_01 = (self._prog_page_01 & 0xFF00) | ib3
                             elif word_in_page == 2:
-                                self._prog_page_02 = (self._prog_page_02 & 0xFF00) | b3
+                                self._prog_page_02 = (self._prog_page_02 & 0xFF00) | ib3
                             elif word_in_page == 3:
-                                self._prog_page_03 = (self._prog_page_03 & 0xFF00) | b3
+                                self._prog_page_03 = (self._prog_page_03 & 0xFF00) | ib3
                             elif word_in_page == 4:
-                                self._prog_page_04 = (self._prog_page_04 & 0xFF00) | b3
+                                self._prog_page_04 = (self._prog_page_04 & 0xFF00) | ib3
                             elif word_in_page == 5:
-                                self._prog_page_05 = (self._prog_page_05 & 0xFF00) | b3
+                                self._prog_page_05 = (self._prog_page_05 & 0xFF00) | ib3
                             elif word_in_page == 6:
-                                self._prog_page_06 = (self._prog_page_06 & 0xFF00) | b3
+                                self._prog_page_06 = (self._prog_page_06 & 0xFF00) | ib3
                             elif word_in_page == 7:
-                                self._prog_page_07 = (self._prog_page_07 & 0xFF00) | b3
+                                self._prog_page_07 = (self._prog_page_07 & 0xFF00) | ib3
                             elif word_in_page == 8:
-                                self._prog_page_08 = (self._prog_page_08 & 0xFF00) | b3
+                                self._prog_page_08 = (self._prog_page_08 & 0xFF00) | ib3
                             elif word_in_page == 9:
-                                self._prog_page_09 = (self._prog_page_09 & 0xFF00) | b3
+                                self._prog_page_09 = (self._prog_page_09 & 0xFF00) | ib3
                             elif word_in_page == 10:
-                                self._prog_page_10 = (self._prog_page_10 & 0xFF00) | b3
+                                self._prog_page_10 = (self._prog_page_10 & 0xFF00) | ib3
                             elif word_in_page == 11:
-                                self._prog_page_11 = (self._prog_page_11 & 0xFF00) | b3
+                                self._prog_page_11 = (self._prog_page_11 & 0xFF00) | ib3
                             elif word_in_page == 12:
-                                self._prog_page_12 = (self._prog_page_12 & 0xFF00) | b3
+                                self._prog_page_12 = (self._prog_page_12 & 0xFF00) | ib3
                             elif word_in_page == 13:
-                                self._prog_page_13 = (self._prog_page_13 & 0xFF00) | b3
+                                self._prog_page_13 = (self._prog_page_13 & 0xFF00) | ib3
                             elif word_in_page == 14:
-                                self._prog_page_14 = (self._prog_page_14 & 0xFF00) | b3
+                                self._prog_page_14 = (self._prog_page_14 & 0xFF00) | ib3
                             elif word_in_page == 15:
-                                self._prog_page_15 = (self._prog_page_15 & 0xFF00) | b3
+                                self._prog_page_15 = (self._prog_page_15 & 0xFF00) | ib3
                             elif word_in_page == 16:
-                                self._prog_page_16 = (self._prog_page_16 & 0xFF00) | b3
+                                self._prog_page_16 = (self._prog_page_16 & 0xFF00) | ib3
                             elif word_in_page == 17:
-                                self._prog_page_17 = (self._prog_page_17 & 0xFF00) | b3
+                                self._prog_page_17 = (self._prog_page_17 & 0xFF00) | ib3
                             elif word_in_page == 18:
-                                self._prog_page_18 = (self._prog_page_18 & 0xFF00) | b3
+                                self._prog_page_18 = (self._prog_page_18 & 0xFF00) | ib3
                             elif word_in_page == 19:
-                                self._prog_page_19 = (self._prog_page_19 & 0xFF00) | b3
+                                self._prog_page_19 = (self._prog_page_19 & 0xFF00) | ib3
                             elif word_in_page == 20:
-                                self._prog_page_20 = (self._prog_page_20 & 0xFF00) | b3
+                                self._prog_page_20 = (self._prog_page_20 & 0xFF00) | ib3
                             elif word_in_page == 21:
-                                self._prog_page_21 = (self._prog_page_21 & 0xFF00) | b3
+                                self._prog_page_21 = (self._prog_page_21 & 0xFF00) | ib3
                             elif word_in_page == 22:
-                                self._prog_page_22 = (self._prog_page_22 & 0xFF00) | b3
+                                self._prog_page_22 = (self._prog_page_22 & 0xFF00) | ib3
                             elif word_in_page == 23:
-                                self._prog_page_23 = (self._prog_page_23 & 0xFF00) | b3
+                                self._prog_page_23 = (self._prog_page_23 & 0xFF00) | ib3
                             elif word_in_page == 24:
-                                self._prog_page_24 = (self._prog_page_24 & 0xFF00) | b3
+                                self._prog_page_24 = (self._prog_page_24 & 0xFF00) | ib3
                             elif word_in_page == 25:
-                                self._prog_page_25 = (self._prog_page_25 & 0xFF00) | b3
+                                self._prog_page_25 = (self._prog_page_25 & 0xFF00) | ib3
                             elif word_in_page == 26:
-                                self._prog_page_26 = (self._prog_page_26 & 0xFF00) | b3
+                                self._prog_page_26 = (self._prog_page_26 & 0xFF00) | ib3
                             elif word_in_page == 27:
-                                self._prog_page_27 = (self._prog_page_27 & 0xFF00) | b3
+                                self._prog_page_27 = (self._prog_page_27 & 0xFF00) | ib3
                             elif word_in_page == 28:
-                                self._prog_page_28 = (self._prog_page_28 & 0xFF00) | b3
+                                self._prog_page_28 = (self._prog_page_28 & 0xFF00) | ib3
                             elif word_in_page == 29:
-                                self._prog_page_29 = (self._prog_page_29 & 0xFF00) | b3
+                                self._prog_page_29 = (self._prog_page_29 & 0xFF00) | ib3
                             elif word_in_page == 30:
-                                self._prog_page_30 = (self._prog_page_30 & 0xFF00) | b3
+                                self._prog_page_30 = (self._prog_page_30 & 0xFF00) | ib3
                             elif word_in_page == 31:
-                                self._prog_page_31 = (self._prog_page_31 & 0xFF00) | b3
+                                self._prog_page_31 = (self._prog_page_31 & 0xFF00) | ib3
                             elif word_in_page == 32:
-                                self._prog_page_32 = (self._prog_page_32 & 0xFF00) | b3
+                                self._prog_page_32 = (self._prog_page_32 & 0xFF00) | ib3
                             elif word_in_page == 33:
-                                self._prog_page_33 = (self._prog_page_33 & 0xFF00) | b3
+                                self._prog_page_33 = (self._prog_page_33 & 0xFF00) | ib3
                             elif word_in_page == 34:
-                                self._prog_page_34 = (self._prog_page_34 & 0xFF00) | b3
+                                self._prog_page_34 = (self._prog_page_34 & 0xFF00) | ib3
                             elif word_in_page == 35:
-                                self._prog_page_35 = (self._prog_page_35 & 0xFF00) | b3
+                                self._prog_page_35 = (self._prog_page_35 & 0xFF00) | ib3
                             elif word_in_page == 36:
-                                self._prog_page_36 = (self._prog_page_36 & 0xFF00) | b3
+                                self._prog_page_36 = (self._prog_page_36 & 0xFF00) | ib3
                             elif word_in_page == 37:
-                                self._prog_page_37 = (self._prog_page_37 & 0xFF00) | b3
+                                self._prog_page_37 = (self._prog_page_37 & 0xFF00) | ib3
                             elif word_in_page == 38:
-                                self._prog_page_38 = (self._prog_page_38 & 0xFF00) | b3
+                                self._prog_page_38 = (self._prog_page_38 & 0xFF00) | ib3
                             elif word_in_page == 39:
-                                self._prog_page_39 = (self._prog_page_39 & 0xFF00) | b3
+                                self._prog_page_39 = (self._prog_page_39 & 0xFF00) | ib3
                             elif word_in_page == 40:
-                                self._prog_page_40 = (self._prog_page_40 & 0xFF00) | b3
+                                self._prog_page_40 = (self._prog_page_40 & 0xFF00) | ib3
                             elif word_in_page == 41:
-                                self._prog_page_41 = (self._prog_page_41 & 0xFF00) | b3
+                                self._prog_page_41 = (self._prog_page_41 & 0xFF00) | ib3
                             elif word_in_page == 42:
-                                self._prog_page_42 = (self._prog_page_42 & 0xFF00) | b3
+                                self._prog_page_42 = (self._prog_page_42 & 0xFF00) | ib3
                             elif word_in_page == 43:
-                                self._prog_page_43 = (self._prog_page_43 & 0xFF00) | b3
+                                self._prog_page_43 = (self._prog_page_43 & 0xFF00) | ib3
                             elif word_in_page == 44:
-                                self._prog_page_44 = (self._prog_page_44 & 0xFF00) | b3
+                                self._prog_page_44 = (self._prog_page_44 & 0xFF00) | ib3
                             elif word_in_page == 45:
-                                self._prog_page_45 = (self._prog_page_45 & 0xFF00) | b3
+                                self._prog_page_45 = (self._prog_page_45 & 0xFF00) | ib3
                             elif word_in_page == 46:
-                                self._prog_page_46 = (self._prog_page_46 & 0xFF00) | b3
+                                self._prog_page_46 = (self._prog_page_46 & 0xFF00) | ib3
                             elif word_in_page == 47:
-                                self._prog_page_47 = (self._prog_page_47 & 0xFF00) | b3
+                                self._prog_page_47 = (self._prog_page_47 & 0xFF00) | ib3
                             elif word_in_page == 48:
-                                self._prog_page_48 = (self._prog_page_48 & 0xFF00) | b3
+                                self._prog_page_48 = (self._prog_page_48 & 0xFF00) | ib3
                             elif word_in_page == 49:
-                                self._prog_page_49 = (self._prog_page_49 & 0xFF00) | b3
+                                self._prog_page_49 = (self._prog_page_49 & 0xFF00) | ib3
                             elif word_in_page == 50:
-                                self._prog_page_50 = (self._prog_page_50 & 0xFF00) | b3
+                                self._prog_page_50 = (self._prog_page_50 & 0xFF00) | ib3
                             elif word_in_page == 51:
-                                self._prog_page_51 = (self._prog_page_51 & 0xFF00) | b3
+                                self._prog_page_51 = (self._prog_page_51 & 0xFF00) | ib3
                             elif word_in_page == 52:
-                                self._prog_page_52 = (self._prog_page_52 & 0xFF00) | b3
+                                self._prog_page_52 = (self._prog_page_52 & 0xFF00) | ib3
                             elif word_in_page == 53:
-                                self._prog_page_53 = (self._prog_page_53 & 0xFF00) | b3
+                                self._prog_page_53 = (self._prog_page_53 & 0xFF00) | ib3
                             elif word_in_page == 54:
-                                self._prog_page_54 = (self._prog_page_54 & 0xFF00) | b3
+                                self._prog_page_54 = (self._prog_page_54 & 0xFF00) | ib3
                             elif word_in_page == 55:
-                                self._prog_page_55 = (self._prog_page_55 & 0xFF00) | b3
+                                self._prog_page_55 = (self._prog_page_55 & 0xFF00) | ib3
                             elif word_in_page == 56:
-                                self._prog_page_56 = (self._prog_page_56 & 0xFF00) | b3
+                                self._prog_page_56 = (self._prog_page_56 & 0xFF00) | ib3
                             elif word_in_page == 57:
-                                self._prog_page_57 = (self._prog_page_57 & 0xFF00) | b3
+                                self._prog_page_57 = (self._prog_page_57 & 0xFF00) | ib3
                             elif word_in_page == 58:
-                                self._prog_page_58 = (self._prog_page_58 & 0xFF00) | b3
+                                self._prog_page_58 = (self._prog_page_58 & 0xFF00) | ib3
                             elif word_in_page == 59:
-                                self._prog_page_59 = (self._prog_page_59 & 0xFF00) | b3
+                                self._prog_page_59 = (self._prog_page_59 & 0xFF00) | ib3
                             elif word_in_page == 60:
-                                self._prog_page_60 = (self._prog_page_60 & 0xFF00) | b3
+                                self._prog_page_60 = (self._prog_page_60 & 0xFF00) | ib3
                             elif word_in_page == 61:
-                                self._prog_page_61 = (self._prog_page_61 & 0xFF00) | b3
+                                self._prog_page_61 = (self._prog_page_61 & 0xFF00) | ib3
                             elif word_in_page == 62:
-                                self._prog_page_62 = (self._prog_page_62 & 0xFF00) | b3
+                                self._prog_page_62 = (self._prog_page_62 & 0xFF00) | ib3
                             elif word_in_page == 63:
-                                self._prog_page_63 = (self._prog_page_63 & 0xFF00) | b3
+                                self._prog_page_63 = (self._prog_page_63 & 0xFF00) | ib3
                         elif self._prog_enabled and (ib0 == 0x48):
                             # Load Program Memory Page, high byte
                             word_in_page = ib2 & 0x3F
                             if word_in_page == 0:
-                                self._prog_page_00 = (self._prog_page_00 & 0x00FF) | (b3 << 8)
+                                self._prog_page_00 = (self._prog_page_00 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 1:
-                                self._prog_page_01 = (self._prog_page_01 & 0x00FF) | (b3 << 8)
+                                self._prog_page_01 = (self._prog_page_01 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 2:
-                                self._prog_page_02 = (self._prog_page_02 & 0x00FF) | (b3 << 8)
+                                self._prog_page_02 = (self._prog_page_02 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 3:
-                                self._prog_page_03 = (self._prog_page_03 & 0x00FF) | (b3 << 8)
+                                self._prog_page_03 = (self._prog_page_03 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 4:
-                                self._prog_page_04 = (self._prog_page_04 & 0x00FF) | (b3 << 8)
+                                self._prog_page_04 = (self._prog_page_04 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 5:
-                                self._prog_page_05 = (self._prog_page_05 & 0x00FF) | (b3 << 8)
+                                self._prog_page_05 = (self._prog_page_05 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 6:
-                                self._prog_page_06 = (self._prog_page_06 & 0x00FF) | (b3 << 8)
+                                self._prog_page_06 = (self._prog_page_06 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 7:
-                                self._prog_page_07 = (self._prog_page_07 & 0x00FF) | (b3 << 8)
+                                self._prog_page_07 = (self._prog_page_07 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 8:
-                                self._prog_page_08 = (self._prog_page_08 & 0x00FF) | (b3 << 8)
+                                self._prog_page_08 = (self._prog_page_08 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 9:
-                                self._prog_page_09 = (self._prog_page_09 & 0x00FF) | (b3 << 8)
+                                self._prog_page_09 = (self._prog_page_09 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 10:
-                                self._prog_page_10 = (self._prog_page_10 & 0x00FF) | (b3 << 8)
+                                self._prog_page_10 = (self._prog_page_10 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 11:
-                                self._prog_page_11 = (self._prog_page_11 & 0x00FF) | (b3 << 8)
+                                self._prog_page_11 = (self._prog_page_11 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 12:
-                                self._prog_page_12 = (self._prog_page_12 & 0x00FF) | (b3 << 8)
+                                self._prog_page_12 = (self._prog_page_12 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 13:
-                                self._prog_page_13 = (self._prog_page_13 & 0x00FF) | (b3 << 8)
+                                self._prog_page_13 = (self._prog_page_13 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 14:
-                                self._prog_page_14 = (self._prog_page_14 & 0x00FF) | (b3 << 8)
+                                self._prog_page_14 = (self._prog_page_14 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 15:
-                                self._prog_page_15 = (self._prog_page_15 & 0x00FF) | (b3 << 8)
+                                self._prog_page_15 = (self._prog_page_15 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 16:
-                                self._prog_page_16 = (self._prog_page_16 & 0x00FF) | (b3 << 8)
+                                self._prog_page_16 = (self._prog_page_16 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 17:
-                                self._prog_page_17 = (self._prog_page_17 & 0x00FF) | (b3 << 8)
+                                self._prog_page_17 = (self._prog_page_17 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 18:
-                                self._prog_page_18 = (self._prog_page_18 & 0x00FF) | (b3 << 8)
+                                self._prog_page_18 = (self._prog_page_18 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 19:
-                                self._prog_page_19 = (self._prog_page_19 & 0x00FF) | (b3 << 8)
+                                self._prog_page_19 = (self._prog_page_19 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 20:
-                                self._prog_page_20 = (self._prog_page_20 & 0x00FF) | (b3 << 8)
+                                self._prog_page_20 = (self._prog_page_20 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 21:
-                                self._prog_page_21 = (self._prog_page_21 & 0x00FF) | (b3 << 8)
+                                self._prog_page_21 = (self._prog_page_21 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 22:
-                                self._prog_page_22 = (self._prog_page_22 & 0x00FF) | (b3 << 8)
+                                self._prog_page_22 = (self._prog_page_22 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 23:
-                                self._prog_page_23 = (self._prog_page_23 & 0x00FF) | (b3 << 8)
+                                self._prog_page_23 = (self._prog_page_23 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 24:
-                                self._prog_page_24 = (self._prog_page_24 & 0x00FF) | (b3 << 8)
+                                self._prog_page_24 = (self._prog_page_24 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 25:
-                                self._prog_page_25 = (self._prog_page_25 & 0x00FF) | (b3 << 8)
+                                self._prog_page_25 = (self._prog_page_25 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 26:
-                                self._prog_page_26 = (self._prog_page_26 & 0x00FF) | (b3 << 8)
+                                self._prog_page_26 = (self._prog_page_26 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 27:
-                                self._prog_page_27 = (self._prog_page_27 & 0x00FF) | (b3 << 8)
+                                self._prog_page_27 = (self._prog_page_27 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 28:
-                                self._prog_page_28 = (self._prog_page_28 & 0x00FF) | (b3 << 8)
+                                self._prog_page_28 = (self._prog_page_28 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 29:
-                                self._prog_page_29 = (self._prog_page_29 & 0x00FF) | (b3 << 8)
+                                self._prog_page_29 = (self._prog_page_29 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 30:
-                                self._prog_page_30 = (self._prog_page_30 & 0x00FF) | (b3 << 8)
+                                self._prog_page_30 = (self._prog_page_30 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 31:
-                                self._prog_page_31 = (self._prog_page_31 & 0x00FF) | (b3 << 8)
+                                self._prog_page_31 = (self._prog_page_31 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 32:
-                                self._prog_page_32 = (self._prog_page_32 & 0x00FF) | (b3 << 8)
+                                self._prog_page_32 = (self._prog_page_32 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 33:
-                                self._prog_page_33 = (self._prog_page_33 & 0x00FF) | (b3 << 8)
+                                self._prog_page_33 = (self._prog_page_33 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 34:
-                                self._prog_page_34 = (self._prog_page_34 & 0x00FF) | (b3 << 8)
+                                self._prog_page_34 = (self._prog_page_34 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 35:
-                                self._prog_page_35 = (self._prog_page_35 & 0x00FF) | (b3 << 8)
+                                self._prog_page_35 = (self._prog_page_35 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 36:
-                                self._prog_page_36 = (self._prog_page_36 & 0x00FF) | (b3 << 8)
+                                self._prog_page_36 = (self._prog_page_36 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 37:
-                                self._prog_page_37 = (self._prog_page_37 & 0x00FF) | (b3 << 8)
+                                self._prog_page_37 = (self._prog_page_37 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 38:
-                                self._prog_page_38 = (self._prog_page_38 & 0x00FF) | (b3 << 8)
+                                self._prog_page_38 = (self._prog_page_38 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 39:
-                                self._prog_page_39 = (self._prog_page_39 & 0x00FF) | (b3 << 8)
+                                self._prog_page_39 = (self._prog_page_39 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 40:
-                                self._prog_page_40 = (self._prog_page_40 & 0x00FF) | (b3 << 8)
+                                self._prog_page_40 = (self._prog_page_40 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 41:
-                                self._prog_page_41 = (self._prog_page_41 & 0x00FF) | (b3 << 8)
+                                self._prog_page_41 = (self._prog_page_41 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 42:
-                                self._prog_page_42 = (self._prog_page_42 & 0x00FF) | (b3 << 8)
+                                self._prog_page_42 = (self._prog_page_42 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 43:
-                                self._prog_page_43 = (self._prog_page_43 & 0x00FF) | (b3 << 8)
+                                self._prog_page_43 = (self._prog_page_43 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 44:
-                                self._prog_page_44 = (self._prog_page_44 & 0x00FF) | (b3 << 8)
+                                self._prog_page_44 = (self._prog_page_44 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 45:
-                                self._prog_page_45 = (self._prog_page_45 & 0x00FF) | (b3 << 8)
+                                self._prog_page_45 = (self._prog_page_45 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 46:
-                                self._prog_page_46 = (self._prog_page_46 & 0x00FF) | (b3 << 8)
+                                self._prog_page_46 = (self._prog_page_46 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 47:
-                                self._prog_page_47 = (self._prog_page_47 & 0x00FF) | (b3 << 8)
+                                self._prog_page_47 = (self._prog_page_47 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 48:
-                                self._prog_page_48 = (self._prog_page_48 & 0x00FF) | (b3 << 8)
+                                self._prog_page_48 = (self._prog_page_48 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 49:
-                                self._prog_page_49 = (self._prog_page_49 & 0x00FF) | (b3 << 8)
+                                self._prog_page_49 = (self._prog_page_49 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 50:
-                                self._prog_page_50 = (self._prog_page_50 & 0x00FF) | (b3 << 8)
+                                self._prog_page_50 = (self._prog_page_50 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 51:
-                                self._prog_page_51 = (self._prog_page_51 & 0x00FF) | (b3 << 8)
+                                self._prog_page_51 = (self._prog_page_51 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 52:
-                                self._prog_page_52 = (self._prog_page_52 & 0x00FF) | (b3 << 8)
+                                self._prog_page_52 = (self._prog_page_52 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 53:
-                                self._prog_page_53 = (self._prog_page_53 & 0x00FF) | (b3 << 8)
+                                self._prog_page_53 = (self._prog_page_53 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 54:
-                                self._prog_page_54 = (self._prog_page_54 & 0x00FF) | (b3 << 8)
+                                self._prog_page_54 = (self._prog_page_54 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 55:
-                                self._prog_page_55 = (self._prog_page_55 & 0x00FF) | (b3 << 8)
+                                self._prog_page_55 = (self._prog_page_55 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 56:
-                                self._prog_page_56 = (self._prog_page_56 & 0x00FF) | (b3 << 8)
+                                self._prog_page_56 = (self._prog_page_56 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 57:
-                                self._prog_page_57 = (self._prog_page_57 & 0x00FF) | (b3 << 8)
+                                self._prog_page_57 = (self._prog_page_57 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 58:
-                                self._prog_page_58 = (self._prog_page_58 & 0x00FF) | (b3 << 8)
+                                self._prog_page_58 = (self._prog_page_58 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 59:
-                                self._prog_page_59 = (self._prog_page_59 & 0x00FF) | (b3 << 8)
+                                self._prog_page_59 = (self._prog_page_59 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 60:
-                                self._prog_page_60 = (self._prog_page_60 & 0x00FF) | (b3 << 8)
+                                self._prog_page_60 = (self._prog_page_60 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 61:
-                                self._prog_page_61 = (self._prog_page_61 & 0x00FF) | (b3 << 8)
+                                self._prog_page_61 = (self._prog_page_61 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 62:
-                                self._prog_page_62 = (self._prog_page_62 & 0x00FF) | (b3 << 8)
+                                self._prog_page_62 = (self._prog_page_62 & 0x00FF) | (ib3 << 8)
                             elif word_in_page == 63:
-                                self._prog_page_63 = (self._prog_page_63 & 0x00FF) | (b3 << 8)
+                                self._prog_page_63 = (self._prog_page_63 & 0x00FF) | (ib3 << 8)
                         elif self._prog_enabled and (ib0 == 0x4C):
                             # Write Program Memory Page
                             page = ((ib1 << 3) | (ib2 >> 5)) & 0xFF

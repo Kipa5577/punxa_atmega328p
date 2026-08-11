@@ -67,6 +67,11 @@ test3:
 ; Reset SREG, set bit 2 (N), check bits 1 and 0 are still 0.
 ; ============================================================
 test4:
+    clr r0                 ; FIX: r0 is not guaranteed to be 0 here when
+                            ; this CPU instance has already run earlier
+                            ; tests (register file is real SRAM, not
+                            ; cleared by reset) -- must zero it explicitly
+                            ; before using it to clear SREG below.
     out SREG, r0          ; Clear all flags
     bset 2                ; Set Negative Flag
     in r16, SREG

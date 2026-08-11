@@ -203,11 +203,24 @@ class CallRet_FSM(py4hw.Logic):
         self._latched_inst = 0
         self._wb_addr_val = 0
         self._pointer_update_pending = 0  # was False; int form required for the stock transpiler's __init__ parser (see report)
+        # Edge-detect flag for RET's high-byte stack pop -- see state 23/24
+        # below and LDST_FSM.py's identical guard for the root-caused hazard
+        # this prevents (a stale Resp=1 left over from the low-byte pop can
+        # otherwise look like the high-byte pop finishing on its very first
+        # cycle, latching the low byte's stale bus data as the high byte).
+        self._h_saw_resp_low = 0
         self.debug = 0
         
     def clock(self):
         if self.reset.get():  # reset is always driven by a real wire in this project (see report)
             self.current_state = 0
+            # [FIX]: persistent bookkeeping vars never reset by reset wire --
+            # see LDST_FSM.py / PY4HW_TRANSPILER_BUGS.md for the concrete bug
+            # this pattern caused elsewhere.
+            self._latched_inst = 0
+            self._pointer_update_pending = 0
+            self._wb_addr_val = 0
+            self._h_saw_resp_low = 0
             self.done.prepare(0)
             self.LoadSelectMux.prepare(0)
             self.LoadingMux.prepare(0)
@@ -494,13 +507,21 @@ class CallRet_FSM(py4hw.Logic):
                 Read_Write = 2              
                 Mem_Instruction = 7
                 IncDec = 4                  # Pre-increment SP again
+                # Reset the edge-detect flag: this is a brand new read, so
+                # any Resp=1 sampled before we've seen Resp go low again
+                # must be discarded as a holdover from the low-byte read.
+                self._h_saw_resp_low = 0
                 next_state = 24
  
             elif state == 24:
                 Read_Write = 2
                 Mem_Instruction = 7
                 IncDec = 0                  
-                if resp == 1:
+                if not resp:
+                    # Genuinely see Resp deassert for THIS read before
+                    # trusting a later Resp=1 as its real completion.
+                    self._h_saw_resp_low = 1
+                elif self._h_saw_resp_low:
                     next_state = 25
 
             elif state == 25:

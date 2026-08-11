@@ -230,6 +230,11 @@ class LPM_FSM(py4hw.Logic):
     def clock(self):
         if self.reset.get():  # reset is always driven by a real wire in this project (see report)
             self.current_state = 0
+            self._wb_addr_val = 0  # [FIX]: persistent bookkeeping var was never reset,
+                                    # only initialized once in __init__ -- a stale nonzero
+                                    # value from an earlier LPM/SPM use survived every
+                                    # subsequent reset pulse and leaked through the
+                                    # OR-merged WB_Addr bus into other FSMs' operations.
             self.done.prepare(0)
             self.NotExecute.prepare(0)
             self.LoadSelectMux.prepare(0)

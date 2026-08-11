@@ -285,9 +285,19 @@ class LDST_FSM(py4hw.Logic):
     def clock(self):
         if self.reset.get():  # reset is always driven by a real wire in this project (see report)
             self.current_state = 0
+            # [FIX]: these persistent bookkeeping vars were only ever
+            # initialized once in __init__, never reset by the reset wire --
+            # a stale nonzero value from an earlier instruction survived
+            # every subsequent reset pulse (see PY4HW_TRANSPILER_BUGS.md /
+            # the LPM_FSM _wb_addr_val writeup for the concrete failure this
+            # caused: a stale WB_Addr leaking through the OR-merged bus).
+            self._deferred_post_inc = 0
+            self._h_saw_resp_low = 0
+            self._latched_inst = 0
+            self._pointer_update_pending = 0
+            self._ptr_mem_instruction = 0
+            self._wb_addr_val = 0
             self.done.prepare(0)
-            self.LoadSelectMux.prepare(0)
-            self.LoadingMux.prepare(0)
             self.InputSelectMemory.prepare(0)
             self.WEMEMORY.prepare(0)
             self.Read_Write.prepare(0)

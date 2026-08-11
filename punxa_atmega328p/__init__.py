@@ -5,6 +5,7 @@ from .GPIO import *
 from .SPI import *
 from .ADC import *
 from .TWI import *
+from .single_cycle.singlecycle_processor import *
 from .multi_cycle_rewrite_transpilable.MulticycleProcessor import *
 from .Timers import *
 from .Interrupt_Unit import *

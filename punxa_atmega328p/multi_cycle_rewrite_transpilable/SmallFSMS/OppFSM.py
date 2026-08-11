@@ -266,6 +266,11 @@ class OPP_FSM(py4hw.Logic):
     def clock(self):
         if self.reset.get():  # reset is always driven by a real wire in this project (see report)
             self.current_state = 0
+            # [FIX]: persistent bookkeeping vars never reset by reset wire --
+            # see LDST_FSM.py / PY4HW_TRANSPILER_BUGS.md for the concrete bug
+            # this pattern caused elsewhere.
+            self._latched_inst = 0
+            self._pointer_update_pending = 0
             self.done.prepare(0)
             self.LoadSelectMux.prepare(0)
             self.LoadingMux.prepare(0)
