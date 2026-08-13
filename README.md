@@ -17,9 +17,10 @@ We implemented a custom assembler to support the development and testing of prog
 
 The project includes an ISA test suite to verify the correctness of the processor models.
 
-### Golden Model (`single_cycle_Processor`)
+### Singlecycle Processor Model
 <pre>
-[ Insert test results or description here ]
+Total: 111 Correct: 110 (99.1 %)
+99.1 %   |█████████████████████████████████████████████|
 </pre>
 
 ### Multicycle Processor Model
